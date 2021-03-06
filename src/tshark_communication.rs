@@ -3,7 +3,7 @@ use serde_derive::Deserialize;
 use serde_json::Value;
 
 #[derive(Deserialize)]
-pub struct TSharkPacket {
+pub struct TSharkCommunication {
     #[serde(rename = "_source")]
     pub source: TSharkSource,
 }

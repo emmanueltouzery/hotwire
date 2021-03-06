@@ -1,4 +1,4 @@
-use crate::tshark_packet::TSharkPacket;
+use crate::tshark_communication::TSharkCommunication;
 use itertools::Itertools;
 use relm::Widget;
 use std::cmp::Reverse;
@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::Read;
 use std::process::Command;
 
-mod tshark_packet;
+mod tshark_communication;
 mod widgets;
 
 fn main() {
@@ -24,13 +24,13 @@ fn main() {
     // let mut f = File::open("parsed.json").unwrap();
     // let mut output_str = String::new();
     // f.read_to_string(&mut output_str).unwrap();
-    match serde_json::from_str::<Vec<TSharkPacket>>(&output_str) {
+    match serde_json::from_str::<Vec<TSharkCommunication>>(&output_str) {
         Ok(packets) => handle_packets(packets),
         Err(e) => panic!(format!("tshark output is not valid json: {:?}", e)),
     }
 }
 
-fn handle_packets(packets: Vec<TSharkPacket>) {
+fn handle_packets(packets: Vec<TSharkCommunication>) {
     let mut by_stream: Vec<_> = packets
         .into_iter()
         // .filter(|p| p.source.layers.http.is_some())
