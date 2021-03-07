@@ -1,4 +1,4 @@
-use super::http_comm_target_card::Msg as HttpCommTargetCardMsg;
+use super::http_comm_entry::HttpCommEntry;
 use super::http_comm_target_card::{HttpCommTargetCard, HttpCommTargetCardInfo};
 use crate::TSharkCommunication;
 use gtk::prelude::*;
@@ -15,47 +15,17 @@ pub enum Msg {
 
 pub struct Model {
     relm: relm::Relm<Win>,
-    tree_store: gtk::TreeStore,
     streams: Vec<(Option<u32>, Vec<TSharkCommunication>)>,
     http_comm_target_cards: Vec<HttpCommTargetCardInfo>,
     selected_card: Option<HttpCommTargetCardInfo>,
 
-    _children_components: Vec<Component<HttpCommTargetCard>>,
+    _comm_targets_components: Vec<Component<HttpCommTargetCard>>,
+    _comm_entries_components: Vec<Component<HttpCommEntry>>,
 }
 
 #[widget]
 impl Widget for Win {
     fn init_view(&mut self) {
-        let col1 = gtk::TreeViewColumnBuilder::new().title("Messages").build();
-        let cell_r_txt = gtk::CellRendererText::new();
-        col1.pack_start(&cell_r_txt, true);
-        col1.add_attribute(&cell_r_txt, "text", 0);
-        self.widgets.tree.append_column(&col1);
-
-        // let col2 = gtk::TreeViewColumnBuilder::new()
-        //     .title("source port")
-        //     .build();
-        // col2.pack_start(&cell_r_txt, true);
-        // col2.add_attribute(&cell_r_txt, "text", 1);
-        // self.widgets.tree.append_column(&col2);
-
-        // let col3 = gtk::TreeViewColumnBuilder::new().title("dest IP").build();
-        // col3.pack_start(&cell_r_txt, true);
-        // col3.add_attribute(&cell_r_txt, "text", 2);
-        // self.widgets.tree.append_column(&col3);
-
-        // let col4 = gtk::TreeViewColumnBuilder::new().title("dest port").build();
-        // col4.pack_start(&cell_r_txt, true);
-        // col4.add_attribute(&cell_r_txt, "text", 3);
-        // self.widgets.tree.append_column(&col4);
-
-        // let col5 = gtk::TreeViewColumnBuilder::new()
-        //     .title("packet count")
-        //     .build();
-        // col5.pack_start(&cell_r_txt, true);
-        // col5.add_attribute(&cell_r_txt, "text", 4);
-        // self.widgets.tree.append_column(&col5);
-
         self.refresh_http_comm_targets();
         self.refresh_store();
     }
@@ -64,14 +34,6 @@ impl Widget for Win {
         relm: &relm::Relm<Self>,
         streams: Vec<(Option<u32>, Vec<TSharkCommunication>)>,
     ) -> Model {
-        let tree_store = gtk::TreeStore::new(&[
-            String::static_type(),
-            // i32::static_type(),
-            // String::static_type(),
-            // i32::static_type(),
-            // i32::static_type(),
-            // String::static_type(),
-        ]);
         let http_comm_target_cards = streams
             .iter()
             .fold(
@@ -108,10 +70,10 @@ impl Widget for Win {
             .collect();
         Model {
             relm: relm.clone(),
-            tree_store,
             streams,
             http_comm_target_cards,
-            _children_components: vec![],
+            _comm_targets_components: vec![],
+            _comm_entries_components: vec![],
             selected_card: None,
         }
     }
@@ -132,19 +94,22 @@ impl Widget for Win {
         for child in self.widgets.http_comm_target_list.get_children() {
             self.widgets.http_comm_target_list.remove(&child);
         }
-        let mut components = vec![];
-        for card in &self.model.http_comm_target_cards {
-            let component = self
-                .widgets
-                .http_comm_target_list
-                .add_widget::<HttpCommTargetCard>(card.clone());
-            components.push(component);
-        }
-        self.model._children_components = components;
+        self.model._comm_targets_components = self
+            .model
+            .http_comm_target_cards
+            .iter()
+            .map(|card| {
+                self.widgets
+                    .http_comm_target_list
+                    .add_widget::<HttpCommTargetCard>(card.clone())
+            })
+            .collect();
     }
 
     fn refresh_store(&mut self) {
-        self.model.tree_store.clear();
+        for child in self.widgets.http_comm_entries.get_children() {
+            self.widgets.http_comm_entries.remove(&child);
+        }
         if let Some(card) = &self.model.selected_card {
             let target_ip = card.ip.clone();
             let target_port = card.port;
@@ -155,54 +120,35 @@ impl Widget for Win {
                 {
                     continue;
                 }
-                // self.model.tree_store.set_value(
-                //     &iter,
-                //     0,
-                //     &format!(
-                //         "{}:{} -> {}:{}",
-                //         layers.ip.as_ref().unwrap().ip_src,
-                //         layers.tcp.as_ref().unwrap().port_src,
-                //         layers.ip.as_ref().unwrap().ip_dst,
-                //         layers.tcp.as_ref().unwrap().port_dst
-                //     )
-                //     .to_value(),
-                // );
-                // self.model.tree_store.set_value(
-                //     &iter,
-                //     1,
-                //     &layers.tcp.as_ref().unwrap().port_src.to_value(),
-                // );
-                // self.model.tree_store.set_value(
-                //     &iter,
-                //     2,
-                //     &layers.ip.as_ref().unwrap().ip_dst.to_value(),
-                // );
-                // self.model.tree_store.set_value(
-                //     &iter,
-                //     3,
-                //     &layers.tcp.as_ref().unwrap().port_dst.to_value(),
-                // );
-                // self.model
-                //     .tree_store
-                //     .set_value(&iter, 4, &(stream.1.len() as i64).to_value());
-                println!("items: {}", &stream.1.len());
-                for request in &stream.1 {
-                    let iter = self.model.tree_store.append(None);
-                    // search for the field which is an object and for which the object contains a field "http.request.method"
-                    // let child = self.model.tree_store.append(Some(&iter));
-                    if let Some(serde_json::Value::Object(http_map)) =
-                        request.source.layers.http.as_ref()
-                    {
-                        let missing = format!("{:?}", http_map);
-                        let req_info = http_map.iter().find(|(_,v)| matches!(v,
-                        serde_json::Value::Object(fields) if fields.contains_key("http.request.method") || fields.contains_key("http.response.code")
-                    )).unwrap_or((&missing, &serde_json::json!(null))).0;
-                        self.model
-                            .tree_store
-                            .set_value(&iter, 0, &req_info.to_value());
-                    }
-                }
+                self.model._comm_entries_components = stream
+                    .1
+                    .iter()
+                    .map(|request| {
+                        // search for the field which is an object and for which the object contains a field "http.request.method"
+                        // let child = self.model.tree_store.append(Some(&iter));
+                        let http = request.source.layers.http.as_ref();
+                        let req_verb = http.and_then(Self::get_http_request_verb);
+                        let display_verb = req_verb
+                            .map(|t| t.0.to_string())
+                            .unwrap_or_else(|| "Parse error".to_string());
+                        self.widgets
+                            .http_comm_entries
+                            .add_widget::<HttpCommEntry>(display_verb)
+                    })
+                    .collect();
             }
+        }
+    }
+
+    fn get_http_request_verb(
+        serde_json: &serde_json::Value,
+    ) -> Option<(&String, &serde_json::Value)> {
+        if let serde_json::Value::Object(http_map) = serde_json {
+            http_map.iter().find(|(_,v)| matches!(v,
+                        serde_json::Value::Object(fields) if fields.contains_key("http.request.method") || fields.contains_key("http.response.code")
+                    ))
+        } else {
+            None
         }
     }
 
@@ -221,9 +167,8 @@ impl Widget for Win {
                 },
                 gtk::ScrolledWindow {
                     hexpand: true,
-                    #[name="tree"]
-                    gtk::TreeView {
-                        model: Some(&self.model.tree_store)
+                    #[name="http_comm_entries"]
+                    gtk::ListBox {
                     },
                 }
             }
