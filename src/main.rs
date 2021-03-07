@@ -12,7 +12,13 @@ mod widgets;
 fn main() {
     println!("hello");
     let tshark_output = Command::new("tshark")
-        .args(&["-r", "/home/emmanuel/dump_afc.pcap", "-Tjson", "http"])
+        .args(&[
+            "-r",
+            "/home/emmanuel/dump_afc.pcap",
+            "-Tjson",
+            "--no-duplicate-keys",
+            "http",
+        ])
         .output()
         .expect("failed calling tshark");
     if !tshark_output.status.success() {

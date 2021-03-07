@@ -8,6 +8,7 @@ pub enum Msg {}
 #[derive(Clone)]
 pub struct HttpMessageData {
     pub request_response_first_line: String,
+    pub request_response_other_lines: String,
 }
 
 impl HttpMessageData {
@@ -15,7 +16,12 @@ impl HttpMessageData {
         if let serde_json::Value::Object(http_map) = serde_json {
             http_map.iter().find(|(_,v)| matches!(v,
                         serde_json::Value::Object(fields) if fields.contains_key("http.request.method") || fields.contains_key("http.response.code")
-            )).map(|(k,_)| HttpMessageData { request_response_first_line: k.to_string()})
+            )).map(|(k,_)| HttpMessageData {
+                request_response_first_line: k.to_string(),
+                request_response_other_lines: itertools::free::join(
+                    http_map.get("http.request.line")
+                            .unwrap_or_else(|| http_map.get("http.response.line").unwrap())
+                            .as_array().unwrap().into_iter().map(|r| r.to_string()), "\n")})
         } else {
             None
         }
@@ -35,9 +41,16 @@ impl Widget for HttpCommEntry {
     fn update(&mut self, event: Msg) {}
 
     view! {
-        gtk::Label {
-            label: &self.model.data.request_response_first_line,
-            xalign: 0.0
+        gtk::Box {
+            orientation: gtk::Orientation::Vertical,
+            gtk::Label {
+                label: &self.model.data.request_response_first_line,
+                xalign: 0.0
+            },
+            gtk::Label {
+                label: &self.model.data.request_response_other_lines,
+                xalign: 0.0
+            }
         }
     }
 }
