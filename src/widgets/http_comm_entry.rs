@@ -9,6 +9,7 @@ pub enum Msg {}
 pub struct HttpMessageData {
     pub request_response_first_line: String,
     pub request_response_other_lines: String,
+    pub request_response_body: Option<String>,
 }
 
 impl HttpMessageData {
@@ -21,7 +22,9 @@ impl HttpMessageData {
                 request_response_other_lines: itertools::free::join(
                     http_map.get("http.request.line")
                             .unwrap_or_else(|| http_map.get("http.response.line").unwrap())
-                            .as_array().unwrap().into_iter().map(|r| r.to_string()), "\n")})
+                            .as_array().unwrap().into_iter().map(|r| r.to_string()), "\n"),
+                request_response_body: http_map.get("http.file_data").and_then(|v| v.as_str()).map(|v| v.trim().to_string())
+            })
         } else {
             None
         }
@@ -50,6 +53,11 @@ impl Widget for HttpCommEntry {
             gtk::Label {
                 label: &self.model.data.request_response_other_lines,
                 xalign: 0.0
+            },
+            gtk::Label {
+                label: self.model.data.request_response_body.as_deref().unwrap_or(""),
+                xalign: 0.0,
+                visible: self.model.data.request_response_body.is_some()
             }
         }
     }
