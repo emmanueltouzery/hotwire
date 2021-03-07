@@ -7,7 +7,7 @@ use std::collections::HashSet;
 pub enum Msg {}
 
 #[derive(Clone)]
-pub struct HttpCommTargetCardInfo {
+pub struct HttpCommTargetCardData {
     pub ip: String,
     pub port: u32,
     pub remote_hosts: HashSet<String>,
@@ -15,13 +15,13 @@ pub struct HttpCommTargetCardInfo {
 }
 
 pub struct Model {
-    card_info: HttpCommTargetCardInfo,
+    data: HttpCommTargetCardData,
 }
 
 #[widget]
 impl Widget for HttpCommTargetCard {
-    fn model(relm: &relm::Relm<Self>, card_info: HttpCommTargetCardInfo) -> Model {
-        Model { card_info }
+    fn model(relm: &relm::Relm<Self>, data: HttpCommTargetCardData) -> Model {
+        Model { data }
     }
 
     fn update(&mut self, event: Msg) {}
@@ -32,25 +32,25 @@ impl Widget for HttpCommTargetCard {
                 label: "Server IP:"
             },
             gtk::Label {
-                label: &self.model.card_info.ip
+                label: &self.model.data.ip
             },
             gtk::Label {
                 label: "Server port:"
             },
             gtk::Label {
-                label: &self.model.card_info.port.to_string()
+                label: &self.model.data.port.to_string()
             },
             gtk::Label {
                 label: "Remote hosts count:"
             },
             gtk::Label {
-                label: &self.model.card_info.remote_hosts.len().to_string()
+                label: &self.model.data.remote_hosts.len().to_string()
             },
             gtk::Label {
                 label: "Incoming session count:"
             },
             gtk::Label {
-                label: &self.model.card_info.incoming_session_count.to_string()
+                label: &self.model.data.incoming_session_count.to_string()
             },
         }
     }
