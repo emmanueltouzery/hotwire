@@ -14,6 +14,7 @@ pub struct HttpCommRemoteServerData {
 
 pub struct Model {
     data: HttpCommRemoteServerData,
+    _comm_entry_components: Vec<Component<HttpCommEntry>>,
 }
 
 #[widget]
@@ -23,21 +24,30 @@ impl Widget for HttpCommRemoteServer {
     }
 
     fn model(relm: &relm::Relm<Self>, data: HttpCommRemoteServerData) -> Model {
-        Model { data }
+        Model {
+            data,
+            _comm_entry_components: vec![],
+        }
     }
 
     fn update(&mut self, event: Msg) {}
 
-    fn refresh_comm_entries(&self) {
+    fn refresh_comm_entries(&mut self) {
+        for child in self.widgets.http_comm_entries.get_children() {
+            self.widgets.http_comm_entries.remove(&child);
+        }
         let mut comm_entries_group_start_indexes = HashMap::new();
         let mut row_idx = 0;
+        let mut components = vec![];
         for tcp_session in &self.model.data.tcp_sessions {
             comm_entries_group_start_indexes
                 .insert(row_idx, format!("tcp session {:?}", tcp_session.0));
             for msg in &tcp_session.1 {
-                self.widgets
-                    .http_comm_entries
-                    .add_widget::<HttpCommEntry>((*msg).clone());
+                components.push(
+                    self.widgets
+                        .http_comm_entries
+                        .add_widget::<HttpCommEntry>((*msg).clone()),
+                );
                 row_idx += 1;
             }
         }
@@ -64,6 +74,7 @@ impl Widget for HttpCommRemoteServer {
                     row.set_header::<gtk::ListBoxRow>(None)
                 }
             })));
+        self.model._comm_entry_components = components;
     }
 
     view! {
