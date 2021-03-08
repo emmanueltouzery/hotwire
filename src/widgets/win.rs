@@ -109,6 +109,9 @@ impl Widget for Win {
                     .and_then(|idx| self.model.http_comm_target_cards.get(idx as usize))
                     .cloned();
                 self.refresh_remote_servers();
+                if let Some(vadj) = self.widgets.remote_servers_scroll.get_vadjustment() {
+                    vadj.set_value(0.0);
+                }
             }
             Msg::Quit => gtk::main_quit(),
         }
@@ -204,15 +207,16 @@ impl Widget for Win {
                     hexpand: false,
                     #[name="http_comm_target_list"]
                     gtk::ListBox {
-                        // selection_mode: gtk::SelectionMode::None,
                         row_selected(_, row) =>
                             Msg::SelectCard(row.map(|r| r.get_index() as usize))
                     }
                 },
+                #[name="remote_servers_scroll"]
                 gtk::ScrolledWindow {
                     hexpand: true,
                     #[name="http_comm_remote_servers"]
-                    gtk::ListBox {
+                    gtk::Box {
+                        orientation: gtk::Orientation::Vertical,
                     },
                 }
             },

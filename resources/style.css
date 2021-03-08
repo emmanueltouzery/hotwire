@@ -1,16 +1,22 @@
 .target_server_ip_port {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: bold;
 }
 
 .comm_remote_server_ip {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: bold;
   padding: 5px;
 }
 
 .tcp_session_header {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: bold;
   padding: 5px;
+}
+
+.http_first_line {
+  font-size: 15px;
+  font-weight: bold;
+  padding-top: 5px;
 }

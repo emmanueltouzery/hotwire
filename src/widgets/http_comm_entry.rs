@@ -46,6 +46,8 @@ impl Widget for HttpCommEntry {
     view! {
         gtk::Box {
             orientation: gtk::Orientation::Vertical,
+            gtk::Separator {},
+            #[style_class="http_first_line"]
             gtk::Label {
                 label: &self.model.data.request_response_first_line,
                 xalign: 0.0
@@ -58,7 +60,7 @@ impl Widget for HttpCommEntry {
                 label: self.model.data.request_response_body.as_deref().unwrap_or(""),
                 xalign: 0.0,
                 visible: self.model.data.request_response_body.is_some()
-            }
+            },
         }
     }
 }

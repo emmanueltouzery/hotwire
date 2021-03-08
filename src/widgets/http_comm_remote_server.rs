@@ -43,7 +43,7 @@ impl Widget for HttpCommRemoteServer {
             comm_entries_group_start_indexes.insert(
                 row_idx,
                 format!(
-                    "tcp session {}",
+                    "TCP session {}",
                     tcp_session
                         .0
                         .map(|s| s.to_string())
