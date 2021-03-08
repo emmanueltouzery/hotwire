@@ -18,11 +18,11 @@ impl HttpMessageData {
             http_map.iter().find(|(_,v)| matches!(v,
                         serde_json::Value::Object(fields) if fields.contains_key("http.request.method") || fields.contains_key("http.response.code")
             )).map(|(k,_)| HttpMessageData {
-                request_response_first_line: k.to_string(),
+                request_response_first_line: k.trim_end_matches("\\r\\n").to_string(),
                 request_response_other_lines: itertools::free::join(
                     http_map.get("http.request.line")
                             .unwrap_or_else(|| http_map.get("http.response.line").unwrap())
-                            .as_array().unwrap().into_iter().map(|r| r.to_string()), "\n"),
+                            .as_array().unwrap().iter().map(|v| v.as_str().unwrap()), ""),
                 request_response_body: http_map.get("http.file_data").and_then(|v| v.as_str()).map(|v| v.trim().to_string())
             })
         } else {

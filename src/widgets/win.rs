@@ -187,7 +187,7 @@ impl Widget for Win {
                 hexpand: true,
                 gtk::ScrolledWindow {
                     hexpand: true,
-                    property_width_request: 300,
+                    property_width_request: 250,
                     hexpand: false,
                     #[name="http_comm_target_list"]
                     gtk::ListBox {

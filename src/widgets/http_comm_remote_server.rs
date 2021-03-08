@@ -40,8 +40,16 @@ impl Widget for HttpCommRemoteServer {
         let mut row_idx = 0;
         let mut components = vec![];
         for tcp_session in &self.model.data.tcp_sessions {
-            comm_entries_group_start_indexes
-                .insert(row_idx, format!("tcp session {:?}", tcp_session.0));
+            comm_entries_group_start_indexes.insert(
+                row_idx,
+                format!(
+                    "tcp session {}",
+                    tcp_session
+                        .0
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| "-".to_string())
+                ),
+            );
             for msg in &tcp_session.1 {
                 components.push(
                     self.widgets
@@ -62,11 +70,10 @@ impl Widget for HttpCommRemoteServer {
                         .build();
                     vbox.add(&gtk::SeparatorBuilder::new().build());
                     let label = gtk::LabelBuilder::new()
-                        .label(&format!("<b>{}</b>", group_name))
-                        .use_markup(true)
+                        .label(group_name)
                         .xalign(0.0)
                         .build();
-                    label.get_style_context().add_class("project_item_header");
+                    label.get_style_context().add_class("tcp_session_header");
                     vbox.add(&label);
                     vbox.show_all();
                     row.set_header(Some(&vbox));
@@ -80,8 +87,10 @@ impl Widget for HttpCommRemoteServer {
     view! {
         gtk::Box {
             orientation: gtk::Orientation::Vertical,
+            #[style_class="comm_remote_server_ip"]
             gtk::Label {
-                label: &self.model.data.remote_ip
+                label: &self.model.data.remote_ip,
+                xalign: 0.0,
             },
             #[name="http_comm_entries"]
             gtk::ListBox {
