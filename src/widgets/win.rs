@@ -235,6 +235,7 @@ impl Widget for Win {
             },
             gtk::Box {
                 hexpand: true,
+                #[style_class="sidebar"]
                 gtk::ScrolledWindow {
                     hexpand: true,
                     property_width_request: 250,
