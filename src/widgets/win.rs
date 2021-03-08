@@ -1,12 +1,15 @@
 use super::http_comm_entry::HttpMessageData;
 use super::http_comm_remote_server::{HttpCommRemoteServer, HttpCommRemoteServerData};
 use super::http_comm_target_card::{HttpCommTargetCard, HttpCommTargetCardData};
+use crate::icons::Icon;
 use crate::TSharkCommunication;
 use gtk::prelude::*;
 use relm::{Component, ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
 use std::collections::HashMap;
 use std::collections::HashSet;
+
+const CSS_DATA: &[u8] = include_bytes!("../../resources/style.css");
 
 #[derive(Msg)]
 pub enum Msg {
@@ -27,14 +30,33 @@ pub struct Model {
 #[widget]
 impl Widget for Win {
     fn init_view(&mut self) {
+        if let Err(err) = self.load_style() {
+            println!("Error loading the CSS: {}", err);
+        }
         self.refresh_http_comm_targets();
         self.refresh_remote_servers();
+    }
+
+    fn load_style(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let screen = self.widgets.window.get_screen().unwrap();
+        let css = gtk::CssProvider::new();
+        css.load_from_data(CSS_DATA)?;
+        gtk::StyleContext::add_provider_for_screen(
+            &screen,
+            &css,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+        Ok(())
     }
 
     fn model(
         relm: &relm::Relm<Self>,
         streams: Vec<(Option<u32>, Vec<TSharkCommunication>)>,
     ) -> Model {
+        gtk::IconTheme::get_default()
+            .unwrap()
+            .add_resource_path("/icons");
+
         let http_comm_target_cards = streams
             .iter()
             .fold(
@@ -57,6 +79,7 @@ impl Widget for Win {
                             card_key,
                             HttpCommTargetCardData {
                                 ip: layers.ip.as_ref().unwrap().ip_dst.clone(),
+                                protocol_icon: Icon::HTTP,
                                 port: layers.tcp.as_ref().unwrap().port_dst,
                                 remote_hosts,
                                 incoming_session_count: 1,
@@ -158,11 +181,14 @@ impl Widget for Win {
     }
 
     view! {
+        #[name="window"]
         gtk::Window {
             gtk::Box {
                 hexpand: true,
                 gtk::ScrolledWindow {
                     hexpand: true,
+                    property_width_request: 300,
+                    hexpand: false,
                     #[name="http_comm_target_list"]
                     gtk::ListBox {
                         // selection_mode: gtk::SelectionMode::None,

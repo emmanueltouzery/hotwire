@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<gresources>
+  <gresource prefix="/icons/scalable/actions">
+    <file alias="http-symbolic.svg">fontawesome-5.13.0/svgs/solid/globe.svg</file>
+  </gresource>
+</gresources>

@@ -6,6 +6,7 @@ use std::fs::File;
 use std::io::Read;
 use std::process::Command;
 
+pub mod icons;
 mod tshark_communication;
 mod widgets;
 
@@ -65,6 +66,12 @@ fn handle_packets(packets: Vec<TSharkCommunication>) {
             stream.1.len()
         );
     }
+
+    let res_bytes = include_bytes!("icons.bin");
+    let data = glib::Bytes::from(&res_bytes[..]);
+    let resource = gio::Resource::from_data(&data).unwrap();
+    gio::resources_register(&resource);
+
     // for packet in &by_stream.first().unwrap().1 {
     //     println!("{:?}", packet.source.layers.http);
     // }
