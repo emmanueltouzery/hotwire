@@ -2,9 +2,6 @@ use gtk::prelude::*;
 use relm::Widget;
 use relm_derive::{widget, Msg};
 
-#[derive(Msg)]
-pub enum Msg {}
-
 #[derive(Clone)]
 pub struct HttpMessageData {
     pub request_response_first_line: String,
@@ -30,6 +27,9 @@ impl HttpMessageData {
         }
     }
 }
+
+#[derive(Msg)]
+pub enum Msg {}
 
 pub struct Model {
     data: HttpMessageData,

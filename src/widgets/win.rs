@@ -1,6 +1,7 @@
+use super::comm_remote_server::{CommRemoteServer, CommRemoteServerData, MessageData};
+use super::comm_target_card::{CommTargetCard, CommTargetCardData};
 use super::http_comm_entry::HttpMessageData;
-use super::http_comm_remote_server::{HttpCommRemoteServer, HttpCommRemoteServerData};
-use super::http_comm_target_card::{HttpCommTargetCard, HttpCommTargetCardData};
+use super::postgres_comm_entry::PostgresMessageData;
 use crate::icons::Icon;
 use crate::TSharkCommunication;
 use gtk::prelude::*;
@@ -20,11 +21,11 @@ pub enum Msg {
 pub struct Model {
     relm: relm::Relm<Win>,
     streams: Vec<(Option<u32>, Vec<TSharkCommunication>)>,
-    http_comm_target_cards: Vec<HttpCommTargetCardData>,
-    selected_card: Option<HttpCommTargetCardData>,
+    comm_target_cards: Vec<CommTargetCardData>,
+    selected_card: Option<CommTargetCardData>,
 
-    _comm_targets_components: Vec<Component<HttpCommTargetCard>>,
-    _comm_remote_servers_components: Vec<Component<HttpCommRemoteServer>>,
+    _comm_targets_components: Vec<Component<CommTargetCard>>,
+    _comm_remote_servers_components: Vec<Component<CommRemoteServer>>,
 }
 
 #[widget]
@@ -33,7 +34,7 @@ impl Widget for Win {
         if let Err(err) = self.load_style() {
             println!("Error loading the CSS: {}", err);
         }
-        self.refresh_http_comm_targets();
+        self.refresh_comm_targets();
         self.refresh_remote_servers();
     }
 
@@ -57,10 +58,24 @@ impl Widget for Win {
             .unwrap()
             .add_resource_path("/icons");
 
-        let http_comm_target_cards = streams
+        let comm_target_cards = streams
             .iter()
+            .filter_map(|(id, comms)| {
+                let recognized_comms: Vec<_> = comms
+                    .iter()
+                    .filter(|c| {
+                        let layers = &c.source.layers;
+                        layers.http.is_some() || layers.pgsql.is_some()
+                    })
+                    .collect();
+                if recognized_comms.len() > 0 {
+                    Some((id, recognized_comms))
+                } else {
+                    None
+                }
+            })
             .fold(
-                HashMap::<(String, u32), HttpCommTargetCardData>::new(),
+                HashMap::<(String, u32), CommTargetCardData>::new(),
                 |mut sofar, (_, items)| {
                     let layers = &items.first().unwrap().source.layers;
                     let card_key = (
@@ -77,9 +92,13 @@ impl Widget for Win {
                         remote_hosts.insert(layers.ip.as_ref().unwrap().ip_src.clone());
                         sofar.insert(
                             card_key,
-                            HttpCommTargetCardData {
+                            CommTargetCardData {
                                 ip: layers.ip.as_ref().unwrap().ip_dst.clone(),
-                                protocol_icon: Icon::HTTP,
+                                protocol_icon: if layers.http.is_some() {
+                                    Icon::HTTP
+                                } else {
+                                    Icon::DATABASE
+                                },
                                 port: layers.tcp.as_ref().unwrap().port_dst,
                                 remote_hosts,
                                 incoming_session_count: 1,
@@ -95,7 +114,7 @@ impl Widget for Win {
         Model {
             relm: relm.clone(),
             streams,
-            http_comm_target_cards,
+            comm_target_cards,
             _comm_targets_components: vec![],
             _comm_remote_servers_components: vec![],
             selected_card: None,
@@ -106,7 +125,7 @@ impl Widget for Win {
         match event {
             Msg::SelectCard(maybe_idx) => {
                 self.model.selected_card = maybe_idx
-                    .and_then(|idx| self.model.http_comm_target_cards.get(idx as usize))
+                    .and_then(|idx| self.model.comm_target_cards.get(idx as usize))
                     .cloned();
                 self.refresh_remote_servers();
                 if let Some(vadj) = self.widgets.remote_servers_scroll.get_vadjustment() {
@@ -117,32 +136,29 @@ impl Widget for Win {
         }
     }
 
-    fn refresh_http_comm_targets(&mut self) {
-        for child in self.widgets.http_comm_target_list.get_children() {
-            self.widgets.http_comm_target_list.remove(&child);
+    fn refresh_comm_targets(&mut self) {
+        for child in self.widgets.comm_target_list.get_children() {
+            self.widgets.comm_target_list.remove(&child);
         }
         self.model._comm_targets_components = self
             .model
-            .http_comm_target_cards
+            .comm_target_cards
             .iter()
             .map(|card| {
                 self.widgets
-                    .http_comm_target_list
-                    .add_widget::<HttpCommTargetCard>(card.clone())
+                    .comm_target_list
+                    .add_widget::<CommTargetCard>(card.clone())
             })
             .collect();
-        self.widgets.http_comm_target_list.select_row(
-            self.widgets
-                .http_comm_target_list
-                .get_row_at_index(0)
-                .as_ref(),
-        );
-        // self.model.selected_card = self.model.http_comm_target_cards.first().cloned();
+        self.widgets
+            .comm_target_list
+            .select_row(self.widgets.comm_target_list.get_row_at_index(0).as_ref());
+        // self.model.selected_card = self.model.comm_target_cards.first().cloned();
     }
 
     fn refresh_remote_servers(&mut self) {
-        for child in self.widgets.http_comm_remote_servers.get_children() {
-            self.widgets.http_comm_remote_servers.remove(&child);
+        for child in self.widgets.comm_remote_servers.get_children() {
+            self.widgets.comm_remote_servers.remove(&child);
         }
         let mut components = vec![];
         if let Some(card) = &self.model.selected_card {
@@ -166,12 +182,30 @@ impl Widget for Win {
                     .filter_map(|m| {
                         // search for the field which is an object and for which the object contains a field "http.request.method"
                         let http = m.source.layers.http.as_ref();
-                        if let Some(message_data) = http.and_then(HttpMessageData::from_json) {
-                            Some(message_data)
-                        } else {
-                            eprintln!("failed to parse http message: {:?}", http);
-                            None
+                        if http.is_some() {
+                            return if let Some(message_data) =
+                                http.and_then(HttpMessageData::from_json)
+                            {
+                                return Some(MessageData::Http(message_data));
+                            } else {
+                                eprintln!("failed to parse http message: {:?}", http);
+                                return None;
+                            };
                         }
+                        let pgsql = m.source.layers.pgsql.as_ref();
+                        if let Some(serde_json::Value::Array(pgsql_arr)) = pgsql {
+                            return pgsql_arr
+                                .iter()
+                                .filter_map(|v| v.as_object().and_then(|o| o.get("pgsql.query")))
+                                .next()
+                                .and_then(|q| q.as_str())
+                                .map(|query| {
+                                    MessageData::Postgres(PostgresMessageData {
+                                        query: query.to_string(),
+                                    })
+                                });
+                        }
+                        None
                     })
                     .collect();
                 remote_server_streams.push((tcp_stream_id, decoded_messages));
@@ -179,8 +213,8 @@ impl Widget for Win {
             for (remote_ip, tcp_sessions) in by_remote_ip {
                 components.push(
                     self.widgets
-                        .http_comm_remote_servers
-                        .add_widget::<HttpCommRemoteServer>(HttpCommRemoteServerData {
+                        .comm_remote_servers
+                        .add_widget::<CommRemoteServer>(CommRemoteServerData {
                             remote_ip,
                             tcp_sessions,
                         }),
@@ -205,7 +239,7 @@ impl Widget for Win {
                     hexpand: true,
                     property_width_request: 250,
                     hexpand: false,
-                    #[name="http_comm_target_list"]
+                    #[name="comm_target_list"]
                     gtk::ListBox {
                         row_selected(_, row) =>
                             Msg::SelectCard(row.map(|r| r.get_index() as usize))
@@ -214,7 +248,7 @@ impl Widget for Win {
                 #[name="remote_servers_scroll"]
                 gtk::ScrolledWindow {
                     hexpand: true,
-                    #[name="http_comm_remote_servers"]
+                    #[name="comm_remote_servers"]
                     gtk::Box {
                         orientation: gtk::Orientation::Vertical,
                     },

@@ -1,4 +1,5 @@
+mod comm_remote_server;
+mod comm_target_card;
 mod http_comm_entry;
-mod http_comm_remote_server;
-mod http_comm_target_card;
+mod postgres_comm_entry;
 pub mod win;

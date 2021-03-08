@@ -18,7 +18,7 @@ fn main() {
             "/home/emmanuel/dump_afc.pcap",
             "-Tjson",
             "--no-duplicate-keys",
-            "http",
+            "tcp",
         ])
         .output()
         .expect("failed calling tshark");

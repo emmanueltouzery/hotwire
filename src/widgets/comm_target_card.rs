@@ -8,7 +8,7 @@ use std::collections::HashSet;
 pub enum Msg {}
 
 #[derive(Clone)]
-pub struct HttpCommTargetCardData {
+pub struct CommTargetCardData {
     pub ip: String,
     pub port: u32,
     pub protocol_icon: Icon,
@@ -17,22 +17,22 @@ pub struct HttpCommTargetCardData {
 }
 
 pub struct Model {
-    data: HttpCommTargetCardData,
+    data: CommTargetCardData,
 }
 
 #[widget]
-impl Widget for HttpCommTargetCard {
-    fn model(relm: &relm::Relm<Self>, data: HttpCommTargetCardData) -> Model {
+impl Widget for CommTargetCard {
+    fn model(relm: &relm::Relm<Self>, data: CommTargetCardData) -> Model {
         Model { data }
     }
 
     fn update(&mut self, event: Msg) {}
 
-    fn server_ip_port_display(data: &HttpCommTargetCardData) -> String {
+    fn server_ip_port_display(data: &CommTargetCardData) -> String {
         format!("{}:{}", data.ip, data.port)
     }
 
-    fn details_display(data: &HttpCommTargetCardData) -> String {
+    fn details_display(data: &CommTargetCardData) -> String {
         format!(
             "{} remote hosts, {} sessions",
             data.remote_hosts.len(),
@@ -56,14 +56,14 @@ impl Widget for HttpCommTargetCard {
             gtk::Grid {
                 #[style_class="target_server_ip_port"]
                 gtk::Label {
-                    label: &HttpCommTargetCard::server_ip_port_display(&self.model.data),
+                    label: &CommTargetCard::server_ip_port_display(&self.model.data),
                     cell: {
                         left_attach: 0,
                         top_attach: 1,
                     },
                 },
                 gtk::Label {
-                    label: &HttpCommTargetCard::details_display(&self.model.data),
+                    label: &CommTargetCard::details_display(&self.model.data),
                     cell: {
                         left_attach: 0,
                         top_attach: 2,
