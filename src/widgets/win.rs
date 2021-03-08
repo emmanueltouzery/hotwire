@@ -110,7 +110,7 @@ impl Widget for Win {
                     .cloned();
                 self.refresh_remote_servers();
             }
-            Msg::Quit => {}
+            Msg::Quit => gtk::main_quit(),
         }
     }
 
@@ -128,6 +128,13 @@ impl Widget for Win {
                     .add_widget::<HttpCommTargetCard>(card.clone())
             })
             .collect();
+        self.widgets.http_comm_target_list.select_row(
+            self.widgets
+                .http_comm_target_list
+                .get_row_at_index(0)
+                .as_ref(),
+        );
+        // self.model.selected_card = self.model.http_comm_target_cards.first().cloned();
     }
 
     fn refresh_remote_servers(&mut self) {
@@ -183,6 +190,12 @@ impl Widget for Win {
     view! {
         #[name="window"]
         gtk::Window {
+            titlebar: view! {
+                gtk::HeaderBar {
+                    show_close_button: true,
+                    title: Some("Hotwire"),
+                }
+            },
             gtk::Box {
                 hexpand: true,
                 gtk::ScrolledWindow {
@@ -202,7 +215,8 @@ impl Widget for Win {
                     gtk::ListBox {
                     },
                 }
-            }
+            },
+            delete_event(_, _) => (Msg::Quit, Inhibit(false)),
         }
     }
 }
