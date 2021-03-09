@@ -15,10 +15,17 @@ pub struct TSharkSource {
 
 #[derive(Deserialize)]
 pub struct TSharkLayers {
+    pub frame: TSharkFrameLayer,
     pub ip: Option<TSharkIpLayer>,
     pub tcp: Option<TSharkTcpLayer>,
     pub http: Option<Value>,
     pub pgsql: Option<Value>,
+}
+
+#[derive(Deserialize)]
+pub struct TSharkFrameLayer {
+    #[serde(rename = "frame.time_relative")]
+    pub time_relative: String,
 }
 
 #[derive(Deserialize)]

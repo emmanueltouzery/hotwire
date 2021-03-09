@@ -23,6 +23,7 @@ relm-derive = { git = "https://github.com/antoyo/relm", rev = "1e4dee58f25368574
 
 glib = "0.10.3"
 gio = "0.9.1"
+hex = "0.4.3"
 
 [dependencies.gtk]
 version = "0.9.2"

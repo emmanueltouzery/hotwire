@@ -19,6 +19,7 @@ fn main() {
             "-Tjson",
             "--no-duplicate-keys",
             "tcp",
+            // "tcp.stream eq 4",
         ])
         .output()
         .expect("failed calling tshark");
@@ -53,7 +54,8 @@ fn handle_packets(packets: Vec<TSharkCommunication>) {
         by_stream.last().map(|l| l.1.len())
     );
     println!("src desc count");
-    for stream in &by_stream[0..10] {
+    // for stream in &by_stream[0..10] {
+    for stream in &by_stream {
         let layers = &stream.1.first().as_ref().unwrap().source.layers;
         let ip = layers.ip.as_ref().unwrap();
         let tcp = layers.tcp.as_ref().unwrap();

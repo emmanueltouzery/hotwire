@@ -1,7 +1,7 @@
 use super::comm_remote_server::{CommRemoteServer, CommRemoteServerData, MessageData};
 use super::comm_target_card::{CommTargetCard, CommTargetCardData};
 use super::http_comm_entry::HttpMessageData;
-use super::postgres_comm_entry::PostgresMessageData;
+use super::postgres_comm_entry;
 use crate::icons::Icon;
 use crate::TSharkCommunication;
 use gtk::prelude::*;
@@ -176,39 +176,50 @@ impl Widget for Win {
                     .entry(layers.ip.as_ref().unwrap().ip_src.clone())
                     .or_insert(vec![]);
                 let tcp_stream_id = layers.tcp.as_ref().map(|t| t.stream);
-                let decoded_messages = stream
+                let decoded_messages: Vec<_> = stream
                     .1
                     .iter()
-                    .filter_map(|m| {
+                    .flat_map(|m| {
                         // search for the field which is an object and for which the object contains a field "http.request.method"
                         let http = m.source.layers.http.as_ref();
                         if http.is_some() {
                             return if let Some(message_data) =
                                 http.and_then(HttpMessageData::from_json)
                             {
-                                return Some(MessageData::Http(message_data));
+                                return vec![MessageData::Http(message_data)];
                             } else {
                                 eprintln!("failed to parse http message: {:?}", http);
-                                return None;
+                                return vec![];
                             };
                         }
                         let pgsql = m.source.layers.pgsql.as_ref();
                         if let Some(serde_json::Value::Array(pgsql_arr)) = pgsql {
                             return pgsql_arr
                                 .iter()
-                                .filter_map(|v| v.as_object().and_then(|o| o.get("pgsql.query")))
-                                .next()
-                                .and_then(|q| q.as_str())
-                                .map(|query| {
-                                    MessageData::Postgres(PostgresMessageData {
-                                        query: query.to_string(),
-                                    })
-                                });
+                                .filter_map(postgres_comm_entry::parse_pg_value)
+                                .collect();
+                            // &layers
+                            //     .tcp
+                            //     .as_ref()
+                            //     .map(|t| m.source.layers.frame.time_relative.clone())
+                            //     .unwrap(),
                         }
-                        None
+                        vec![]
                     })
                     .collect();
-                remote_server_streams.push((tcp_stream_id, decoded_messages));
+                let merged_messages = match decoded_messages.first() {
+                    Some(MessageData::Postgres(_)) => postgres_comm_entry::merge_message_datas(
+                        decoded_messages
+                            .into_iter()
+                            .map(|d| match d {
+                                MessageData::Postgres(p) => p,
+                                _ => panic!(), // if the first one is postgres, all in the stream should be postgres
+                            })
+                            .collect(),
+                    ),
+                    _ => decoded_messages,
+                };
+                remote_server_streams.push((tcp_stream_id, merged_messages));
             }
             for (remote_ip, tcp_sessions) in by_remote_ip {
                 components.push(
