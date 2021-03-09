@@ -104,12 +104,18 @@ pub fn parse_pg_value(pgsql: &serde_json::Value) -> Option<MessageData> {
 }
 
 fn hex_chars_to_string(hex_chars: &str) -> Option<String> {
-    hex::decode(hex_chars.replace(':', ""))
+    let nocolons = hex_chars.replace(':', "");
+    hex::decode(&nocolons)
         .ok()
         .map(|c| c.into_iter().collect())
         .and_then(|c: Vec<_>| {
-            if c.first() == Some(&0u8) {
+            // the interpretation, null, digit or string is really guesswork...
+            if c.iter().all(|x| x == &0u8) {
                 Some("null".to_string())
+            } else if c.first() == Some(&0u8) {
+                // interpret as a number
+                Some(i64::from_str_radix(&nocolons, 16).unwrap()) // i really want it to blow!
+                    .map(|i| i.to_string())
             } else {
                 String::from_utf8(c).ok()
             }
