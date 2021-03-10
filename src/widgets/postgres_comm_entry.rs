@@ -28,18 +28,27 @@ impl MessageParser for Postgres {
     }
 }
 
-// TODO split the parsing enums and the rendering enums?
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PostgresMessageData {
-    Query {
+pub enum PostgresWireMessage {
+    Parse {
         query: Option<String>,
         statement: Option<String>,
-        // parameter_values: Vec<String>,
+    },
+    Bind {
+        statement: Option<String>,
+        parameter_values: Vec<String>,
     },
     ResultSetRow {
         cols: Vec<String>,
     },
     ReadyForQuery,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PostgresMessageData {
+    Query {
+        query: Option<String>,
+        parameter_values: Vec<String>,
+    },
     ResultSet {
         row_count: usize,
         first_rows: Vec<Vec<String>>,
@@ -53,14 +62,14 @@ fn parse_pg_stream(all_vals: Vec<&serde_json::Value>) -> Vec<MessageData> {
 
 // now postgres bound parameters.. $1, $2..
 // for instance in session 34
-fn parse_pg_value(pgsql: &serde_json::Value) -> Option<PostgresMessageData> {
+fn parse_pg_value(pgsql: &serde_json::Value) -> Option<PostgresWireMessage> {
     let obj = pgsql.as_object();
     let typ = obj
         .and_then(|o| o.get("pgsql.type"))
         .and_then(|t| t.as_str());
     // if let Some(query_info) = obj.and_then(|o| o.get("pgsql.query")) {
     if typ == Some("Parse") {
-        return Some(PostgresMessageData::Query {
+        return Some(PostgresWireMessage::Parse {
             // query: format!("{} -> {}", time_relative, q),
             query: obj
                 .and_then(|o| o.get("pgsql.query"))
@@ -78,18 +87,32 @@ fn parse_pg_value(pgsql: &serde_json::Value) -> Option<PostgresMessageData> {
         // for prepared statements, the first time we get parse & statement+query
         // the following times we get bind and only statement (statement ID)
         // we can then recover the query from the statement id in post-processing.
-        return Some(PostgresMessageData::Query {
+        return Some(PostgresWireMessage::Bind {
             // query: format!("{} -> {}", time_relative, q),
-            query: None,
             statement: obj
                 .and_then(|o| o.get("pgsql.statement"))
                 .and_then(|s| s.as_str())
                 .filter(|s| !s.is_empty())
                 .map(|s| s.to_string()),
+            parameter_values: obj
+                .and_then(|o| o.iter().find(|(k, v)| k.starts_with("Parameter values: ")))
+                .and_then(|(_k, v)| {
+                    if let serde_json::Value::Object(o) = v {
+                        if let Some(serde_json::Value::Array(vals)) = o.get("pgsql.val.data") {
+                            return Some(
+                                vals.iter()
+                                    .filter_map(|v| v.as_str().and_then(hex_chars_to_string))
+                                    .collect(),
+                            );
+                        }
+                    }
+                    None
+                })
+                .unwrap_or_else(|| vec![]),
         });
     }
     if typ == Some("Ready for query") {
-        return Some(PostgresMessageData::ReadyForQuery);
+        return Some(PostgresWireMessage::ReadyForQuery);
     }
     if typ == Some("Data row") {
         // println!("{:?}", rs);
@@ -117,7 +140,7 @@ fn parse_pg_value(pgsql: &serde_json::Value) -> Option<PostgresMessageData> {
             None => vec![],
             _ => panic!(),
         };
-        return Some(PostgresMessageData::ResultSetRow { cols });
+        return Some(PostgresWireMessage::ResultSetRow { cols });
     }
 
     // "pgsql.type": "Bind",
@@ -148,15 +171,15 @@ fn hex_chars_to_string(hex_chars: &str) -> Option<String> {
     //     .join("")
 }
 
-fn merge_message_datas(mds: Vec<PostgresMessageData>) -> Vec<MessageData> {
+fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> Vec<MessageData> {
     let mut r = vec![];
-    let mut cur_query_st = None;
+    let mut cur_query = None;
     let mut cur_rs_row_count = 0;
     let mut cur_rs_first_rows = vec![];
     let mut known_statements = HashMap::new();
     for md in mds {
         match md {
-            PostgresMessageData::Query {
+            PostgresWireMessage::Parse {
                 ref query,
                 ref statement,
             } => {
@@ -168,33 +191,36 @@ fn merge_message_datas(mds: Vec<PostgresMessageData>) -> Vec<MessageData> {
                     cur_rs_row_count = 0;
                     cur_rs_first_rows = vec![];
                 }
-                if statement.is_none() || (cur_query_st.as_ref() != statement.as_ref()) {
-                    if let (Some(st), Some(q)) = (statement, query) {
-                        known_statements.insert((*st).clone(), (*q).clone());
-                    }
-                    let query_with_fallback = match (query, statement) {
-                        (Some(_), _) => query.clone(),
-                        (None, Some(s)) => known_statements.get(s).cloned(),
-                        _ => None,
-                    };
-                    if query_with_fallback.is_some() {
-                        r.push(MessageData::Postgres(PostgresMessageData::Query {
-                            statement: statement.clone(),
-                            query: query_with_fallback,
-                        }));
-                    }
-                    cur_query_st = statement.clone();
+                if let (Some(st), Some(q)) = (statement, query) {
+                    known_statements.insert((*st).clone(), (*q).clone());
+                }
+                cur_query = query.clone();
+            }
+            PostgresWireMessage::Bind {
+                statement,
+                parameter_values,
+            } => {
+                let query_with_fallback = match (&cur_query, statement) {
+                    (Some(_), _) => cur_query.clone(),
+                    (None, Some(s)) => known_statements.get(&s).cloned(),
+                    _ => None,
+                };
+                if query_with_fallback.is_some() {
+                    r.push(MessageData::Postgres(PostgresMessageData::Query {
+                        query: query_with_fallback,
+                        parameter_values: parameter_values.to_vec(),
+                    }));
                 }
             }
-            PostgresMessageData::ResultSetRow { cols } => {
-                cur_query_st = None;
+            PostgresWireMessage::ResultSetRow { cols } => {
+                cur_query = None;
                 cur_rs_row_count += 1;
                 if cur_rs_row_count < 5 {
                     cur_rs_first_rows.push(cols);
                 }
             }
-            PostgresMessageData::ReadyForQuery => {
-                cur_query_st = None;
+            PostgresWireMessage::ReadyForQuery => {
+                cur_query = None;
                 // new query...
                 if cur_rs_row_count > 0 {
                     r.push(MessageData::Postgres(PostgresMessageData::ResultSet {
@@ -205,10 +231,6 @@ fn merge_message_datas(mds: Vec<PostgresMessageData>) -> Vec<MessageData> {
                     cur_rs_first_rows = vec![];
                 }
             }
-            PostgresMessageData::ResultSet {
-                row_count,
-                first_rows,
-            } => panic!(),
         }
     }
     r
@@ -231,9 +253,18 @@ impl Widget for PostgresCommEntry {
 
     fn display_str(data: &PostgresMessageData) -> String {
         match &data {
-            PostgresMessageData::Query { query, statement } => {
-                query.as_ref().cloned().unwrap_or_else(|| "".to_string())
-            }
+            PostgresMessageData::Query {
+                query,
+                parameter_values,
+            } if !parameter_values.is_empty() => format!(
+                "{}\nparameters: {}",
+                query.as_deref().unwrap_or(""),
+                parameter_values.join(", ")
+            ),
+            PostgresMessageData::Query {
+                query,
+                parameter_values: _,
+            } => query.as_ref().cloned().unwrap_or_else(|| "".to_string()),
             PostgresMessageData::ResultSet {
                 row_count,
                 first_rows,
@@ -248,8 +279,6 @@ impl Widget for PostgresCommEntry {
                         .join("\n")
                 )
             }
-            PostgresMessageData::ResultSetRow { cols } => panic!(),
-            PostgresMessageData::ReadyForQuery => panic!(),
         }
     }
 
@@ -284,6 +313,9 @@ fn should_parse_simple_query() {
              "pgsql.query": "select 1"
           },
           {
+             "pgsql.type": "Bind"
+          },
+          {
              "pgsql.type": "Data row",
              "pgsql.field.count": "1",
              "pgsql.field.count_tree": {
@@ -308,7 +340,7 @@ fn should_parse_simple_query() {
     let expected: Vec<MessageData> = vec![
         MessageData::Postgres(PostgresMessageData::Query {
             query: Some("select 1".to_string()),
-            statement: None,
+            parameter_values: vec![],
         }),
         MessageData::Postgres(PostgresMessageData::ResultSet {
             row_count: 2,
@@ -330,6 +362,10 @@ fn should_parse_prepared_statement() {
           {
              "pgsql.type": "Parse",
              "pgsql.query": "select 1",
+             "pgsql.statement": "S_18"
+          },
+          {
+             "pgsql.type": "Bind",
              "pgsql.statement": "S_18"
           },
           {
@@ -357,11 +393,62 @@ fn should_parse_prepared_statement() {
     let expected: Vec<MessageData> = vec![
         MessageData::Postgres(PostgresMessageData::Query {
             query: Some("select 1".to_string()),
-            statement: Some("S_18".to_string()),
+            parameter_values: vec![],
         }),
         MessageData::Postgres(PostgresMessageData::Query {
             query: Some("select 1".to_string()),
-            statement: Some("S_18".to_string()),
+            parameter_values: vec![],
+        }),
+        MessageData::Postgres(PostgresMessageData::ResultSet {
+            row_count: 1,
+            first_rows: vec![vec!["PostgreSQL".to_string()]],
+        }),
+    ];
+    assert_eq!(expected, parsed);
+}
+
+#[test]
+fn should_parse_prepared_statement_with_parameters() {
+    let parsed = parse_pg_stream(as_json_array(
+        &serde_json::from_str(
+            r#"
+        [
+          {
+             "pgsql.type": "Parse",
+             "pgsql.query": "select $1",
+             "pgsql.statement": "S_18"
+          },
+          {
+             "pgsql.type": "Ready for query"
+          },
+          {
+             "pgsql.type": "Bind",
+             "pgsql.statement": "S_18",
+             "Parameter values: 1": {
+                  "pgsql.val.data": [
+                        "54:52:55:45"
+                  ]
+             }
+          },
+          {
+             "pgsql.type": "Data row",
+             "pgsql.field.count": "1",
+             "pgsql.field.count_tree": {
+                 "pgsql.val.data": "50:6f:73:74:67:72:65:53:51:4c"
+             }
+          },
+          {
+             "pgsql.type": "Ready for query"
+          }
+        ]
+        "#,
+        )
+        .unwrap(),
+    ));
+    let expected: Vec<MessageData> = vec![
+        MessageData::Postgres(PostgresMessageData::Query {
+            query: Some("select $1".to_string()),
+            parameter_values: vec!["TRUE".to_string()],
         }),
         MessageData::Postgres(PostgresMessageData::ResultSet {
             row_count: 1,
