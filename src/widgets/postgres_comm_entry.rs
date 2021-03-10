@@ -46,6 +46,9 @@ pub enum PostgresWireMessage {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PostgresMessageData {
     Query {
+        // for prepared queries, it's possible the declaration
+        // occured before we started recording the stream.
+        // in that case we won't be able to recover the query string.
         query: Option<String>,
         parameter_values: Vec<String>,
     },
@@ -115,7 +118,6 @@ fn parse_pg_value(pgsql: &serde_json::Value) -> Option<PostgresWireMessage> {
         return Some(PostgresWireMessage::ReadyForQuery);
     }
     if typ == Some("Data row") {
-        // println!("{:?}", rs);
         let col_count = obj
             .unwrap()
             .get("pgsql.field.count")
@@ -200,17 +202,15 @@ fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> Vec<MessageData> {
                 statement,
                 parameter_values,
             } => {
-                let query_with_fallback = match (&cur_query, statement) {
+                let query_with_fallback = match (&cur_query, &statement) {
                     (Some(_), _) => cur_query.clone(),
-                    (None, Some(s)) => known_statements.get(&s).cloned(),
+                    (None, Some(s)) => known_statements.get(s).cloned(),
                     _ => None,
                 };
-                if query_with_fallback.is_some() {
-                    r.push(MessageData::Postgres(PostgresMessageData::Query {
-                        query: query_with_fallback,
-                        parameter_values: parameter_values.to_vec(),
-                    }));
-                }
+                r.push(MessageData::Postgres(PostgresMessageData::Query {
+                    query: query_with_fallback,
+                    parameter_values: parameter_values.to_vec(),
+                }));
             }
             PostgresWireMessage::ResultSetRow { cols } => {
                 cur_query = None;
@@ -258,13 +258,18 @@ impl Widget for PostgresCommEntry {
                 parameter_values,
             } if !parameter_values.is_empty() => format!(
                 "{}\nparameters: {}",
-                query.as_deref().unwrap_or(""),
+                query
+                    .as_deref()
+                    .unwrap_or("Failed retrieving the query string"),
                 parameter_values.join(", ")
             ),
             PostgresMessageData::Query {
                 query,
                 parameter_values: _,
-            } => query.as_ref().cloned().unwrap_or_else(|| "".to_string()),
+            } => query
+                .as_ref()
+                .cloned()
+                .unwrap_or_else(|| "Failed retrieving the query string".to_string()),
             PostgresMessageData::ResultSet {
                 row_count,
                 first_rows,
