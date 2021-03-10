@@ -180,9 +180,6 @@ impl Widget for Win {
                 {
                     continue;
                 }
-                let remote_server_streams = by_remote_ip
-                    .entry(layers.ip.as_ref().unwrap().ip_src.clone())
-                    .or_insert(vec![]);
                 let tcp_stream_id = layers.tcp.as_ref().map(|t| t.stream);
                 let stream_parser = stream
                     .1
@@ -190,6 +187,9 @@ impl Widget for Win {
                     .find_map(|m| parsers.iter().find(|p| p.is_my_message(m)));
                 if let Some(parser) = stream_parser {
                     let messages = parser.parse_stream(&stream.1);
+                    let remote_server_streams = by_remote_ip
+                        .entry(layers.ip.as_ref().unwrap().ip_src.clone())
+                        .or_insert(vec![]);
                     remote_server_streams.push((tcp_stream_id, messages));
                 }
             }
