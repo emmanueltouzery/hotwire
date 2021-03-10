@@ -1,8 +1,26 @@
+use crate::widgets::comm_remote_server::MessageData;
+use crate::widgets::comm_remote_server::MessageParser;
+use crate::TSharkCommunication;
 use gtk::prelude::*;
 use relm::Widget;
 use relm_derive::{widget, Msg};
 
-#[derive(Clone)]
+pub struct Http;
+
+impl MessageParser for Http {
+    fn is_my_message(&self, msg: &TSharkCommunication) -> bool {
+        msg.source.layers.http.is_some()
+    }
+    fn parse_stream(&self, stream: &Vec<TSharkCommunication>) -> Vec<MessageData> {
+        stream
+            .into_iter()
+            .filter_map(HttpMessageData::from_json)
+            .map(MessageData::Http)
+            .collect()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HttpMessageData {
     pub request_response_first_line: String,
     pub request_response_other_lines: String,
@@ -10,8 +28,9 @@ pub struct HttpMessageData {
 }
 
 impl HttpMessageData {
-    pub fn from_json(serde_json: &serde_json::Value) -> Option<HttpMessageData> {
-        if let serde_json::Value::Object(http_map) = serde_json {
+    pub fn from_json(comm: &TSharkCommunication) -> Option<HttpMessageData> {
+        let serde_json = comm.source.layers.http.as_ref();
+        if let Some(serde_json::Value::Object(http_map)) = serde_json {
             http_map.iter().find(|(_,v)| matches!(v,
                         serde_json::Value::Object(fields) if fields.contains_key("http.request.method") || fields.contains_key("http.response.code")
             )).map(|(k,_)| HttpMessageData {

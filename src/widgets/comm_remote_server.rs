@@ -1,14 +1,20 @@
 use super::http_comm_entry::{HttpCommEntry, HttpMessageData};
 use super::postgres_comm_entry::{PostgresCommEntry, PostgresMessageData};
+use crate::TSharkCommunication;
 use gtk::prelude::*;
 use relm::{Component, ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
 use std::collections::HashMap;
 
+pub trait MessageParser {
+    fn is_my_message(&self, msg: &TSharkCommunication) -> bool;
+    fn parse_stream(&self, stream: &Vec<TSharkCommunication>) -> Vec<MessageData>;
+}
+
 #[derive(Msg)]
 pub enum Msg {}
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MessageData {
     Http(HttpMessageData),
     Postgres(PostgresMessageData),
