@@ -301,10 +301,7 @@ impl Widget for PostgresCommEntry {
 
 #[cfg(test)]
 fn as_json_array(json: &serde_json::Value) -> Vec<&serde_json::Value> {
-    match json {
-        serde_json::Value::Array(vals) => vals.iter().collect(),
-        _ => panic!(),
-    }
+    json.as_array().unwrap().iter().collect()
 }
 
 #[test]
