@@ -44,18 +44,14 @@ pub enum PostgresWireMessage {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PostgresMessageData {
-    Query {
-        // for prepared queries, it's possible the declaration
-        // occured before we started recording the stream.
-        // in that case we won't be able to recover the query string.
-        query: Option<String>,
-        parameter_values: Vec<String>,
-    },
-    ResultSet {
-        row_count: usize,
-        first_rows: Vec<Vec<String>>,
-    },
+pub struct PostgresMessageData {
+    // for prepared queries, it's possible the declaration
+    // occured before we started recording the stream.
+    // in that case we won't be able to recover the query string.
+    query: Option<String>,
+    parameter_values: Vec<String>,
+    resultset_row_count: usize,
+    resultset_first_rows: Vec<Vec<String>>,
 }
 
 fn parse_pg_stream(all_vals: Vec<&serde_json::Value>) -> Vec<MessageData> {
@@ -179,20 +175,14 @@ fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> Vec<MessageData> {
     let mut cur_rs_row_count = 0;
     let mut cur_rs_first_rows = vec![];
     let mut known_statements = HashMap::new();
+    let mut cur_query_with_fallback = None;
+    let mut cur_parameter_values = vec![];
     for md in mds {
         match md {
             PostgresWireMessage::Parse {
                 ref query,
                 ref statement,
             } => {
-                if cur_rs_row_count > 0 {
-                    r.push(MessageData::Postgres(PostgresMessageData::ResultSet {
-                        row_count: cur_rs_row_count,
-                        first_rows: cur_rs_first_rows,
-                    }));
-                    cur_rs_row_count = 0;
-                    cur_rs_first_rows = vec![];
-                }
                 if let (Some(st), Some(q)) = (statement, query) {
                     known_statements.insert((*st).clone(), (*q).clone());
                 }
@@ -202,34 +192,32 @@ fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> Vec<MessageData> {
                 statement,
                 parameter_values,
             } => {
-                let query_with_fallback = match (&cur_query, &statement) {
+                cur_query_with_fallback = match (&cur_query, &statement) {
                     (Some(_), _) => cur_query.clone(),
                     (None, Some(s)) => known_statements.get(s).cloned(),
                     _ => None,
                 };
-                r.push(MessageData::Postgres(PostgresMessageData::Query {
-                    query: query_with_fallback,
-                    parameter_values: parameter_values.to_vec(),
-                }));
+                cur_parameter_values = parameter_values.to_vec();
             }
             PostgresWireMessage::ResultSetRow { cols } => {
-                cur_query = None;
                 cur_rs_row_count += 1;
                 if cur_rs_row_count < 5 {
                     cur_rs_first_rows.push(cols);
                 }
             }
             PostgresWireMessage::ReadyForQuery => {
-                cur_query = None;
-                // new query...
-                if cur_rs_row_count > 0 {
-                    r.push(MessageData::Postgres(PostgresMessageData::ResultSet {
-                        row_count: cur_rs_row_count,
-                        first_rows: cur_rs_first_rows,
+                if cur_query_with_fallback.is_some() {
+                    r.push(MessageData::Postgres(PostgresMessageData {
+                        query: cur_query_with_fallback,
+                        parameter_values: cur_parameter_values,
+                        resultset_row_count: cur_rs_row_count,
+                        resultset_first_rows: cur_rs_first_rows,
                     }));
-                    cur_rs_row_count = 0;
-                    cur_rs_first_rows = vec![];
                 }
+                cur_query_with_fallback = None;
+                cur_parameter_values = vec![];
+                cur_rs_row_count = 0;
+                cur_rs_first_rows = vec![];
             }
         }
     }
@@ -251,49 +239,40 @@ impl Widget for PostgresCommEntry {
 
     fn update(&mut self, event: Msg) {}
 
-    fn display_str(data: &PostgresMessageData) -> String {
-        match &data {
-            PostgresMessageData::Query {
-                query,
-                parameter_values,
-            } if !parameter_values.is_empty() => format!(
-                "{}\nparameters: {}",
-                query
-                    .as_deref()
-                    .unwrap_or("Failed retrieving the query string"),
-                parameter_values.join(", ")
-            ),
-            PostgresMessageData::Query {
-                query,
-                parameter_values: _,
-            } => query
-                .as_ref()
-                .cloned()
-                .unwrap_or_else(|| "Failed retrieving the query string".to_string()),
-            PostgresMessageData::ResultSet {
-                row_count,
-                first_rows,
-            } => {
-                format!(
-                    "{} row(s)\n{}",
-                    row_count,
-                    first_rows
-                        .iter()
-                        .map(|r| r.join(", "))
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                )
-            }
-        }
-    }
-
     view! {
         gtk::Box {
             orientation: gtk::Orientation::Vertical,
             gtk::Separator {},
             gtk::Label {
-                label: &PostgresCommEntry::display_str(&self.model.data),
+                label: self.model.data.query.as_deref().unwrap_or("Failed retrieving the query string"),
                 xalign: 0.0
+            },
+            gtk::Label {
+                label: &self.model.data.parameter_values.join(", "),
+                visible: !self.model.data.parameter_values.is_empty(),
+                xalign: 0.0,
+            },
+            gtk::Box {
+                orientation: gtk::Orientation::Horizontal,
+                gtk::Label {
+                    label: &self.model.data.resultset_row_count.to_string(),
+                    xalign: 0.0,
+                    visible: !self.model.data.resultset_first_rows.is_empty()
+                },
+                gtk::Label {
+                    label: " row(s)",
+                    xalign: 0.0,
+                    visible: !self.model.data.resultset_first_rows.is_empty()
+                },
+            },
+            gtk::Label {
+                label: &self.model.data.resultset_first_rows
+                        .iter()
+                        .map(|r| r.join(", "))
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                xalign: 0.0,
+                visible: !self.model.data.resultset_first_rows.is_empty()
             },
         }
     }
@@ -339,19 +318,15 @@ fn should_parse_simple_query() {
         )
         .unwrap(),
     ));
-    let expected: Vec<MessageData> = vec![
-        MessageData::Postgres(PostgresMessageData::Query {
-            query: Some("select 1".to_string()),
-            parameter_values: vec![],
-        }),
-        MessageData::Postgres(PostgresMessageData::ResultSet {
-            row_count: 2,
-            first_rows: vec![
-                vec!["PostgreSQL".to_string()],
-                vec!["9.6.12 on x8".to_string()],
-            ],
-        }),
-    ];
+    let expected: Vec<MessageData> = vec![MessageData::Postgres(PostgresMessageData {
+        query: Some("select 1".to_string()),
+        parameter_values: vec![],
+        resultset_row_count: 2,
+        resultset_first_rows: vec![
+            vec!["PostgreSQL".to_string()],
+            vec!["9.6.12 on x8".to_string()],
+        ],
+    })];
     assert_eq!(expected, parsed);
 }
 
@@ -393,17 +368,17 @@ fn should_parse_prepared_statement() {
         .unwrap(),
     ));
     let expected: Vec<MessageData> = vec![
-        MessageData::Postgres(PostgresMessageData::Query {
+        MessageData::Postgres(PostgresMessageData {
             query: Some("select 1".to_string()),
             parameter_values: vec![],
+            resultset_row_count: 0,
+            resultset_first_rows: vec![],
         }),
-        MessageData::Postgres(PostgresMessageData::Query {
+        MessageData::Postgres(PostgresMessageData {
             query: Some("select 1".to_string()),
             parameter_values: vec![],
-        }),
-        MessageData::Postgres(PostgresMessageData::ResultSet {
-            row_count: 1,
-            first_rows: vec![vec!["PostgreSQL".to_string()]],
+            resultset_row_count: 1,
+            resultset_first_rows: vec![vec!["PostgreSQL".to_string()]],
         }),
     ];
     assert_eq!(expected, parsed);
@@ -418,6 +393,10 @@ fn should_parse_prepared_statement_with_parameters() {
           {
              "pgsql.type": "Parse",
              "pgsql.query": "select $1",
+             "pgsql.statement": "S_18"
+          },
+          {
+             "pgsql.type": "Bind",
              "pgsql.statement": "S_18"
           },
           {
@@ -448,14 +427,36 @@ fn should_parse_prepared_statement_with_parameters() {
         .unwrap(),
     ));
     let expected: Vec<MessageData> = vec![
-        MessageData::Postgres(PostgresMessageData::Query {
+        MessageData::Postgres(PostgresMessageData {
+            query: Some("select $1".to_string()),
+            parameter_values: vec![],
+            resultset_row_count: 0,
+            resultset_first_rows: vec![],
+        }),
+        MessageData::Postgres(PostgresMessageData {
             query: Some("select $1".to_string()),
             parameter_values: vec!["TRUE".to_string()],
-        }),
-        MessageData::Postgres(PostgresMessageData::ResultSet {
-            row_count: 1,
-            first_rows: vec![vec!["PostgreSQL".to_string()]],
+            resultset_row_count: 1,
+            resultset_first_rows: vec![vec!["PostgreSQL".to_string()]],
         }),
     ];
+    assert_eq!(expected, parsed);
+}
+
+#[test]
+fn should_not_generate_queries_for_just_a_ready_message() {
+    let parsed = parse_pg_stream(as_json_array(
+        &serde_json::from_str(
+            r#"
+        [
+          {
+             "pgsql.type": "Ready for query"
+          }
+        ]
+        "#,
+        )
+        .unwrap(),
+    ));
+    let expected: Vec<MessageData> = vec![];
     assert_eq!(expected, parsed);
 }
