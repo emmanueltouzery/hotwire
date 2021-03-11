@@ -120,10 +120,20 @@ fn parse_pg_value(pgsql: &serde_json::Value) -> Option<PostgresWireMessage> {
             .unwrap()
             .as_str()
             .unwrap()
-            .parse::<i32>()
+            .parse::<usize>()
             .unwrap();
         let tree = obj.unwrap().get("pgsql.field.count_tree").unwrap();
-        let cols = match tree.get("pgsql.val.data") {
+        let col_lengths: Vec<i32> = match tree.get("pgsql.val.length") {
+            Some(serde_json::Value::String(s)) => {
+                vec![s.parse().unwrap_or(0)]
+            }
+            Some(serde_json::Value::Array(ar)) => ar
+                .into_iter()
+                .map(|v| v.as_str().and_then(|s| s.parse().ok()).unwrap_or(0))
+                .collect(),
+            _ => vec![],
+        };
+        let mut raw_cols = match tree.get("pgsql.val.data") {
             Some(serde_json::Value::String(s)) => vec![hex_chars_to_string(s).unwrap_or_default()],
             Some(serde_json::Value::Array(ar)) => ar
                 .into_iter()
@@ -138,6 +148,28 @@ fn parse_pg_value(pgsql: &serde_json::Value) -> Option<PostgresWireMessage> {
             None => vec![],
             _ => panic!(),
         };
+        raw_cols.reverse();
+        println!("col_lengths: {:?}", col_lengths);
+        dbg!(raw_cols.len());
+        dbg!(&raw_cols);
+        let mut cols = vec![];
+        for col_length in col_lengths {
+            if col_length < 0 {
+                cols.push("null".to_string());
+            } else if col_length == 0 {
+                cols.push("".to_string());
+            } else {
+                if let Some(val) = raw_cols.pop() {
+                    cols.push(val);
+                }
+            }
+        }
+        if col_count != cols.len() {
+            panic!("{} != {}", col_count, cols.len());
+        }
+        if !raw_cols.is_empty() {
+            panic!("raw_cols: {:?}", raw_cols);
+        }
         return Some(PostgresWireMessage::ResultSetRow { cols });
     }
 
@@ -153,9 +185,7 @@ fn hex_chars_to_string(hex_chars: &str) -> Option<String> {
         .map(|c| c.into_iter().collect())
         .and_then(|c: Vec<_>| {
             // the interpretation, null, digit or string is really guesswork...
-            if c.iter().all(|x| x == &0u8) {
-                Some("null".to_string())
-            } else if c.first() == Some(&0u8) {
+            if c.first() == Some(&0u8) {
                 // interpret as a number
                 Some(i64::from_str_radix(&nocolons, 16).unwrap()) // i really want it to blow!
                     .map(|i| i.to_string())
@@ -300,6 +330,7 @@ fn should_parse_simple_query() {
              "pgsql.type": "Data row",
              "pgsql.field.count": "1",
              "pgsql.field.count_tree": {
+                 "pgsql.val.length": "10",
                  "pgsql.val.data": "50:6f:73:74:67:72:65:53:51:4c"
              }
           },
@@ -307,6 +338,7 @@ fn should_parse_simple_query() {
              "pgsql.type": "Data row",
              "pgsql.field.count": "1",
              "pgsql.field.count_tree": {
+                 "pgsql.val.length": "10",
                  "pgsql.val.data": "39:2e:36:2e:31:32:20:6f:6e:20:78:38"
              }
           },
@@ -356,6 +388,7 @@ fn should_parse_prepared_statement() {
              "pgsql.type": "Data row",
              "pgsql.field.count": "1",
              "pgsql.field.count_tree": {
+                 "pgsql.val.length": "10",
                  "pgsql.val.data": "50:6f:73:74:67:72:65:53:51:4c"
              }
           },
@@ -415,6 +448,7 @@ fn should_parse_prepared_statement_with_parameters() {
              "pgsql.type": "Data row",
              "pgsql.field.count": "1",
              "pgsql.field.count_tree": {
+                 "pgsql.val.length": "10",
                  "pgsql.val.data": "50:6f:73:74:67:72:65:53:51:4c"
              }
           },
@@ -458,5 +492,48 @@ fn should_not_generate_queries_for_just_a_ready_message() {
         .unwrap(),
     ));
     let expected: Vec<MessageData> = vec![];
+    assert_eq!(expected, parsed);
+}
+
+#[test]
+fn should_parse_query_with_multiple_columns_and_nulls() {
+    let parsed = parse_pg_stream(as_json_array(
+        &serde_json::from_str(
+            r#"
+        [
+          {
+             "pgsql.type": "Parse",
+             "pgsql.query": "select 1"
+          },
+          {
+             "pgsql.type": "Bind"
+          },
+          {
+             "pgsql.type": "Data row",
+             "pgsql.field.count": "4",
+             "pgsql.field.count_tree": {
+                 "pgsql.val.length": ["5", "-1", "0", "5"],
+                 "pgsql.val.data": ["50:6f:73:74:67", "72:65:53:51:4c"]
+             }
+          },
+          {
+             "pgsql.type": "Ready for query"
+          }
+        ]
+        "#,
+        )
+        .unwrap(),
+    ));
+    let expected: Vec<MessageData> = vec![MessageData::Postgres(PostgresMessageData {
+        query: Some("select 1".to_string()),
+        parameter_values: vec![],
+        resultset_row_count: 1,
+        resultset_first_rows: vec![vec![
+            "Postg".to_string(),
+            "null".to_string(),
+            "".to_string(),
+            "reSQL".to_string(),
+        ]],
+    })];
     assert_eq!(expected, parsed);
 }
