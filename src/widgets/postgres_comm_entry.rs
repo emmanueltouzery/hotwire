@@ -259,12 +259,47 @@ pub enum Msg {}
 
 pub struct Model {
     data: PostgresMessageData,
+    list_store: gtk::ListStore,
 }
 
 #[widget]
 impl Widget for PostgresCommEntry {
+    fn init_view(&mut self) {
+        println!("{:?}", self.model.data.query);
+        println!("{:?}", self.model.data.resultset_first_rows);
+        if let Some(first) = self.model.data.resultset_first_rows.first() {
+            println!("first len {}", first.len());
+            for i in 0..first.len() {
+                let col1 = gtk::TreeViewColumnBuilder::new().title("Col").build();
+                let cell_r_txt = gtk::CellRendererText::new();
+                col1.pack_start(&cell_r_txt, true);
+                col1.add_attribute(&cell_r_txt, "text", i as i32);
+                self.widgets.resultset.append_column(&col1);
+            }
+        }
+        for row in &self.model.data.resultset_first_rows {
+            let iter = self.model.list_store.append();
+            for (col_idx, col) in row.iter().enumerate() {
+                println!("col_idx {}", col_idx);
+                self.model
+                    .list_store
+                    .set_value(&iter, col_idx as u32, &col.to_value());
+            }
+        }
+    }
+
     fn model(relm: &relm::Relm<Self>, data: PostgresMessageData) -> Model {
-        Model { data }
+        let field_descs: Vec<_> = data
+            .resultset_first_rows
+            .first()
+            .filter(|r| r.len() > 0) // list store can't have 0 columns
+            .map(|r| vec![String::static_type(); r.len()])
+            // the list store can't have 0 columns, put one String by default
+            .unwrap_or_else(|| vec![String::static_type()]);
+
+        let list_store = gtk::ListStore::new(&field_descs);
+
+        Model { data, list_store }
     }
 
     fn update(&mut self, event: Msg) {}
@@ -295,15 +330,19 @@ impl Widget for PostgresCommEntry {
                     visible: !self.model.data.resultset_first_rows.is_empty()
                 },
             },
-            gtk::Label {
-                label: &self.model.data.resultset_first_rows
-                        .iter()
-                        .map(|r| r.join(", "))
-                        .collect::<Vec<_>>()
-                        .join("\n"),
-                xalign: 0.0,
+            #[name="resultset"]
+            gtk::TreeView {
+                model: Some(&self.model.list_store),
                 visible: !self.model.data.resultset_first_rows.is_empty()
             },
+            // gtk::Label {
+            //     label: &self.model.data.resultset_first_rows
+            //             .iter()
+            //             .map(|r| r.join(", "))
+            //             .collect::<Vec<_>>()
+            //             .join("\n"),
+            //     xalign: 0.0,
+            // },
         }
     }
 }
