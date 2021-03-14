@@ -7,6 +7,7 @@ use crate::widgets::comm_remote_server::MessageParser;
 use crate::widgets::http_comm_entry::Http;
 use crate::widgets::postgres_comm_entry::Postgres;
 use crate::TSharkCommunication;
+use glib::translate::ToGlib;
 use gtk::prelude::*;
 use relm::{Component, ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
@@ -22,6 +23,7 @@ pub fn get_message_parsers() -> Vec<Box<dyn MessageParser>> {
 #[derive(Msg)]
 pub enum Msg {
     SelectCard(Option<usize>),
+    SelectRemoteIpStream(gtk::TreePath),
     Quit,
 }
 
@@ -30,6 +32,8 @@ pub struct Model {
     streams: Vec<(Option<u32>, Vec<TSharkCommunication>)>,
     comm_target_cards: Vec<CommTargetCardData>,
     selected_card: Option<CommTargetCardData>,
+
+    remote_ips_streams_tree_store: gtk::TreeStore,
 
     _comm_targets_components: Vec<Component<CommTargetCard>>,
     _comm_remote_servers_components: Vec<Component<CommRemoteServer>>,
@@ -41,6 +45,21 @@ impl Widget for Win {
         if let Err(err) = self.load_style() {
             println!("Error loading the CSS: {}", err);
         }
+
+        let remote_ip_col = gtk::TreeViewColumnBuilder::new()
+            .title("Incoming connections")
+            .build();
+        let cell_r_txt = gtk::CellRendererTextBuilder::new()
+            .weight(1)
+            .weight_set(true)
+            .build();
+        remote_ip_col.pack_start(&cell_r_txt, true);
+        remote_ip_col.add_attribute(&cell_r_txt, "text", 0);
+        remote_ip_col.add_attribute(&cell_r_txt, "weight", 1);
+        self.widgets
+            .remote_ips_streams_treeview
+            .append_column(&remote_ip_col);
+
         self.refresh_comm_targets();
         self.refresh_remote_servers();
     }
@@ -118,6 +137,10 @@ impl Widget for Win {
             .into_iter()
             .map(|(k, v)| v)
             .collect();
+
+        let remote_ips_streams_tree_store =
+            gtk::TreeStore::new(&[String::static_type(), pango::Weight::static_type()]);
+
         Model {
             relm: relm.clone(),
             streams,
@@ -125,6 +148,7 @@ impl Widget for Win {
             _comm_targets_components: vec![],
             _comm_remote_servers_components: vec![],
             selected_card: None,
+            remote_ips_streams_tree_store,
         }
     }
 
@@ -138,6 +162,9 @@ impl Widget for Win {
                 if let Some(vadj) = self.widgets.remote_servers_scroll.get_vadjustment() {
                     vadj.set_value(0.0);
                 }
+            }
+            Msg::SelectRemoteIpStream(path) => {
+                println!("remote ip or stream selected");
             }
             Msg::Quit => gtk::main_quit(),
         }
@@ -193,7 +220,49 @@ impl Widget for Win {
                     remote_server_streams.push((tcp_stream_id, messages));
                 }
             }
+            self.model.remote_ips_streams_tree_store.clear();
+            let all_iter = self.model.remote_ips_streams_tree_store.append(None);
+            self.model
+                .remote_ips_streams_tree_store
+                .set_value(&all_iter, 0, &"All".to_value());
+            self.model.remote_ips_streams_tree_store.set_value(
+                &all_iter,
+                1,
+                &pango::Weight::Bold.to_glib().to_value(),
+            );
+            self.widgets.remote_ips_streams_treeview.set_cursor(
+                &gtk::TreePath::new_first(),
+                None::<&gtk::TreeViewColumn>,
+                false,
+            );
             for (remote_ip, tcp_sessions) in by_remote_ip {
+                let remote_ip_iter = self.model.remote_ips_streams_tree_store.append(None);
+                self.model.remote_ips_streams_tree_store.set_value(
+                    &remote_ip_iter,
+                    0,
+                    &remote_ip.to_value(),
+                );
+                self.model.remote_ips_streams_tree_store.set_value(
+                    &remote_ip_iter,
+                    1,
+                    &pango::Weight::Normal.to_glib().to_value(),
+                );
+                for session in &tcp_sessions {
+                    let session_iter = self
+                        .model
+                        .remote_ips_streams_tree_store
+                        .append(Some(&remote_ip_iter));
+                    self.model.remote_ips_streams_tree_store.set_value(
+                        &session_iter,
+                        0,
+                        &format!("Session {}", session.0.unwrap()).to_value(),
+                    );
+                    self.model.remote_ips_streams_tree_store.set_value(
+                        &session_iter,
+                        1,
+                        &pango::Weight::Normal.to_glib().to_value(),
+                    );
+                }
                 components.push(
                     self.widgets
                         .comm_remote_servers
@@ -204,6 +273,7 @@ impl Widget for Win {
                 );
             }
         }
+        self.widgets.remote_ips_streams_treeview.expand_all();
         self.model._comm_remote_servers_components = components;
     }
 
@@ -220,14 +290,21 @@ impl Widget for Win {
                 hexpand: true,
                 #[style_class="sidebar"]
                 gtk::ScrolledWindow {
-                    hexpand: true,
                     property_width_request: 250,
-                    hexpand: false,
                     #[name="comm_target_list"]
                     gtk::ListBox {
                         row_selected(_, row) =>
                             Msg::SelectCard(row.map(|r| r.get_index() as usize))
                     }
+                },
+                gtk::ScrolledWindow {
+                    property_width_request: 150,
+                    #[name="remote_ips_streams_treeview"]
+                    gtk::TreeView {
+                        activate_on_single_click: true,
+                        model: Some(&self.model.remote_ips_streams_tree_store),
+                        row_activated(_, path, _) => Msg::SelectRemoteIpStream(path.clone()),
+                    },
                 },
                 #[name="remote_servers_scroll"]
                 gtk::ScrolledWindow {
