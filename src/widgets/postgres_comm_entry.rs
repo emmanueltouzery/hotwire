@@ -1,4 +1,5 @@
 // https://www.postgresql.org/docs/12/protocol.html
+use crate::icons::Icon;
 use crate::widgets::comm_remote_server::MessageData;
 use crate::widgets::comm_remote_server::MessageParser;
 use crate::TSharkCommunication;
@@ -14,6 +15,10 @@ impl MessageParser for Postgres {
         msg.source.layers.pgsql.is_some()
     }
 
+    fn protocol_icon(&self) -> Icon {
+        Icon::DATABASE
+    }
+
     fn parse_stream(&self, stream: &Vec<TSharkCommunication>) -> Vec<MessageData> {
         let mut all_vals = vec![];
         for msg in stream {
@@ -25,6 +30,58 @@ impl MessageParser for Postgres {
             }
         }
         parse_pg_stream(all_vals)
+    }
+
+    fn prepare_treeview(&self, tv: &gtk::TreeView) -> gtk::ListStore {
+        let liststore = gtk::ListStore::new(&[
+            // TODO add: response time...
+            String::static_type(), // query first line
+            String::static_type(), // response info (number of rows..)
+        ]);
+
+        let query_col = gtk::TreeViewColumnBuilder::new()
+            .title("Query")
+            .expand(true)
+            .fixed_width(100)
+            .build();
+        let cell_q_txt = gtk::CellRendererTextBuilder::new().build();
+        query_col.pack_start(&cell_q_txt, true);
+        query_col.add_attribute(&cell_q_txt, "text", 0);
+        tv.append_column(&query_col);
+
+        let result_col = gtk::TreeViewColumnBuilder::new()
+            .title("Result")
+            .fixed_width(100)
+            .build();
+        let cell_r_txt = gtk::CellRendererTextBuilder::new().build();
+        result_col.pack_start(&cell_r_txt, true);
+        result_col.add_attribute(&cell_r_txt, "text", 1);
+        tv.append_column(&result_col);
+
+        tv.set_model(Some(&liststore));
+
+        liststore
+    }
+
+    fn populate_treeview(&self, ls: &gtk::ListStore, messages: &Vec<MessageData>) {
+        for message in messages {
+            let iter = ls.append();
+            let postgres = message.as_postgres().unwrap();
+            ls.set_value(
+                &iter,
+                0,
+                &postgres
+                    .query
+                    .as_deref()
+                    .unwrap_or("couldn't get query")
+                    .to_value(),
+            );
+            ls.set_value(
+                &iter,
+                1,
+                &format!("{} rows", postgres.resultset_row_count).to_value(),
+            );
+        }
     }
 }
 
@@ -149,9 +206,9 @@ fn parse_pg_value(pgsql: &serde_json::Value) -> Option<PostgresWireMessage> {
             _ => panic!(),
         };
         raw_cols.reverse();
-        println!("col_lengths: {:?}", col_lengths);
-        dbg!(raw_cols.len());
-        dbg!(&raw_cols);
+        // println!("col_lengths: {:?}", col_lengths);
+        // dbg!(raw_cols.len());
+        // dbg!(&raw_cols);
         let mut cols = vec![];
         for col_length in col_lengths {
             if col_length < 0 {
@@ -265,10 +322,10 @@ pub struct Model {
 #[widget]
 impl Widget for PostgresCommEntry {
     fn init_view(&mut self) {
-        println!("{:?}", self.model.data.query);
-        println!("{:?}", self.model.data.resultset_first_rows);
+        // println!("{:?}", self.model.data.query);
+        // println!("{:?}", self.model.data.resultset_first_rows);
         if let Some(first) = self.model.data.resultset_first_rows.first() {
-            println!("first len {}", first.len());
+            // println!("first len {}", first.len());
             for i in 0..first.len() {
                 let col1 = gtk::TreeViewColumnBuilder::new().title("Col").build();
                 let cell_r_txt = gtk::CellRendererText::new();
@@ -280,7 +337,7 @@ impl Widget for PostgresCommEntry {
         for row in &self.model.data.resultset_first_rows {
             let iter = self.model.list_store.append();
             for (col_idx, col) in row.iter().enumerate() {
-                println!("col_idx {}", col_idx);
+                // println!("col_idx {}", col_idx);
                 self.model
                     .list_store
                     .set_value(&iter, col_idx as u32, &col.to_value());

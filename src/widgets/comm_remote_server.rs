@@ -1,5 +1,6 @@
 use super::http_comm_entry::{HttpCommEntry, HttpMessageData};
 use super::postgres_comm_entry::{PostgresCommEntry, PostgresMessageData};
+use crate::icons::Icon;
 use crate::TSharkCommunication;
 use gtk::prelude::*;
 use relm::{Component, ContainerWidget, Widget};
@@ -8,7 +9,10 @@ use std::collections::HashMap;
 
 pub trait MessageParser {
     fn is_my_message(&self, msg: &TSharkCommunication) -> bool;
+    fn protocol_icon(&self) -> Icon;
     fn parse_stream(&self, stream: &Vec<TSharkCommunication>) -> Vec<MessageData>;
+    fn prepare_treeview(&self, tv: &gtk::TreeView) -> gtk::ListStore;
+    fn populate_treeview(&self, ls: &gtk::ListStore, messages: &Vec<MessageData>);
 }
 
 #[derive(Msg)]
@@ -18,6 +22,22 @@ pub enum Msg {}
 pub enum MessageData {
     Http(HttpMessageData),
     Postgres(PostgresMessageData),
+}
+
+impl MessageData {
+    pub fn as_http(&self) -> Option<&HttpMessageData> {
+        match &self {
+            MessageData::Http(x) => Some(x),
+            _ => None,
+        }
+    }
+
+    pub fn as_postgres(&self) -> Option<&PostgresMessageData> {
+        match &self {
+            MessageData::Postgres(x) => Some(x),
+            _ => None,
+        }
+    }
 }
 
 pub struct CommRemoteServerData {

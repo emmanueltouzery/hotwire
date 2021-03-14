@@ -11,8 +11,9 @@ pub enum Msg {}
 pub struct CommTargetCardData {
     pub ip: String,
     pub port: u32,
-    pub protocol_icon: Icon,
+    pub protocol_index: usize,
     pub remote_hosts: HashSet<String>,
+    pub protocol_icon: Icon,
     pub incoming_session_count: usize,
 }
 

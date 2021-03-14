@@ -1,3 +1,4 @@
+use crate::icons::Icon;
 use crate::widgets::comm_remote_server::MessageData;
 use crate::widgets::comm_remote_server::MessageParser;
 use crate::TSharkCommunication;
@@ -11,12 +12,54 @@ impl MessageParser for Http {
     fn is_my_message(&self, msg: &TSharkCommunication) -> bool {
         msg.source.layers.http.is_some()
     }
+
+    fn protocol_icon(&self) -> Icon {
+        Icon::HTTP
+    }
+
     fn parse_stream(&self, stream: &Vec<TSharkCommunication>) -> Vec<MessageData> {
         stream
             .into_iter()
             .filter_map(HttpMessageData::from_json)
             .map(MessageData::Http)
             .collect()
+    }
+
+    fn prepare_treeview(&self, tv: &gtk::TreeView) -> gtk::ListStore {
+        let liststore = gtk::ListStore::new(&[
+            // TODO add: response time, content type, body size...
+            String::static_type(), // request first line
+            String::static_type(), // response first line
+        ]);
+
+        let request_col = gtk::TreeViewColumnBuilder::new().title("Request").build();
+        let cell_r_txt = gtk::CellRendererTextBuilder::new().build();
+        request_col.pack_start(&cell_r_txt, true);
+        request_col.add_attribute(&cell_r_txt, "text", 0);
+        tv.append_column(&request_col);
+
+        let response_col = gtk::TreeViewColumnBuilder::new().title("Response").build();
+        let cell_resp_txt = gtk::CellRendererTextBuilder::new().build();
+        response_col.pack_start(&cell_resp_txt, true);
+        response_col.add_attribute(&cell_resp_txt, "text", 1);
+        tv.append_column(&response_col);
+
+        tv.set_model(Some(&liststore));
+
+        liststore
+    }
+
+    fn populate_treeview(&self, ls: &gtk::ListStore, messages: &Vec<MessageData>) {
+        for message in messages {
+            let iter = ls.append();
+            let http = message.as_http().unwrap();
+            ls.set_value(&iter, 0, &http.request_response_first_line.to_value());
+            ls.set_value(
+                &iter,
+                1,
+                &"TODO (i'm not merging req/resp yet...)".to_value(),
+            );
+        }
     }
 }
 
