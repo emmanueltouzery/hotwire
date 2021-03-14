@@ -31,6 +31,8 @@ impl MessageParser for Http {
             // TODO add: response time, content type, body size...
             String::static_type(), // request first line
             String::static_type(), // response first line
+            u32::static_type(),    // stream_id
+            u32::static_type(),    // index of the comm in the model vector
         ]);
 
         let request_col = gtk::TreeViewColumnBuilder::new().title("Request").build();
@@ -50,8 +52,8 @@ impl MessageParser for Http {
         liststore
     }
 
-    fn populate_treeview(&self, ls: &gtk::ListStore, messages: &Vec<MessageData>) {
-        for message in messages {
+    fn populate_treeview(&self, ls: &gtk::ListStore, session_id: u32, messages: &Vec<MessageData>) {
+        for (idx, message) in messages.iter().enumerate() {
             let iter = ls.append();
             let http = message.as_http().unwrap();
             ls.set_value(&iter, 0, &http.request_response_first_line.to_value());
@@ -60,6 +62,8 @@ impl MessageParser for Http {
                 1,
                 &"TODO (i'm not merging req/resp yet...)".to_value(),
             );
+            ls.set_value(&iter, 2, &session_id.to_value());
+            ls.set_value(&iter, 3, &(idx as u32).to_value());
         }
     }
 

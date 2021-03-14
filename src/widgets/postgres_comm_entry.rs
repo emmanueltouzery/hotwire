@@ -38,6 +38,8 @@ impl MessageParser for Postgres {
             // TODO add: response time...
             String::static_type(), // query first line
             String::static_type(), // response info (number of rows..)
+            u32::static_type(),    // stream_id
+            u32::static_type(),    // index of the comm in the model vector
         ]);
 
         let query_col = gtk::TreeViewColumnBuilder::new()
@@ -64,8 +66,8 @@ impl MessageParser for Postgres {
         liststore
     }
 
-    fn populate_treeview(&self, ls: &gtk::ListStore, messages: &Vec<MessageData>) {
-        for message in messages {
+    fn populate_treeview(&self, ls: &gtk::ListStore, session_id: u32, messages: &Vec<MessageData>) {
+        for (idx, message) in messages.iter().enumerate() {
             let iter = ls.append();
             let postgres = message.as_postgres().unwrap();
             ls.set_value(
@@ -82,6 +84,8 @@ impl MessageParser for Postgres {
                 1,
                 &format!("{} rows", postgres.resultset_row_count).to_value(),
             );
+            ls.set_value(&iter, 2, &session_id.to_value());
+            ls.set_value(&iter, 3, &(idx as i32).to_value());
         }
     }
 
@@ -326,34 +330,12 @@ fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> Vec<MessageData> {
 
 pub struct Model {
     data: PostgresMessageData,
-    list_store: gtk::ListStore,
+    list_store: Option<gtk::ListStore>,
 }
 
 #[widget]
 impl Widget for PostgresCommEntry {
-    fn init_view(&mut self) {
-        // println!("{:?}", self.model.data.query);
-        // println!("{:?}", self.model.data.resultset_first_rows);
-        if let Some(first) = self.model.data.resultset_first_rows.first() {
-            // println!("first len {}", first.len());
-            for i in 0..first.len() {
-                let col1 = gtk::TreeViewColumnBuilder::new().title("Col").build();
-                let cell_r_txt = gtk::CellRendererText::new();
-                col1.pack_start(&cell_r_txt, true);
-                col1.add_attribute(&cell_r_txt, "text", i as i32);
-                self.widgets.resultset.append_column(&col1);
-            }
-        }
-        for row in &self.model.data.resultset_first_rows {
-            let iter = self.model.list_store.append();
-            for (col_idx, col) in row.iter().enumerate() {
-                // println!("col_idx {}", col_idx);
-                self.model
-                    .list_store
-                    .set_value(&iter, col_idx as u32, &col.to_value());
-            }
-        }
-    }
+    fn init_view(&mut self) {}
 
     fn model(relm: &relm::Relm<Self>, data: PostgresMessageData) -> Model {
         let field_descs: Vec<_> = data
@@ -364,12 +346,58 @@ impl Widget for PostgresCommEntry {
             // the list store can't have 0 columns, put one String by default
             .unwrap_or_else(|| vec![String::static_type()]);
 
-        let list_store = gtk::ListStore::new(&field_descs);
-
-        Model { data, list_store }
+        Model {
+            data,
+            list_store: None,
+        }
     }
 
-    fn update(&mut self, event: MessageParserDetailsMsg) {}
+    fn update(&mut self, event: MessageParserDetailsMsg) {
+        match event {
+            MessageParserDetailsMsg::DisplayDetails(MessageData::Postgres(msg)) => {
+                self.model.data = msg;
+
+                let field_descs: Vec<_> = self
+                    .model
+                    .data
+                    .resultset_first_rows
+                    .first()
+                    .filter(|r| r.len() > 0) // list store can't have 0 columns
+                    .map(|r| vec![String::static_type(); r.len()])
+                    // the list store can't have 0 columns, put one String by default
+                    .unwrap_or_else(|| vec![String::static_type()]);
+
+                let list_store = gtk::ListStore::new(&field_descs);
+                // println!("{:?}", self.model.data.query);
+                println!("{:?}", self.model.data.resultset_first_rows);
+                for col in &self.widgets.resultset.get_columns() {
+                    self.widgets.resultset.remove_column(col);
+                }
+                if let Some(first) = self.model.data.resultset_first_rows.first() {
+                    // println!("first len {}", first.len());
+                    for i in 0..first.len() {
+                        println!("add col {}", i);
+                        let col1 = gtk::TreeViewColumnBuilder::new().title("Col").build();
+                        let cell_r_txt = gtk::CellRendererText::new();
+                        col1.pack_start(&cell_r_txt, true);
+                        col1.add_attribute(&cell_r_txt, "text", i as i32);
+                        self.widgets.resultset.append_column(&col1);
+                    }
+                }
+                for row in &self.model.data.resultset_first_rows {
+                    let iter = list_store.append();
+                    for (col_idx, col) in row.iter().enumerate() {
+                        println!("populate col {}", col_idx);
+                        // println!("col_idx {}", col_idx);
+                        list_store.set_value(&iter, col_idx as u32, &col.to_value());
+                    }
+                }
+                self.widgets.resultset.set_model(Some(&list_store));
+                self.model.list_store = Some(list_store);
+            }
+            _ => {}
+        }
+    }
 
     view! {
         gtk::Box {
@@ -377,6 +405,7 @@ impl Widget for PostgresCommEntry {
             gtk::Separator {},
             gtk::Label {
                 label: self.model.data.query.as_deref().unwrap_or("Failed retrieving the query string"),
+                ellipsize: pango::EllipsizeMode::End,
                 xalign: 0.0
             },
             gtk::Label {
@@ -397,11 +426,12 @@ impl Widget for PostgresCommEntry {
                     visible: !self.model.data.resultset_first_rows.is_empty()
                 },
             },
-            #[name="resultset"]
-            gtk::TreeView {
-                model: Some(&self.model.list_store),
-                visible: !self.model.data.resultset_first_rows.is_empty()
-            },
+            gtk::ScrolledWindow {
+                #[name="resultset"]
+                gtk::TreeView {
+                    visible: !self.model.data.resultset_first_rows.is_empty()
+                },
+            }
             // gtk::Label {
             //     label: &self.model.data.resultset_first_rows
             //             .iter()

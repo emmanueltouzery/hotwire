@@ -30,12 +30,21 @@ pub enum Msg {
     SelectCardFromRemoteIp(CommTargetCardData, String),
     SelectCardFromRemoteIpAndStream(CommTargetCardData, String, u32),
 
+    DisplayDetails(u32, u32),
+
     Quit,
+}
+
+struct StreamInfo {
+    stream_id: u32,
+    target_ip: String,
+    target_port: u32,
+    source_ip: String,
 }
 
 pub struct Model {
     relm: relm::Relm<Win>,
-    streams: Vec<(Option<u32>, Vec<TSharkCommunication>)>,
+    streams: Vec<(StreamInfo, Vec<MessageData>)>,
     comm_target_cards: Vec<CommTargetCardData>,
     selected_card: Option<CommTargetCardData>,
 
@@ -74,15 +83,23 @@ impl Widget for Win {
                 .orientation(gtk::Orientation::Vertical)
                 .build();
             vbox.add(&scroll);
-            let component_stream = message_parser.add_details_to_box(&vbox);
+            self.model
+                .details_component_streams
+                .push(message_parser.add_details_to_box(&vbox));
+            let rstream = self.model.relm.stream().clone();
             tv.connect_row_activated(move |_, path, _| {
-                component_stream.emit(MessageParserDetailsMsg::DisplayDetails(MessageData::Http(
-                    HttpMessageData {
-                        request_response_first_line: "hello".to_string(),
-                        request_response_other_lines: "world".to_string(),
-                        request_response_body: None,
-                    },
-                )));
+                let iter = store.get_iter(&path).unwrap();
+                let stream_id = store.get_value(&iter, 2);
+                let idx = store.get_value(&iter, 3);
+                println!(
+                    "stream: {} idx: {}",
+                    stream_id.get::<u32>().unwrap().unwrap(),
+                    idx.get::<u32>().unwrap().unwrap()
+                );
+                rstream.emit(Msg::DisplayDetails(
+                    stream_id.get::<u32>().unwrap().unwrap(),
+                    idx.get::<u32>().unwrap().unwrap(),
+                ));
             });
             self.widgets
                 .comm_remote_servers_stack
@@ -129,40 +146,47 @@ impl Widget for Win {
             .add_resource_path("/icons");
         let message_parsers = get_message_parsers();
 
-        let comm_target_cards = streams
+        let parsed_streams: Vec<_> = streams
             .iter()
             .filter_map(|(id, comms)| {
                 comms
                     .iter()
-                    .find_map(|c| message_parsers.iter().position(|p| p.is_my_message(c)))
-                    .map(|pos| (pos, id, comms))
+                    .find_map(|c| message_parsers.iter().find(|p| p.is_my_message(c)))
+                    .map(|parser| {
+                        let layers = &comms.first().unwrap().source.layers;
+                        let card_key = (
+                            layers.ip.as_ref().unwrap().ip_dst.clone(),
+                            layers.tcp.as_ref().unwrap().port_dst,
+                        );
+                        let ip_src = layers.ip.as_ref().unwrap().ip_src.clone();
+                        (parser, id, ip_src, card_key, parser.parse_stream(&comms))
+                    })
             })
+            .collect();
+
+        let comm_target_cards = parsed_streams
+            .iter()
             .fold(
                 HashMap::<(String, u32), CommTargetCardData>::new(),
-                |mut sofar, (protocol_index, _, items)| {
-                    let layers = &items.first().unwrap().source.layers;
-                    let card_key = (
-                        layers.ip.as_ref().unwrap().ip_dst.clone(),
-                        layers.tcp.as_ref().unwrap().port_dst,
-                    );
+                |mut sofar, (parser, _stream_id, ip_src, card_key, items)| {
                     if let Some(target_card) = sofar.get_mut(&card_key) {
-                        target_card
-                            .remote_hosts
-                            .insert(layers.ip.as_ref().unwrap().ip_src.clone());
+                        target_card.remote_hosts.insert(ip_src.to_string());
                         target_card.incoming_session_count += 1;
                     } else {
                         let mut remote_hosts = HashSet::new();
-                        remote_hosts.insert(layers.ip.as_ref().unwrap().ip_src.clone());
+                        remote_hosts.insert(ip_src.to_string());
+                        let protocol_index = message_parsers
+                            .iter()
+                            // comparing by the protocol icon is.. quite horrible..
+                            .position(|p| p.protocol_icon() == parser.protocol_icon())
+                            .unwrap();
                         sofar.insert(
-                            card_key,
+                            card_key.clone(),
                             CommTargetCardData {
-                                ip: layers.ip.as_ref().unwrap().ip_dst.clone(),
+                                ip: card_key.0.clone(),
                                 protocol_index,
-                                protocol_icon: message_parsers
-                                    .get(protocol_index)
-                                    .unwrap()
-                                    .protocol_icon(),
-                                port: layers.tcp.as_ref().unwrap().port_dst,
+                                protocol_icon: parser.protocol_icon(),
+                                port: card_key.1,
                                 remote_hosts,
                                 incoming_session_count: 1,
                             },
@@ -183,7 +207,20 @@ impl Widget for Win {
 
         Model {
             relm: relm.clone(),
-            streams,
+            streams: parsed_streams
+                .into_iter()
+                .map(|(_parser, id, ip_src, card_key, pstream)| {
+                    (
+                        StreamInfo {
+                            stream_id: id.unwrap(),
+                            target_ip: card_key.0,
+                            target_port: card_key.1,
+                            source_ip: ip_src,
+                        },
+                        pstream,
+                    )
+                })
+                .collect(),
             comm_target_cards,
             _comm_targets_components: vec![],
             selected_card: None,
@@ -262,6 +299,22 @@ impl Widget for Win {
                     Some(stream_id),
                 );
             }
+            Msg::DisplayDetails(stream_id, idx) => {
+                let msg_data = self
+                    .model
+                    .streams
+                    .iter()
+                    .find(|(stream_info, items)| stream_info.stream_id == stream_id)
+                    .unwrap()
+                    .1
+                    .get(idx as usize)
+                    .unwrap();
+                for component_stream in &self.model.details_component_streams {
+                    println!("{:?}", msg_data);
+                    component_stream
+                        .emit(MessageParserDetailsMsg::DisplayDetails(msg_data.clone()));
+                }
+            }
             Msg::Quit => gtk::main_quit(),
         }
     }
@@ -289,8 +342,9 @@ impl Widget for Win {
     fn refresh_remote_ips_streams_tree(
         &mut self,
         card: &CommTargetCardData,
-        by_remote_ip: &HashMap<String, Vec<(Option<u32>, Vec<MessageData>)>>,
+        remote_ips: &HashSet<String>,
     ) {
+        println!("refresh remote ips & streams tree");
         self.model.remote_ips_streams_tree_store.clear();
         let all_iter = self.model.remote_ips_streams_tree_store.append(None);
         self.model
@@ -306,8 +360,10 @@ impl Widget for Win {
             None::<&gtk::TreeViewColumn>,
             false,
         );
+        let target_ip = card.ip.clone();
+        let target_port = card.port;
 
-        for (remote_ip, tcp_sessions) in by_remote_ip {
+        for remote_ip in remote_ips {
             let remote_ip_iter = self.model.remote_ips_streams_tree_store.append(None);
             self.model.remote_ips_streams_tree_store.set_value(
                 &remote_ip_iter,
@@ -319,7 +375,10 @@ impl Widget for Win {
                 1,
                 &pango::Weight::Normal.to_glib().to_value(),
             );
-            for session in tcp_sessions {
+            for (stream_info, _messages) in &self.model.streams {
+                if stream_info.target_ip != target_ip || stream_info.target_port != target_port {
+                    continue;
+                }
                 let session_iter = self
                     .model
                     .remote_ips_streams_tree_store
@@ -327,7 +386,7 @@ impl Widget for Win {
                 self.model.remote_ips_streams_tree_store.set_value(
                     &session_iter,
                     0,
-                    &format!("Session {}", session.0.unwrap()).to_value(),
+                    &format!("Session {}", stream_info.stream_id).to_value(),
                 );
                 self.model.remote_ips_streams_tree_store.set_value(
                     &session_iter,
@@ -337,7 +396,7 @@ impl Widget for Win {
                 self.model.remote_ips_streams_tree_store.set_value(
                     &session_iter,
                     2,
-                    &session.0.unwrap().to_value(),
+                    &stream_info.stream_id.to_value(),
                 );
             }
         }
@@ -359,49 +418,46 @@ impl Widget for Win {
             let target_port = card.port;
             let mut by_remote_ip = HashMap::new();
             let parsers = get_message_parsers();
-            for stream in &self.model.streams {
-                let layers = &stream.1.first().unwrap().source.layers;
-                if layers.ip.as_ref().unwrap().ip_dst != target_ip
-                    || layers.tcp.as_ref().unwrap().port_dst != target_port
-                {
+            for (stream_info, messages) in &self.model.streams {
+                if stream_info.target_ip != target_ip || stream_info.target_port != target_port {
                     continue;
                 }
-                let remote_ip = layers.ip.as_ref().unwrap().ip_src.clone();
+                let remote_ip = &stream_info.source_ip;
                 if let Some(ref constrained_remote) = constrain_remote_ip {
-                    if constrained_remote != &remote_ip {
+                    if constrained_remote != remote_ip {
                         continue;
                     }
                 }
-                let tcp_stream_id = layers.tcp.as_ref().map(|t| t.stream);
-                if constrain_stream_id.is_some() && constrain_stream_id != tcp_stream_id {
+                if constrain_stream_id.is_some()
+                    && constrain_stream_id != Some(stream_info.stream_id)
+                {
                     continue;
                 }
-                let stream_parser = stream
-                    .1
-                    .iter()
-                    .find_map(|m| parsers.iter().find(|p| p.is_my_message(m)));
-                if let Some(parser) = stream_parser {
-                    let messages = parser.parse_stream(&stream.1);
-                    let remote_server_streams = by_remote_ip.entry(remote_ip).or_insert(vec![]);
-                    remote_server_streams.push((tcp_stream_id, messages));
-                }
+                let remote_server_streams = by_remote_ip.entry(remote_ip.clone()).or_insert(vec![]);
+                remote_server_streams.push((stream_info.stream_id, messages));
             }
             let mp = parsers.get(card.protocol_index).unwrap();
             self.widgets
                 .comm_remote_servers_stack
                 .set_visible_child_name(&card.protocol_index.to_string());
-            if refresh_remote_ips_and_streams == RefreshRemoteIpsAndStreams::Yes {
-                self.refresh_remote_ips_streams_tree(&card, &by_remote_ip);
-            }
             let store = &self
                 .model
                 .comm_remote_servers_stores
                 .get(card.protocol_index)
                 .unwrap();
-            for (remote_ip, tcp_sessions) in by_remote_ip {
-                for (_, session) in tcp_sessions {
-                    mp.populate_treeview(&store, &session);
+            for (remote_ip, tcp_sessions) in &by_remote_ip {
+                for (session_id, session) in tcp_sessions {
+                    mp.populate_treeview(&store, *session_id, &session);
                 }
+            }
+            if refresh_remote_ips_and_streams == RefreshRemoteIpsAndStreams::Yes {
+                self.refresh_remote_ips_streams_tree(
+                    &card,
+                    &by_remote_ip
+                        .keys()
+                        .map(|c| c.to_string())
+                        .collect::<HashSet<_>>(),
+                );
             }
         }
     }

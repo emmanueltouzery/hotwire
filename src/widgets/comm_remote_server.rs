@@ -12,7 +12,7 @@ pub trait MessageParser {
     fn protocol_icon(&self) -> Icon;
     fn parse_stream(&self, stream: &Vec<TSharkCommunication>) -> Vec<MessageData>;
     fn prepare_treeview(&self, tv: &gtk::TreeView) -> gtk::ListStore;
-    fn populate_treeview(&self, ls: &gtk::ListStore, messages: &Vec<MessageData>);
+    fn populate_treeview(&self, ls: &gtk::ListStore, session_id: u32, messages: &Vec<MessageData>);
     fn add_details_to_box(&self, vbox: &gtk::Box) -> relm::StreamHandle<MessageParserDetailsMsg>;
 }
 
