@@ -1,9 +1,10 @@
 use crate::icons::Icon;
 use crate::widgets::comm_remote_server::MessageData;
 use crate::widgets::comm_remote_server::MessageParser;
+use crate::widgets::comm_remote_server::MessageParserDetailsMsg;
 use crate::TSharkCommunication;
 use gtk::prelude::*;
-use relm::Widget;
+use relm::{ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
 
 pub struct Http;
@@ -61,6 +62,17 @@ impl MessageParser for Http {
             );
         }
     }
+
+    fn add_details_to_box(&self, vbox: &gtk::Box) -> relm::StreamHandle<MessageParserDetailsMsg> {
+        let component = Box::leak(Box::new(vbox.add_widget::<HttpCommEntry>(
+            HttpMessageData {
+                request_response_first_line: "".to_string(),
+                request_response_other_lines: "".to_string(),
+                request_response_body: None,
+            },
+        )));
+        component.stream()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -90,9 +102,6 @@ impl HttpMessageData {
     }
 }
 
-#[derive(Msg)]
-pub enum Msg {}
-
 pub struct Model {
     data: HttpMessageData,
 }
@@ -103,7 +112,14 @@ impl Widget for HttpCommEntry {
         Model { data }
     }
 
-    fn update(&mut self, event: Msg) {}
+    fn update(&mut self, event: MessageParserDetailsMsg) {
+        match event {
+            MessageParserDetailsMsg::DisplayDetails(MessageData::Http(msg)) => {
+                self.model.data = msg;
+            }
+            _ => {}
+        }
+    }
 
     view! {
         gtk::Box {

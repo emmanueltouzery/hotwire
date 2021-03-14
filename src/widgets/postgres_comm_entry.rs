@@ -2,9 +2,10 @@
 use crate::icons::Icon;
 use crate::widgets::comm_remote_server::MessageData;
 use crate::widgets::comm_remote_server::MessageParser;
+use crate::widgets::comm_remote_server::MessageParserDetailsMsg;
 use crate::TSharkCommunication;
 use gtk::prelude::*;
-use relm::Widget;
+use relm::{ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
 use std::collections::HashMap;
 
@@ -82,6 +83,18 @@ impl MessageParser for Postgres {
                 &format!("{} rows", postgres.resultset_row_count).to_value(),
             );
         }
+    }
+
+    fn add_details_to_box(&self, vbox: &gtk::Box) -> relm::StreamHandle<MessageParserDetailsMsg> {
+        let component = Box::leak(Box::new(vbox.add_widget::<PostgresCommEntry>(
+            PostgresMessageData {
+                query: None,
+                parameter_values: vec![],
+                resultset_row_count: 0,
+                resultset_first_rows: vec![],
+            },
+        )));
+        component.stream()
     }
 }
 
@@ -311,9 +324,6 @@ fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> Vec<MessageData> {
     r
 }
 
-#[derive(Msg)]
-pub enum Msg {}
-
 pub struct Model {
     data: PostgresMessageData,
     list_store: gtk::ListStore,
@@ -359,7 +369,7 @@ impl Widget for PostgresCommEntry {
         Model { data, list_store }
     }
 
-    fn update(&mut self, event: Msg) {}
+    fn update(&mut self, event: MessageParserDetailsMsg) {}
 
     view! {
         gtk::Box {

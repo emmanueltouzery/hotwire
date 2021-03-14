@@ -13,6 +13,12 @@ pub trait MessageParser {
     fn parse_stream(&self, stream: &Vec<TSharkCommunication>) -> Vec<MessageData>;
     fn prepare_treeview(&self, tv: &gtk::TreeView) -> gtk::ListStore;
     fn populate_treeview(&self, ls: &gtk::ListStore, messages: &Vec<MessageData>);
+    fn add_details_to_box(&self, vbox: &gtk::Box) -> relm::StreamHandle<MessageParserDetailsMsg>;
+}
+
+#[derive(Msg)]
+pub enum MessageParserDetailsMsg {
+    DisplayDetails(MessageData),
 }
 
 #[derive(Msg)]

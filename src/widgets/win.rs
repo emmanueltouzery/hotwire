@@ -4,6 +4,7 @@ use super::http_comm_entry::HttpMessageData;
 use super::postgres_comm_entry;
 use crate::icons::Icon;
 use crate::widgets::comm_remote_server::MessageParser;
+use crate::widgets::comm_remote_server::MessageParserDetailsMsg;
 use crate::widgets::http_comm_entry::Http;
 use crate::widgets::postgres_comm_entry::Postgres;
 use crate::TSharkCommunication;
@@ -42,6 +43,8 @@ pub struct Model {
     comm_remote_servers_stores: Vec<gtk::ListStore>,
 
     _comm_targets_components: Vec<Component<CommTargetCard>>,
+
+    details_component_streams: Vec<relm::StreamHandle<MessageParserDetailsMsg>>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -58,18 +61,33 @@ impl Widget for Win {
         }
 
         for (idx, message_parser) in get_message_parsers().iter().enumerate() {
-            let tv = gtk::TreeViewBuilder::new().build();
-            self.model
-                .comm_remote_servers_stores
-                .push(message_parser.prepare_treeview(&tv));
+            let tv = gtk::TreeViewBuilder::new()
+                .activate_on_single_click(true)
+                .build();
+            let store = message_parser.prepare_treeview(&tv);
+            self.model.comm_remote_servers_stores.push(store.clone());
             let scroll = gtk::ScrolledWindowBuilder::new()
                 .expand(true)
                 .child(&tv)
                 .build();
+            let vbox = gtk::BoxBuilder::new()
+                .orientation(gtk::Orientation::Vertical)
+                .build();
+            vbox.add(&scroll);
+            let component_stream = message_parser.add_details_to_box(&vbox);
+            tv.connect_row_activated(move |_, path, _| {
+                component_stream.emit(MessageParserDetailsMsg::DisplayDetails(MessageData::Http(
+                    HttpMessageData {
+                        request_response_first_line: "hello".to_string(),
+                        request_response_other_lines: "world".to_string(),
+                        request_response_body: None,
+                    },
+                )));
+            });
             self.widgets
                 .comm_remote_servers_stack
-                .add_named(&scroll, &idx.to_string());
-            scroll.show_all();
+                .add_named(&vbox, &idx.to_string());
+            vbox.show_all();
         }
 
         let remote_ip_col = gtk::TreeViewColumnBuilder::new()
@@ -171,6 +189,7 @@ impl Widget for Win {
             selected_card: None,
             remote_ips_streams_tree_store,
             comm_remote_servers_stores: vec![],
+            details_component_streams: vec![],
         }
     }
 
