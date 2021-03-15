@@ -12,6 +12,7 @@ use glib::translate::ToGlib;
 use gtk::prelude::*;
 use relm::{Component, ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -146,7 +147,7 @@ impl Widget for Win {
             .add_resource_path("/icons");
         let message_parsers = get_message_parsers();
 
-        let parsed_streams: Vec<_> = streams
+        let mut parsed_streams: Vec<_> = streams
             .iter()
             .filter_map(|(id, comms)| {
                 comms
@@ -163,8 +164,9 @@ impl Widget for Win {
                     })
             })
             .collect();
+        parsed_streams.sort_by_key(|(_parser, id, _ip_src, _card_key, _pstream)| *id);
 
-        let comm_target_cards = parsed_streams
+        let comm_target_cards: Vec<_> = parsed_streams
             .iter()
             .fold(
                 HashMap::<(String, u32), CommTargetCardData>::new(),
@@ -173,7 +175,7 @@ impl Widget for Win {
                         target_card.remote_hosts.insert(ip_src.to_string());
                         target_card.incoming_session_count += 1;
                     } else {
-                        let mut remote_hosts = HashSet::new();
+                        let mut remote_hosts = BTreeSet::new();
                         remote_hosts.insert(ip_src.to_string());
                         let protocol_index = message_parsers
                             .iter()

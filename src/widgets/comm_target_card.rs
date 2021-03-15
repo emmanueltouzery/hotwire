@@ -2,7 +2,7 @@ use crate::icons::Icon;
 use gtk::prelude::*;
 use relm::Widget;
 use relm_derive::{widget, Msg};
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 #[derive(Msg)]
 pub enum Msg {}
@@ -12,7 +12,7 @@ pub struct CommTargetCardData {
     pub ip: String,
     pub port: u32,
     pub protocol_index: usize,
-    pub remote_hosts: HashSet<String>,
+    pub remote_hosts: BTreeSet<String>,
     pub protocol_icon: Icon,
     pub incoming_session_count: usize,
 }
