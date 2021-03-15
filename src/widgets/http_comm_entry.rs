@@ -19,11 +19,30 @@ impl MessageParser for Http {
     }
 
     fn parse_stream(&self, stream: &Vec<TSharkCommunication>) -> Vec<MessageData> {
-        stream
-            .into_iter()
-            .filter_map(HttpMessageData::from_json)
-            .map(MessageData::Http)
-            .collect()
+        let mut cur_request = None;
+        let mut result = vec![];
+        for msg in stream {
+            match parse_request_response(msg) {
+                RequestOrResponseOrOther::Request(r) => {
+                    cur_request = Some(r);
+                }
+                RequestOrResponseOrOther::Response(r) => {
+                    result.push(MessageData::Http(HttpMessageData {
+                        request: cur_request,
+                        response: Some(r),
+                    }));
+                    cur_request = None;
+                }
+                RequestOrResponseOrOther::Other => {}
+            }
+        }
+        if let Some(r) = cur_request {
+            result.push(MessageData::Http(HttpMessageData {
+                request: Some(r),
+                response: None,
+            }));
+        }
+        result
     }
 
     fn prepare_treeview(&self, tv: &gtk::TreeView) -> gtk::ListStore {
@@ -56,11 +75,25 @@ impl MessageParser for Http {
         for (idx, message) in messages.iter().enumerate() {
             let iter = ls.append();
             let http = message.as_http().unwrap();
-            ls.set_value(&iter, 0, &http.request_response_first_line.to_value());
+            ls.set_value(
+                &iter,
+                0,
+                &http
+                    .request
+                    .as_ref()
+                    .map(|r| r.first_line.as_str())
+                    .unwrap_or("Missing request info")
+                    .to_value(),
+            );
             ls.set_value(
                 &iter,
                 1,
-                &"TODO (i'm not merging req/resp yet...)".to_value(),
+                &http
+                    .response
+                    .as_ref()
+                    .map(|r| r.first_line.as_str())
+                    .unwrap_or("Missing response info")
+                    .to_value(),
             );
             ls.set_value(&iter, 2, &session_id.to_value());
             ls.set_value(&iter, 3, &(idx as u32).to_value());
@@ -73,9 +106,8 @@ impl MessageParser for Http {
     ) -> relm::StreamHandle<MessageParserDetailsMsg> {
         let component = Box::leak(Box::new(parent.add_widget::<HttpCommEntry>(
             HttpMessageData {
-                request_response_first_line: "".to_string(),
-                request_response_other_lines: "".to_string(),
-                request_response_body: None,
+                request: None,
+                response: None,
             },
         )));
         component.stream()
@@ -83,30 +115,81 @@ impl MessageParser for Http {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HttpMessageData {
-    pub request_response_first_line: String,
-    pub request_response_other_lines: String,
-    pub request_response_body: Option<String>,
+pub struct HttpRequestData {
+    pub first_line: String,
+    pub other_lines: String,
+    pub body: Option<String>,
 }
 
-impl HttpMessageData {
-    pub fn from_json(comm: &TSharkCommunication) -> Option<HttpMessageData> {
-        let serde_json = comm.source.layers.http.as_ref();
-        if let Some(serde_json::Value::Object(http_map)) = serde_json {
-            http_map.iter().find(|(_,v)| matches!(v,
-                        serde_json::Value::Object(fields) if fields.contains_key("http.request.method") || fields.contains_key("http.response.code")
-            )).map(|(k,_)| HttpMessageData {
-                request_response_first_line: k.trim_end_matches("\\r\\n").to_string(),
-                request_response_other_lines: itertools::free::join(
-                    http_map.get("http.request.line")
-                            .unwrap_or_else(|| http_map.get("http.response.line").unwrap())
-                            .as_array().unwrap().iter().map(|v| v.as_str().unwrap()), ""),
-                request_response_body: http_map.get("http.file_data").and_then(|v| v.as_str()).map(|v| v.trim().to_string())
-            })
-        } else {
-            None
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HttpResponseData {
+    pub first_line: String,
+    pub other_lines: String,
+    pub body: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HttpMessageData {
+    pub request: Option<HttpRequestData>,
+    pub response: Option<HttpResponseData>,
+}
+
+enum RequestOrResponseOrOther {
+    Request(HttpRequestData),
+    Response(HttpResponseData),
+    Other,
+}
+
+fn parse_request_response(comm: &TSharkCommunication) -> RequestOrResponseOrOther {
+    let serde_json = comm.source.layers.http.as_ref();
+    if let Some(serde_json::Value::Object(http_map)) = serde_json {
+        let body = http_map
+            .get("http.file_data")
+            .and_then(|v| v.as_str())
+            .map(|v| v.trim().to_string());
+        let extract_first_line = |key_name| {
+            http_map
+                .iter()
+                .find(|(_k, v)| {
+                    matches!(
+                        v,
+                        serde_json::Value::Object(fields) if fields.contains_key(key_name))
+                })
+                .map(|(k, _v)| k.as_str())
+                .unwrap_or("")
+                .trim_end_matches("\\r\\n")
+                .to_string()
+        };
+        if let Some(req_line) = http_map.get("http.request.line") {
+            return RequestOrResponseOrOther::Request(HttpRequestData {
+                first_line: extract_first_line("http.request.method"),
+                other_lines: itertools::free::join(
+                    req_line
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|v| v.as_str().unwrap()),
+                    "",
+                ),
+                body,
+            });
+        }
+        if let Some(resp_line) = http_map.get("http.response.line") {
+            return RequestOrResponseOrOther::Response(HttpResponseData {
+                first_line: extract_first_line("http.response.code"),
+                other_lines: itertools::free::join(
+                    resp_line
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|v| v.as_str().unwrap()),
+                    "",
+                ),
+                body,
+            });
         }
     }
+    RequestOrResponseOrOther::Other
 }
 
 pub struct Model {
@@ -134,17 +217,30 @@ impl Widget for HttpCommEntry {
             gtk::Separator {},
             #[style_class="http_first_line"]
             gtk::Label {
-                label: &self.model.data.request_response_first_line,
+                label: &self.model.data.request.as_ref().map(|r| r.first_line.as_str()).unwrap_or("Missing request info"),
                 xalign: 0.0
             },
             gtk::Label {
-                label: &self.model.data.request_response_other_lines,
+                label: &self.model.data.request.as_ref().map(|r| r.other_lines.as_str()).unwrap_or(""),
                 xalign: 0.0
             },
             gtk::Label {
-                label: self.model.data.request_response_body.as_deref().unwrap_or(""),
+                label: self.model.data.request.as_ref().and_then(|r| r.body.as_ref()).map(|b| b.as_str()).unwrap_or(""),
                 xalign: 0.0,
-                visible: self.model.data.request_response_body.is_some()
+            },
+            gtk::Separator {},
+            #[style_class="http_first_line"]
+            gtk::Label {
+                label: &self.model.data.response.as_ref().map(|r| r.first_line.as_str()).unwrap_or("Missing response info"),
+                xalign: 0.0
+            },
+            gtk::Label {
+                label: &self.model.data.response.as_ref().map(|r| r.other_lines.as_str()).unwrap_or(""),
+                xalign: 0.0
+            },
+            gtk::Label {
+                label: self.model.data.response.as_ref().and_then(|r| r.body.as_ref()).map(|b| b.as_str()).unwrap_or(""),
+                xalign: 0.0,
             },
         }
     }
