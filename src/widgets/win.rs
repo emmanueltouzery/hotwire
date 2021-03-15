@@ -344,7 +344,6 @@ impl Widget for Win {
         card: &CommTargetCardData,
         remote_ips: &HashSet<String>,
     ) {
-        println!("refresh remote ips & streams tree");
         self.model.remote_ips_streams_tree_store.clear();
         let all_iter = self.model.remote_ips_streams_tree_store.append(None);
         self.model
@@ -376,7 +375,10 @@ impl Widget for Win {
                 &pango::Weight::Normal.to_glib().to_value(),
             );
             for (stream_info, _messages) in &self.model.streams {
-                if stream_info.target_ip != target_ip || stream_info.target_port != target_port {
+                if stream_info.target_ip != target_ip
+                    || stream_info.target_port != target_port
+                    || stream_info.source_ip != *remote_ip
+                {
                     continue;
                 }
                 let session_iter = self
