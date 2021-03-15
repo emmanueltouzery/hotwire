@@ -339,9 +339,7 @@ fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> Vec<MessageData> {
             }
             PostgresWireMessage::ResultSetRow { cols } => {
                 cur_rs_row_count += 1;
-                if cur_rs_row_count < 5 {
-                    cur_rs_first_rows.push(cols);
-                }
+                cur_rs_first_rows.push(cols);
             }
             PostgresWireMessage::ReadyForQuery => {
                 if was_bind {
@@ -446,7 +444,12 @@ impl Widget for PostgresCommEntry {
     view! {
         gtk::Box {
             orientation: gtk::Orientation::Vertical,
-            gtk::Separator {},
+            margin_top: 10,
+            margin_bottom: 10,
+            margin_start: 10,
+            margin_end: 10,
+            spacing: 10,
+            #[style_class="http_first_line"]
             gtk::Label {
                 label: self.model.data.query.as_deref().unwrap_or("Failed retrieving the query string"),
                 ellipsize: pango::EllipsizeMode::End,
@@ -473,6 +476,8 @@ impl Widget for PostgresCommEntry {
             gtk::ScrolledWindow {
                 #[name="resultset"]
                 gtk::TreeView {
+                    hexpand: true,
+                    vexpand: true,
                     visible: !self.model.data.resultset_first_rows.is_empty()
                 },
             }

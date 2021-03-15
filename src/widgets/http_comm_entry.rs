@@ -214,7 +214,11 @@ impl Widget for HttpCommEntry {
     view! {
         gtk::Box {
             orientation: gtk::Orientation::Vertical,
-            gtk::Separator {},
+            margin_top: 10,
+            margin_bottom: 10,
+            margin_start: 10,
+            margin_end: 10,
+            spacing: 10,
             #[style_class="http_first_line"]
             gtk::Label {
                 label: &self.model.data.request.as_ref().map(|r| r.first_line.as_str()).unwrap_or("Missing request info"),
@@ -227,6 +231,7 @@ impl Widget for HttpCommEntry {
             gtk::Label {
                 label: self.model.data.request.as_ref().and_then(|r| r.body.as_ref()).map(|b| b.as_str()).unwrap_or(""),
                 xalign: 0.0,
+                visible: self.model.data.request.as_ref().and_then(|r| r.body.as_ref()).is_some()
             },
             gtk::Separator {},
             #[style_class="http_first_line"]
@@ -241,6 +246,7 @@ impl Widget for HttpCommEntry {
             gtk::Label {
                 label: self.model.data.response.as_ref().and_then(|r| r.body.as_ref()).map(|b| b.as_str()).unwrap_or(""),
                 xalign: 0.0,
+                visible: self.model.data.response.as_ref().and_then(|r| r.body.as_ref()).is_some()
             },
         }
     }
