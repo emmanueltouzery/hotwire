@@ -97,6 +97,7 @@ impl MessageParser for Postgres {
             PostgresMessageData {
                 query: None,
                 parameter_values: vec![],
+                resultset_col_names: vec![],
                 resultset_row_count: 0,
                 resultset_first_rows: vec![],
             },
@@ -115,6 +116,9 @@ pub enum PostgresWireMessage {
         statement: Option<String>,
         parameter_values: Vec<String>,
     },
+    RowDescription {
+        col_names: Vec<String>,
+    },
     ResultSetRow {
         cols: Vec<String>,
     },
@@ -128,6 +132,7 @@ pub struct PostgresMessageData {
     // in that case we won't be able to recover the query string.
     query: Option<String>,
     parameter_values: Vec<String>,
+    resultset_col_names: Vec<String>,
     resultset_row_count: usize,
     resultset_first_rows: Vec<Vec<String>>,
 }
@@ -190,6 +195,20 @@ fn parse_pg_value(pgsql: &serde_json::Value) -> Option<PostgresWireMessage> {
     }
     if typ == Some("Ready for query") {
         return Some(PostgresWireMessage::ReadyForQuery);
+    }
+    if typ == Some("Row description") {
+        let tree = obj.unwrap().get("pgsql.field.count_tree").unwrap();
+        let col_names = match tree.get("pgsql.col.name") {
+            Some(serde_json::Value::String(s)) => {
+                vec![s.to_string()]
+            }
+            Some(serde_json::Value::Array(ar)) => ar
+                .into_iter()
+                .map(|v| v.as_str().unwrap().to_string())
+                .collect(),
+            _ => vec![],
+        };
+        return Some(PostgresWireMessage::RowDescription { col_names });
     }
     if typ == Some("Data row") {
         let col_count = obj
@@ -280,6 +299,7 @@ fn hex_chars_to_string(hex_chars: &str) -> Option<String> {
 fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> Vec<MessageData> {
     let mut r = vec![];
     let mut cur_query = None;
+    let mut cur_col_names = vec![];
     let mut cur_rs_row_count = 0;
     let mut cur_rs_first_rows = vec![];
     let mut known_statements = HashMap::new();
@@ -314,6 +334,9 @@ fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> Vec<MessageData> {
                 };
                 cur_parameter_values = parameter_values.to_vec();
             }
+            PostgresWireMessage::RowDescription { col_names } => {
+                cur_col_names = col_names;
+            }
             PostgresWireMessage::ResultSetRow { cols } => {
                 cur_rs_row_count += 1;
                 if cur_rs_row_count < 5 {
@@ -325,6 +348,7 @@ fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> Vec<MessageData> {
                     r.push(MessageData::Postgres(PostgresMessageData {
                         query: cur_query_with_fallback,
                         parameter_values: cur_parameter_values,
+                        resultset_col_names: cur_col_names,
                         resultset_row_count: cur_rs_row_count,
                         resultset_first_rows: cur_rs_first_rows,
                     }));
@@ -332,6 +356,7 @@ fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> Vec<MessageData> {
                 was_bind = false;
                 cur_query_with_fallback = None;
                 cur_query = None;
+                cur_col_names = vec![];
                 cur_parameter_values = vec![];
                 cur_rs_row_count = 0;
                 cur_rs_first_rows = vec![];
@@ -389,7 +414,16 @@ impl Widget for PostgresCommEntry {
                 if let Some(first) = self.model.data.resultset_first_rows.first() {
                     // println!("first len {}", first.len());
                     for i in 0..first.len() {
-                        let col1 = gtk::TreeViewColumnBuilder::new().title("Col").build();
+                        let col1 = gtk::TreeViewColumnBuilder::new()
+                            .title(
+                                self.model
+                                    .data
+                                    .resultset_col_names
+                                    .get(i)
+                                    .map(|s| s.as_str())
+                                    .unwrap_or("Col"),
+                            )
+                            .build();
                         let cell_r_txt = gtk::CellRendererText::new();
                         col1.pack_start(&cell_r_txt, true);
                         col1.add_attribute(&cell_r_txt, "text", i as i32);
@@ -499,6 +533,7 @@ fn should_parse_simple_query() {
     let expected: Vec<MessageData> = vec![MessageData::Postgres(PostgresMessageData {
         query: Some("select 1".to_string()),
         parameter_values: vec![],
+        resultset_col_names: vec![],
         resultset_row_count: 2,
         resultset_first_rows: vec![
             vec!["PostgreSQL".to_string()],
@@ -550,12 +585,14 @@ fn should_parse_prepared_statement() {
         MessageData::Postgres(PostgresMessageData {
             query: Some("select 1".to_string()),
             parameter_values: vec![],
+            resultset_col_names: vec![],
             resultset_row_count: 0,
             resultset_first_rows: vec![],
         }),
         MessageData::Postgres(PostgresMessageData {
             query: Some("select 1".to_string()),
             parameter_values: vec![],
+            resultset_col_names: vec![],
             resultset_row_count: 1,
             resultset_first_rows: vec![vec!["PostgreSQL".to_string()]],
         }),
@@ -610,12 +647,14 @@ fn should_parse_prepared_statement_with_parameters() {
         MessageData::Postgres(PostgresMessageData {
             query: Some("select $1".to_string()),
             parameter_values: vec![],
+            resultset_col_names: vec![],
             resultset_row_count: 0,
             resultset_first_rows: vec![],
         }),
         MessageData::Postgres(PostgresMessageData {
             query: Some("select $1".to_string()),
             parameter_values: vec!["TRUE".to_string()],
+            resultset_col_names: vec![],
             resultset_row_count: 1,
             resultset_first_rows: vec![vec!["PostgreSQL".to_string()]],
         }),
@@ -655,6 +694,12 @@ fn should_parse_query_with_multiple_columns_and_nulls() {
              "pgsql.type": "Bind"
           },
           {
+             "pgsql.type": "Row description",
+             "pgsql.field.count_tree": {
+                  "pgsql.col.name": "version"
+              }
+          },
+          {
              "pgsql.type": "Data row",
              "pgsql.field.count": "4",
              "pgsql.field.count_tree": {
@@ -673,6 +718,7 @@ fn should_parse_query_with_multiple_columns_and_nulls() {
     let expected: Vec<MessageData> = vec![MessageData::Postgres(PostgresMessageData {
         query: Some("select 1".to_string()),
         parameter_values: vec![],
+        resultset_col_names: vec!["version".to_string()],
         resultset_row_count: 1,
         resultset_first_rows: vec![vec![
             "Postg".to_string(),
@@ -721,6 +767,7 @@ fn should_parse_query_with_no_parse_and_unknown_bind() {
     let expected: Vec<MessageData> = vec![MessageData::Postgres(PostgresMessageData {
         query: Some("Unknown statement: S_18".to_string()),
         parameter_values: vec![],
+        resultset_col_names: vec![],
         resultset_row_count: 1,
         resultset_first_rows: vec![vec![
             "Postg".to_string(),
