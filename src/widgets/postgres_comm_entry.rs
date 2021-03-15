@@ -102,6 +102,7 @@ impl MessageParser for Postgres {
     }
 }
 
+#[derive(Debug)]
 pub enum PostgresWireMessage {
     Parse {
         query: Option<String>,
@@ -281,6 +282,7 @@ fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> Vec<MessageData> {
     let mut known_statements = HashMap::new();
     let mut cur_query_with_fallback = None;
     let mut cur_parameter_values = vec![];
+    let mut was_bind = false;
     for md in mds {
         match md {
             PostgresWireMessage::Parse {
@@ -296,9 +298,15 @@ fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> Vec<MessageData> {
                 statement,
                 parameter_values,
             } => {
+                was_bind = true;
                 cur_query_with_fallback = match (&cur_query, &statement) {
                     (Some(_), _) => cur_query.clone(),
-                    (None, Some(s)) => known_statements.get(s).cloned(),
+                    (None, Some(s)) => Some(
+                        known_statements
+                            .get(s)
+                            .cloned()
+                            .unwrap_or(format!("Unknown statement: {}", s)),
+                    ),
                     _ => None,
                 };
                 cur_parameter_values = parameter_values.to_vec();
@@ -310,7 +318,7 @@ fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> Vec<MessageData> {
                 }
             }
             PostgresWireMessage::ReadyForQuery => {
-                if cur_query_with_fallback.is_some() {
+                if was_bind {
                     r.push(MessageData::Postgres(PostgresMessageData {
                         query: cur_query_with_fallback,
                         parameter_values: cur_parameter_values,
@@ -318,7 +326,9 @@ fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> Vec<MessageData> {
                         resultset_first_rows: cur_rs_first_rows,
                     }));
                 }
+                was_bind = false;
                 cur_query_with_fallback = None;
+                cur_query = None;
                 cur_parameter_values = vec![];
                 cur_rs_row_count = 0;
                 cur_rs_first_rows = vec![];
@@ -369,14 +379,13 @@ impl Widget for PostgresCommEntry {
 
                 let list_store = gtk::ListStore::new(&field_descs);
                 // println!("{:?}", self.model.data.query);
-                println!("{:?}", self.model.data.resultset_first_rows);
+                // println!("{:?}", self.model.data.resultset_first_rows);
                 for col in &self.widgets.resultset.get_columns() {
                     self.widgets.resultset.remove_column(col);
                 }
                 if let Some(first) = self.model.data.resultset_first_rows.first() {
                     // println!("first len {}", first.len());
                     for i in 0..first.len() {
-                        println!("add col {}", i);
                         let col1 = gtk::TreeViewColumnBuilder::new().title("Col").build();
                         let cell_r_txt = gtk::CellRendererText::new();
                         col1.pack_start(&cell_r_txt, true);
@@ -387,8 +396,6 @@ impl Widget for PostgresCommEntry {
                 for row in &self.model.data.resultset_first_rows {
                     let iter = list_store.append();
                     for (col_idx, col) in row.iter().enumerate() {
-                        println!("populate col {}", col_idx);
-                        // println!("col_idx {}", col_idx);
                         list_store.set_value(&iter, col_idx as u32, &col.to_value());
                     }
                 }
@@ -662,6 +669,54 @@ fn should_parse_query_with_multiple_columns_and_nulls() {
     ));
     let expected: Vec<MessageData> = vec![MessageData::Postgres(PostgresMessageData {
         query: Some("select 1".to_string()),
+        parameter_values: vec![],
+        resultset_row_count: 1,
+        resultset_first_rows: vec![vec![
+            "Postg".to_string(),
+            "null".to_string(),
+            "".to_string(),
+            "reSQL".to_string(),
+        ]],
+    })];
+    assert_eq!(expected, parsed);
+}
+
+// this will happen if we don't catch the TCP stream at the beginning
+#[test]
+fn should_parse_query_with_no_parse_and_unknown_bind() {
+    let parsed = parse_pg_stream(as_json_array(
+        &serde_json::from_str(
+            r#"
+        [
+          {
+             "pgsql.type": "Parse",
+             "pgsql.query": "select 1"
+          },
+          {
+             "pgsql.type": "Ready for query"
+          },
+          {
+             "pgsql.type": "Bind",
+             "pgsql.statement": "S_18"
+          },
+          {
+             "pgsql.type": "Data row",
+             "pgsql.field.count": "4",
+             "pgsql.field.count_tree": {
+                 "pgsql.val.length": ["5", "-1", "0", "5"],
+                 "pgsql.val.data": ["50:6f:73:74:67", "72:65:53:51:4c"]
+             }
+          },
+          {
+             "pgsql.type": "Ready for query"
+          }
+        ]
+        "#,
+        )
+        .unwrap(),
+    ));
+    let expected: Vec<MessageData> = vec![MessageData::Postgres(PostgresMessageData {
+        query: Some("Unknown statement: S_18".to_string()),
         parameter_values: vec![],
         resultset_row_count: 1,
         resultset_first_rows: vec![vec![
