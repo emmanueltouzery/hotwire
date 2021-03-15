@@ -67,8 +67,11 @@ impl MessageParser for Http {
         }
     }
 
-    fn add_details_to_box(&self, vbox: &gtk::Box) -> relm::StreamHandle<MessageParserDetailsMsg> {
-        let component = Box::leak(Box::new(vbox.add_widget::<HttpCommEntry>(
+    fn add_details_to_scroll(
+        &self,
+        parent: &gtk::ScrolledWindow,
+    ) -> relm::StreamHandle<MessageParserDetailsMsg> {
+        let component = Box::leak(Box::new(parent.add_widget::<HttpCommEntry>(
             HttpMessageData {
                 request_response_first_line: "".to_string(),
                 request_response_other_lines: "".to_string(),

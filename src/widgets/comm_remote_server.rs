@@ -13,7 +13,10 @@ pub trait MessageParser {
     fn parse_stream(&self, stream: &Vec<TSharkCommunication>) -> Vec<MessageData>;
     fn prepare_treeview(&self, tv: &gtk::TreeView) -> gtk::ListStore;
     fn populate_treeview(&self, ls: &gtk::ListStore, session_id: u32, messages: &Vec<MessageData>);
-    fn add_details_to_box(&self, vbox: &gtk::Box) -> relm::StreamHandle<MessageParserDetailsMsg>;
+    fn add_details_to_scroll(
+        &self,
+        paned: &gtk::ScrolledWindow,
+    ) -> relm::StreamHandle<MessageParserDetailsMsg>;
 }
 
 #[derive(Msg)]

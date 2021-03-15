@@ -80,13 +80,17 @@ impl Widget for Win {
                 .expand(true)
                 .child(&tv)
                 .build();
-            let vbox = gtk::BoxBuilder::new()
+            let paned = gtk::PanedBuilder::new()
                 .orientation(gtk::Orientation::Vertical)
                 .build();
-            vbox.add(&scroll);
+            paned.pack1(&scroll, true, true);
+
+            let scroll2 = gtk::ScrolledWindowBuilder::new().build();
             self.model
                 .details_component_streams
-                .push(message_parser.add_details_to_box(&vbox));
+                .push(message_parser.add_details_to_scroll(&scroll2));
+            scroll2.set_property_height_request(200);
+            paned.pack2(&scroll2, false, true);
             let rstream = self.model.relm.stream().clone();
             tv.connect_row_activated(move |_, path, _| {
                 let iter = store.get_iter(&path).unwrap();
@@ -104,8 +108,8 @@ impl Widget for Win {
             });
             self.widgets
                 .comm_remote_servers_stack
-                .add_named(&vbox, &idx.to_string());
-            vbox.show_all();
+                .add_named(&paned, &idx.to_string());
+            paned.show_all();
         }
 
         let remote_ip_col = gtk::TreeViewColumnBuilder::new()
@@ -312,7 +316,7 @@ impl Widget for Win {
                     .get(idx as usize)
                     .unwrap();
                 for component_stream in &self.model.details_component_streams {
-                    println!("{:?}", msg_data);
+                    // println!("{:?}", msg_data);
                     component_stream
                         .emit(MessageParserDetailsMsg::DisplayDetails(msg_data.clone()));
                 }

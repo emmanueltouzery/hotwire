@@ -89,8 +89,11 @@ impl MessageParser for Postgres {
         }
     }
 
-    fn add_details_to_box(&self, vbox: &gtk::Box) -> relm::StreamHandle<MessageParserDetailsMsg> {
-        let component = Box::leak(Box::new(vbox.add_widget::<PostgresCommEntry>(
+    fn add_details_to_scroll(
+        &self,
+        parent: &gtk::ScrolledWindow,
+    ) -> relm::StreamHandle<MessageParserDetailsMsg> {
+        let component = Box::leak(Box::new(parent.add_widget::<PostgresCommEntry>(
             PostgresMessageData {
                 query: None,
                 parameter_values: vec![],
