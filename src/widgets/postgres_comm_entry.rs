@@ -453,7 +453,7 @@ impl Widget for PostgresCommEntry {
             #[style_class="http_first_line"]
             gtk::Label {
                 label: self.model.data.query.as_deref().unwrap_or("Failed retrieving the query string"),
-                wrap: gtk::WrapMode::Word,
+                line_wrap: true,
                 xalign: 0.0
             },
             gtk::Label {
