@@ -5,6 +5,7 @@ use crate::widgets::comm_remote_server::MessageParser;
 use crate::widgets::comm_remote_server::MessageParserDetailsMsg;
 use crate::TSharkCommunication;
 use gtk::prelude::*;
+use itertools::Itertools;
 use relm::{ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
 use std::collections::HashMap;
@@ -452,11 +453,16 @@ impl Widget for PostgresCommEntry {
             #[style_class="http_first_line"]
             gtk::Label {
                 label: self.model.data.query.as_deref().unwrap_or("Failed retrieving the query string"),
-                ellipsize: pango::EllipsizeMode::End,
+                wrap: gtk::WrapMode::Word,
                 xalign: 0.0
             },
             gtk::Label {
-                label: &self.model.data.parameter_values.join(", "),
+                markup: &self.model.data.parameter_values
+                                       .iter()
+                                       .cloned()
+                                       .enumerate()
+                                       .map(|(i, p)| format!("<b>${}</b>: {}", i+1, p))
+                                       .intersperse("\n".to_string()).collect::<String>(),
                 visible: !self.model.data.parameter_values.is_empty(),
                 xalign: 0.0,
             },
