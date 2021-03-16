@@ -45,7 +45,7 @@ impl MessageParser for Postgres {
         let query_col = gtk::TreeViewColumnBuilder::new()
             .title("Query")
             .expand(true)
-            .fixed_width(100)
+            .resizable(true)
             .build();
         let cell_q_txt = gtk::CellRendererTextBuilder::new().build();
         query_col.pack_start(&cell_q_txt, true);
@@ -54,7 +54,7 @@ impl MessageParser for Postgres {
 
         let result_col = gtk::TreeViewColumnBuilder::new()
             .title("Result")
-            .fixed_width(100)
+            .resizable(true)
             .build();
         let cell_r_txt = gtk::CellRendererTextBuilder::new().build();
         result_col.pack_start(&cell_r_txt, true);
@@ -76,7 +76,9 @@ impl MessageParser for Postgres {
                 &postgres
                     .query
                     .as_deref()
+                    .map(|q| if q.len() > 150 { &q[..150] } else { q })
                     .unwrap_or("couldn't get query")
+                    .replace("\n", "")
                     .to_value(),
             );
             ls.set_value(

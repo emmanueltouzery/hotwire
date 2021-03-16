@@ -54,13 +54,20 @@ impl MessageParser for Http {
             u32::static_type(),    // index of the comm in the model vector
         ]);
 
-        let request_col = gtk::TreeViewColumnBuilder::new().title("Request").build();
+        let request_col = gtk::TreeViewColumnBuilder::new()
+            .title("Request")
+            .expand(true)
+            .resizable(true)
+            .build();
         let cell_r_txt = gtk::CellRendererTextBuilder::new().build();
         request_col.pack_start(&cell_r_txt, true);
         request_col.add_attribute(&cell_r_txt, "text", 0);
         tv.append_column(&request_col);
 
-        let response_col = gtk::TreeViewColumnBuilder::new().title("Response").build();
+        let response_col = gtk::TreeViewColumnBuilder::new()
+            .title("Response")
+            .resizable(true)
+            .build();
         let cell_resp_txt = gtk::CellRendererTextBuilder::new().build();
         response_col.pack_start(&cell_resp_txt, true);
         response_col.add_attribute(&cell_resp_txt, "text", 1);
