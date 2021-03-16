@@ -25,7 +25,7 @@ pub fn get_message_parsers() -> Vec<Box<dyn MessageParser>> {
 #[derive(Msg)]
 pub enum Msg {
     SelectCard(Option<usize>),
-    SelectRemoteIpStream(gtk::TreePath),
+    SelectRemoteIpStream(gtk::TreeSelection),
 
     SelectCardAll(CommTargetCardData),
     SelectCardFromRemoteIp(CommTargetCardData, String),
@@ -51,6 +51,8 @@ pub struct Model {
 
     remote_ips_streams_tree_store: gtk::TreeStore,
     comm_remote_servers_stores: Vec<gtk::ListStore>,
+    comm_remote_servers_treeviews: Vec<gtk::TreeView>,
+    disable_tree_view_selection_events: bool,
 
     _comm_targets_components: Vec<Component<CommTargetCard>>,
 
@@ -76,6 +78,7 @@ impl Widget for Win {
                 .build();
             let store = message_parser.prepare_treeview(&tv);
             self.model.comm_remote_servers_stores.push(store.clone());
+            self.model.comm_remote_servers_treeviews.push(tv.clone());
             let scroll = gtk::ScrolledWindowBuilder::new()
                 .expand(true)
                 .child(&tv)
@@ -92,19 +95,23 @@ impl Widget for Win {
             scroll2.set_property_height_request(200);
             paned.pack2(&scroll2, false, true);
             let rstream = self.model.relm.stream().clone();
-            tv.connect_row_activated(move |_, path, _| {
-                let iter = store.get_iter(&path).unwrap();
-                let stream_id = store.get_value(&iter, 2);
-                let idx = store.get_value(&iter, 3);
-                println!(
-                    "stream: {} idx: {}",
-                    stream_id.get::<u32>().unwrap().unwrap(),
-                    idx.get::<u32>().unwrap().unwrap()
-                );
-                rstream.emit(Msg::DisplayDetails(
-                    stream_id.get::<u32>().unwrap().unwrap(),
-                    idx.get::<u32>().unwrap().unwrap(),
-                ));
+            tv.get_selection().connect_changed(move |selection| {
+                if let Some((model, iter)) = selection.get_selected() {
+                    if let Some(path) = model.get_path(&iter) {
+                        let iter = store.get_iter(&path).unwrap();
+                        let stream_id = store.get_value(&iter, 2);
+                        let idx = store.get_value(&iter, 3);
+                        println!(
+                            "stream: {} idx: {}",
+                            stream_id.get::<u32>().unwrap().unwrap(),
+                            idx.get::<u32>().unwrap().unwrap()
+                        );
+                        rstream.emit(Msg::DisplayDetails(
+                            stream_id.get::<u32>().unwrap().unwrap(),
+                            idx.get::<u32>().unwrap().unwrap(),
+                        ));
+                    }
+                }
             });
             self.widgets
                 .comm_remote_servers_stack
@@ -232,6 +239,8 @@ impl Widget for Win {
             selected_card: None,
             remote_ips_streams_tree_store,
             comm_remote_servers_stores: vec![],
+            comm_remote_servers_treeviews: vec![],
+            disable_tree_view_selection_events: false,
             details_component_streams: vec![],
         }
     }
@@ -247,51 +256,60 @@ impl Widget for Win {
                 //     vadj.set_value(0.0);
                 // }
             }
-            Msg::SelectRemoteIpStream(mut path) => match path.get_indices_with_depth().as_slice() {
-                &[0] => self.model.relm.stream().emit(Msg::SelectCardAll(
-                    self.model.selected_card.as_ref().unwrap().clone(),
-                )),
-                x if x.len() == 1 => {
-                    if let Some(iter) = self.model.remote_ips_streams_tree_store.get_iter(&path) {
-                        let remote_ip =
-                            self.model.remote_ips_streams_tree_store.get_value(&iter, 0);
-                        self.model.relm.stream().emit(Msg::SelectCardFromRemoteIp(
-                            self.model.selected_card.as_ref().unwrap().clone(),
-                            remote_ip.get().unwrap().unwrap(),
-                        ));
+            Msg::SelectRemoteIpStream(selection) => {
+                if let Some((model, iter)) = selection.get_selected() {
+                    if let Some(mut path) = model.get_path(&iter) {
+                        match path.get_indices_with_depth().as_slice() {
+                            &[0] => self.model.relm.stream().emit(Msg::SelectCardAll(
+                                self.model.selected_card.as_ref().unwrap().clone(),
+                            )),
+                            x if x.len() == 1 => {
+                                if let Some(iter) =
+                                    self.model.remote_ips_streams_tree_store.get_iter(&path)
+                                {
+                                    let remote_ip = self
+                                        .model
+                                        .remote_ips_streams_tree_store
+                                        .get_value(&iter, 0);
+                                    self.model.relm.stream().emit(Msg::SelectCardFromRemoteIp(
+                                        self.model.selected_card.as_ref().unwrap().clone(),
+                                        remote_ip.get().unwrap().unwrap(),
+                                    ));
+                                }
+                            }
+                            x if x.len() == 2 => {
+                                let stream_iter = self
+                                    .model
+                                    .remote_ips_streams_tree_store
+                                    .get_iter(&path)
+                                    .unwrap();
+                                let stream_id = self
+                                    .model
+                                    .remote_ips_streams_tree_store
+                                    .get_value(&stream_iter, 2);
+                                path.up();
+                                let remote_ip_iter = self
+                                    .model
+                                    .remote_ips_streams_tree_store
+                                    .get_iter(&path)
+                                    .unwrap();
+                                let remote_ip = self
+                                    .model
+                                    .remote_ips_streams_tree_store
+                                    .get_value(&remote_ip_iter, 0);
+                                self.model.relm.stream().emit(
+                                    Msg::SelectCardFromRemoteIpAndStream(
+                                        self.model.selected_card.as_ref().unwrap().clone(),
+                                        remote_ip.get().unwrap().unwrap(),
+                                        stream_id.get().unwrap().unwrap(),
+                                    ),
+                                );
+                            }
+                            _ => panic!(path.get_depth()),
+                        }
                     }
                 }
-                x if x.len() == 2 => {
-                    let stream_iter = self
-                        .model
-                        .remote_ips_streams_tree_store
-                        .get_iter(&path)
-                        .unwrap();
-                    let stream_id = self
-                        .model
-                        .remote_ips_streams_tree_store
-                        .get_value(&stream_iter, 2);
-                    path.up();
-                    let remote_ip_iter = self
-                        .model
-                        .remote_ips_streams_tree_store
-                        .get_iter(&path)
-                        .unwrap();
-                    let remote_ip = self
-                        .model
-                        .remote_ips_streams_tree_store
-                        .get_value(&remote_ip_iter, 0);
-                    self.model
-                        .relm
-                        .stream()
-                        .emit(Msg::SelectCardFromRemoteIpAndStream(
-                            self.model.selected_card.as_ref().unwrap().clone(),
-                            remote_ip.get().unwrap().unwrap(),
-                            stream_id.get().unwrap().unwrap(),
-                        ));
-                }
-                _ => panic!(path.get_depth()),
-            },
+            }
             Msg::SelectCardAll(_) => {
                 self.refresh_remote_servers(RefreshRemoteIpsAndStreams::No, None, None);
             }
@@ -453,11 +471,19 @@ impl Widget for Win {
                 .comm_remote_servers_stores
                 .get(card.protocol_index)
                 .unwrap();
+            self.model.disable_tree_view_selection_events = true;
             for (remote_ip, tcp_sessions) in &by_remote_ip {
                 for (session_id, session) in tcp_sessions {
                     mp.populate_treeview(&store, *session_id, &session);
                 }
             }
+            self.model.disable_tree_view_selection_events = false;
+            self.model
+                .comm_remote_servers_treeviews
+                .get(card.protocol_index)
+                .unwrap()
+                .get_selection()
+                .select_path(&gtk::TreePath::new_first());
             if refresh_remote_ips_and_streams == RefreshRemoteIpsAndStreams::Yes {
                 self.refresh_remote_ips_streams_tree(
                     &card,
@@ -496,7 +522,7 @@ impl Widget for Win {
                     gtk::TreeView {
                         activate_on_single_click: true,
                         model: Some(&self.model.remote_ips_streams_tree_store),
-                        row_activated(_, path, _) => Msg::SelectRemoteIpStream(path.clone()),
+                        selection.changed(selection) => Msg::SelectRemoteIpStream(selection.clone()),
                     },
                 },
                 gtk::Separator {
