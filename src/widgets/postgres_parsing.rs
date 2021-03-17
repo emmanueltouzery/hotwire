@@ -1,6 +1,8 @@
 // https://www.postgresql.org/docs/12/protocol.html
 use super::postgres_comm_entry::PostgresMessageData;
 use crate::widgets::comm_remote_server::MessageData;
+use crate::TSharkCommunication;
+use chrono::NaiveDateTime;
 use std::collections::HashMap;
 
 #[derive(Debug)]
@@ -10,6 +12,7 @@ pub enum PostgresWireMessage {
         statement: Option<String>,
     },
     Bind {
+        timestamp: NaiveDateTime,
         statement: Option<String>,
         parameter_values: Vec<String>,
     },
@@ -19,17 +22,27 @@ pub enum PostgresWireMessage {
     ResultSetRow {
         cols: Vec<String>,
     },
-    ReadyForQuery,
+    ReadyForQuery {
+        timestamp: NaiveDateTime,
+    },
 }
 
-pub fn parse_pg_stream(all_vals: Vec<&serde_json::Value>) -> Vec<MessageData> {
-    let decoded_messages = all_vals.into_iter().filter_map(parse_pg_value).collect();
+pub fn parse_pg_stream(
+    all_vals: Vec<(&TSharkCommunication, &serde_json::Value)>,
+) -> Vec<MessageData> {
+    let decoded_messages = all_vals
+        .into_iter()
+        .filter_map(|(p, v)| parse_pg_value(p, v))
+        .collect();
     merge_message_datas(decoded_messages)
 }
 
 // now postgres bound parameters.. $1, $2..
 // for instance in session 34
-fn parse_pg_value(pgsql: &serde_json::Value) -> Option<PostgresWireMessage> {
+fn parse_pg_value(
+    packet: &TSharkCommunication,
+    pgsql: &serde_json::Value,
+) -> Option<PostgresWireMessage> {
     let obj = pgsql.as_object();
     let typ = obj
         .and_then(|o| o.get("pgsql.type"))
@@ -56,6 +69,7 @@ fn parse_pg_value(pgsql: &serde_json::Value) -> Option<PostgresWireMessage> {
         // we can then recover the query from the statement id in post-processing.
         return Some(PostgresWireMessage::Bind {
             // query: format!("{} -> {}", time_relative, q),
+            timestamp: packet.source.layers.frame.frame_time,
             statement: obj
                 .and_then(|o| o.get("pgsql.statement"))
                 .and_then(|s| s.as_str())
@@ -81,7 +95,9 @@ fn parse_pg_value(pgsql: &serde_json::Value) -> Option<PostgresWireMessage> {
         });
     }
     if typ == Some("Ready for query") {
-        return Some(PostgresWireMessage::ReadyForQuery);
+        return Some(PostgresWireMessage::ReadyForQuery {
+            timestamp: packet.source.layers.frame.frame_time,
+        });
     }
     if typ == Some("Row description") {
         let tree = obj.unwrap().get("pgsql.field.count_tree").unwrap();
@@ -124,7 +140,6 @@ fn parse_pg_value(pgsql: &serde_json::Value) -> Option<PostgresWireMessage> {
     }
 
     // "pgsql.type": "Bind",
-
     None
 }
 
@@ -187,6 +202,7 @@ fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> Vec<MessageData> {
     let mut cur_query_with_fallback = None;
     let mut cur_parameter_values = vec![];
     let mut was_bind = false;
+    let mut query_timestamp = None;
     for md in mds {
         match md {
             PostgresWireMessage::Parse {
@@ -199,10 +215,12 @@ fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> Vec<MessageData> {
                 cur_query = query.clone();
             }
             PostgresWireMessage::Bind {
+                timestamp,
                 statement,
                 parameter_values,
             } => {
                 was_bind = true;
+                query_timestamp = Some(timestamp);
                 cur_query_with_fallback = match (&cur_query, &statement) {
                     (Some(_), _) => cur_query.clone(),
                     (None, Some(s)) => Some(
@@ -222,10 +240,12 @@ fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> Vec<MessageData> {
                 cur_rs_row_count += 1;
                 cur_rs_first_rows.push(cols);
             }
-            PostgresWireMessage::ReadyForQuery => {
+            PostgresWireMessage::ReadyForQuery { timestamp } => {
                 if was_bind {
                     r.push(MessageData::Postgres(PostgresMessageData {
                         query: cur_query_with_fallback,
+                        query_timestamp: query_timestamp.unwrap(), // know it was populated since was_bind is true
+                        result_timestamp: timestamp,
                         parameter_values: cur_parameter_values,
                         resultset_col_names: cur_col_names,
                         resultset_row_count: cur_rs_row_count,
@@ -239,6 +259,7 @@ fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> Vec<MessageData> {
                 cur_parameter_values = vec![];
                 cur_rs_row_count = 0;
                 cur_rs_first_rows = vec![];
+                query_timestamp = None;
             }
         }
     }

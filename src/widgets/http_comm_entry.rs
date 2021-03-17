@@ -3,6 +3,7 @@ use crate::widgets::comm_remote_server::MessageData;
 use crate::widgets::comm_remote_server::MessageParser;
 use crate::widgets::comm_remote_server::MessageParserDetailsMsg;
 use crate::TSharkCommunication;
+use chrono::NaiveDateTime;
 use gtk::prelude::*;
 use relm::{ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
@@ -123,6 +124,7 @@ impl MessageParser for Http {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HttpRequestData {
+    pub timestamp: NaiveDateTime,
     pub first_line: String,
     pub other_lines: String,
     pub body: Option<String>,
@@ -130,6 +132,7 @@ pub struct HttpRequestData {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HttpResponseData {
+    pub timestamp: NaiveDateTime,
     pub first_line: String,
     pub other_lines: String,
     pub body: Option<String>,
@@ -169,6 +172,7 @@ fn parse_request_response(comm: &TSharkCommunication) -> RequestOrResponseOrOthe
         };
         if let Some(req_line) = http_map.get("http.request.line") {
             return RequestOrResponseOrOther::Request(HttpRequestData {
+                timestamp: comm.source.layers.frame.frame_time,
                 first_line: extract_first_line("http.request.method"),
                 other_lines: itertools::free::join(
                     req_line
@@ -183,6 +187,7 @@ fn parse_request_response(comm: &TSharkCommunication) -> RequestOrResponseOrOthe
         }
         if let Some(resp_line) = http_map.get("http.response.line") {
             return RequestOrResponseOrOther::Response(HttpResponseData {
+                timestamp: comm.source.layers.frame.frame_time,
                 first_line: extract_first_line("http.response.code"),
                 other_lines: itertools::free::join(
                     resp_line

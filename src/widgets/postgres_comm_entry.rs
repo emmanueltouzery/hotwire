@@ -4,6 +4,7 @@ use crate::widgets::comm_remote_server::MessageData;
 use crate::widgets::comm_remote_server::MessageParser;
 use crate::widgets::comm_remote_server::MessageParserDetailsMsg;
 use crate::TSharkCommunication;
+use chrono::{NaiveDateTime, Utc};
 use gtk::prelude::*;
 use itertools::Itertools;
 use relm::{ContainerWidget, Widget};
@@ -25,8 +26,10 @@ impl MessageParser for Postgres {
         for msg in stream {
             let root = msg.source.layers.pgsql.as_ref();
             match root {
-                Some(serde_json::Value::Object(_)) => all_vals.push(root.unwrap()),
-                Some(serde_json::Value::Array(vals)) => all_vals.extend(vals),
+                Some(serde_json::Value::Object(_)) => all_vals.push((msg, root.unwrap())),
+                Some(serde_json::Value::Array(vals)) => {
+                    all_vals.extend(vals.iter().map(|v| (msg, v)))
+                }
                 _ => {}
             }
         }
@@ -98,6 +101,8 @@ impl MessageParser for Postgres {
         let component = Box::leak(Box::new(parent.add_widget::<PostgresCommEntry>(
             PostgresMessageData {
                 query: None,
+                query_timestamp: Utc::now().naive_local(),
+                result_timestamp: Utc::now().naive_local(),
                 parameter_values: vec![],
                 resultset_col_names: vec![],
                 resultset_row_count: 0,
@@ -113,6 +118,8 @@ pub struct PostgresMessageData {
     // for prepared queries, it's possible the declaration
     // occured before we started recording the stream.
     // in that case we won't be able to recover the query string.
+    pub query_timestamp: NaiveDateTime,
+    pub result_timestamp: NaiveDateTime,
     pub query: Option<String>,
     pub parameter_values: Vec<String>,
     pub resultset_col_names: Vec<String>,
