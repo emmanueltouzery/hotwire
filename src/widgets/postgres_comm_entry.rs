@@ -20,7 +20,7 @@ impl MessageParser for Postgres {
         Icon::DATABASE
     }
 
-    fn parse_stream(&self, stream: &Vec<TSharkCommunication>) -> Vec<MessageData> {
+    fn parse_stream(&self, stream: &[TSharkCommunication]) -> Vec<MessageData> {
         let mut all_vals = vec![];
         for msg in stream {
             let root = msg.source.layers.pgsql.as_ref();
@@ -133,7 +133,7 @@ impl Widget for PostgresCommEntry {
         let field_descs: Vec<_> = data
             .resultset_first_rows
             .first()
-            .filter(|r| r.len() > 0) // list store can't have 0 columns
+            .filter(|r| !r.is_empty()) // list store can't have 0 columns
             .map(|r| vec![String::static_type(); r.len()])
             // the list store can't have 0 columns, put one String by default
             .unwrap_or_else(|| vec![String::static_type()]);
@@ -154,7 +154,7 @@ impl Widget for PostgresCommEntry {
                     .data
                     .resultset_first_rows
                     .first()
-                    .filter(|r| r.len() > 0) // list store can't have 0 columns
+                    .filter(|r| !r.is_empty()) // list store can't have 0 columns
                     .map(|r| vec![String::static_type(); r.len()])
                     // the list store can't have 0 columns, put one String by default
                     .unwrap_or_else(|| vec![String::static_type()]);

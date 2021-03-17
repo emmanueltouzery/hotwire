@@ -10,7 +10,7 @@ use std::collections::HashMap;
 pub trait MessageParser {
     fn is_my_message(&self, msg: &TSharkCommunication) -> bool;
     fn protocol_icon(&self) -> Icon;
-    fn parse_stream(&self, stream: &Vec<TSharkCommunication>) -> Vec<MessageData>;
+    fn parse_stream(&self, stream: &[TSharkCommunication]) -> Vec<MessageData>;
     fn prepare_treeview(&self, tv: &gtk::TreeView) -> gtk::ListStore;
     fn populate_treeview(&self, ls: &gtk::ListStore, session_id: u32, messages: &Vec<MessageData>);
     fn add_details_to_scroll(

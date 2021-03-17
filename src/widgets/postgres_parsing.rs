@@ -77,7 +77,7 @@ fn parse_pg_value(pgsql: &serde_json::Value) -> Option<PostgresWireMessage> {
                     }
                     None
                 })
-                .unwrap_or_else(|| vec![]),
+                .unwrap_or_else(Vec::new),
         });
     }
     if typ == Some("Ready for query") {
@@ -89,10 +89,9 @@ fn parse_pg_value(pgsql: &serde_json::Value) -> Option<PostgresWireMessage> {
             Some(serde_json::Value::String(s)) => {
                 vec![s.to_string()]
             }
-            Some(serde_json::Value::Array(ar)) => ar
-                .into_iter()
-                .map(|v| v.as_str().unwrap().to_string())
-                .collect(),
+            Some(serde_json::Value::Array(ar)) => {
+                ar.iter().map(|v| v.as_str().unwrap().to_string()).collect()
+            }
             _ => vec![],
         };
         return Some(PostgresWireMessage::RowDescription { col_names });
@@ -116,7 +115,7 @@ fn parse_pg_value(pgsql: &serde_json::Value) -> Option<PostgresWireMessage> {
             .get("pgsql.val.data")
             // TODO the or_default is a workaround because we didn't code everything yet
             .map(|t| parse_str_or_array(t, |s| hex_chars_to_string(s).unwrap_or_default()))
-            .unwrap_or_else(|| vec![]);
+            .unwrap_or_else(Vec::new);
         let cols = add_cols(raw_cols, col_lengths);
         if col_count != cols.len() {
             panic!("{} != {}", col_count, cols.len());
@@ -134,10 +133,7 @@ fn parse_str_or_array<T>(val: &serde_json::Value, converter: impl Fn(&str) -> T)
         serde_json::Value::String(s) => {
             vec![converter(s)]
         }
-        serde_json::Value::Array(ar) => ar
-            .into_iter()
-            .map(|v| converter(v.as_str().unwrap()))
-            .collect(),
+        serde_json::Value::Array(ar) => ar.iter().map(|v| converter(v.as_str().unwrap())).collect(),
         _ => panic!(),
     }
 }
@@ -150,10 +146,8 @@ fn add_cols(mut raw_cols: Vec<String>, col_lengths: Vec<i32>) -> Vec<String> {
             cols.push("null".to_string());
         } else if col_length == 0 {
             cols.push("".to_string());
-        } else {
-            if let Some(val) = raw_cols.pop() {
-                cols.push(val);
-            }
+        } else if let Some(val) = raw_cols.pop() {
+            cols.push(val);
         }
     }
     if !raw_cols.is_empty() {

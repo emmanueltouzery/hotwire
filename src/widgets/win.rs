@@ -439,7 +439,7 @@ impl Widget for Win {
         for store in &self.model.comm_remote_servers_stores {
             store.clear();
         }
-        if let Some(card) = self.model.selected_card.as_ref().map(|c| c.clone()) {
+        if let Some(card) = self.model.selected_card.as_ref().cloned() {
             let target_ip = card.ip.clone();
             let target_port = card.port;
             let mut by_remote_ip = HashMap::new();
@@ -459,7 +459,9 @@ impl Widget for Win {
                 {
                     continue;
                 }
-                let remote_server_streams = by_remote_ip.entry(remote_ip.clone()).or_insert(vec![]);
+                let remote_server_streams = by_remote_ip
+                    .entry(remote_ip.clone())
+                    .or_insert_with(Vec::new);
                 remote_server_streams.push((stream_info.stream_id, messages));
             }
             let mp = parsers.get(card.protocol_index).unwrap();
@@ -485,13 +487,11 @@ impl Widget for Win {
                 .get_selection()
                 .select_path(&gtk::TreePath::new_first());
             if refresh_remote_ips_and_streams == RefreshRemoteIpsAndStreams::Yes {
-                self.refresh_remote_ips_streams_tree(
-                    &card,
-                    &by_remote_ip
-                        .keys()
-                        .map(|c| c.to_string())
-                        .collect::<HashSet<_>>(),
-                );
+                let ip_hash = by_remote_ip
+                    .keys()
+                    .map(|c| c.to_string())
+                    .collect::<HashSet<_>>();
+                self.refresh_remote_ips_streams_tree(&card, &ip_hash);
             }
         }
     }

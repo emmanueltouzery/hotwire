@@ -18,7 +18,7 @@ impl MessageParser for Http {
         Icon::HTTP
     }
 
-    fn parse_stream(&self, stream: &Vec<TSharkCommunication>) -> Vec<MessageData> {
+    fn parse_stream(&self, stream: &[TSharkCommunication]) -> Vec<MessageData> {
         let mut cur_request = None;
         let mut result = vec![];
         for msg in stream {

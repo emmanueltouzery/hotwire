@@ -2,8 +2,6 @@ use crate::tshark_communication::TSharkCommunication;
 use itertools::Itertools;
 use relm::Widget;
 use std::cmp::Reverse;
-use std::fs::File;
-use std::io::Read;
 use std::process::Command;
 
 pub mod icons;
@@ -11,7 +9,6 @@ mod tshark_communication;
 mod widgets;
 
 fn main() {
-    println!("hello");
     let tshark_output = Command::new("tshark")
         .args(&[
             "-r",
@@ -29,9 +26,6 @@ fn main() {
     }
     let output_str =
         std::str::from_utf8(&tshark_output.stdout).expect("tshark output is not valid utf8");
-    // let mut f = File::open("parsed.json").unwrap();
-    // let mut output_str = String::new();
-    // f.read_to_string(&mut output_str).unwrap();
     match serde_json::from_str::<Vec<TSharkCommunication>>(&output_str) {
         Ok(packets) => handle_packets(packets),
         Err(e) => panic!(format!("tshark output is not valid json: {:?}", e)),
@@ -59,14 +53,6 @@ fn handle_packets(packets: Vec<TSharkCommunication>) {
         let layers = &stream.1.first().as_ref().unwrap().source.layers;
         let ip = layers.ip.as_ref().unwrap();
         let tcp = layers.tcp.as_ref().unwrap();
-        println!(
-            "{}:{} -> {}:{} {}",
-            ip.ip_src,
-            tcp.port_src,
-            ip.ip_dst,
-            tcp.port_dst,
-            stream.1.len()
-        );
     }
 
     let res_bytes = include_bytes!("icons.bin");
