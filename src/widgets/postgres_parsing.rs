@@ -2,8 +2,11 @@
 use super::postgres_comm_entry::PostgresMessageData;
 use crate::widgets::comm_remote_server::MessageData;
 use crate::TSharkCommunication;
-use chrono::NaiveDateTime;
+use chrono::{NaiveDate, NaiveDateTime};
 use std::collections::HashMap;
+
+#[cfg(test)]
+use crate::tshark_communication::{TSharkFrameLayer, TSharkLayers, TSharkSource};
 
 #[derive(Debug)]
 pub enum PostgresWireMessage {
@@ -267,8 +270,25 @@ fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> Vec<MessageData> {
 }
 
 #[cfg(test)]
-fn as_json_array(json: &serde_json::Value) -> Vec<&serde_json::Value> {
-    json.as_array().unwrap().iter().collect()
+fn as_json_array(json: &serde_json::Value) -> Vec<(&TSharkCommunication, &serde_json::Value)> {
+    let tshark_test: &'static TSharkCommunication = Box::leak(Box::new(TSharkCommunication {
+        source: TSharkSource {
+            layers: TSharkLayers {
+                frame: TSharkFrameLayer {
+                    frame_time: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
+                },
+                ip: None,
+                tcp: None,
+                http: None,
+                pgsql: None,
+            },
+        },
+    }));
+    json.as_array()
+        .unwrap()
+        .iter()
+        .map(|v| (tshark_test, v))
+        .collect()
 }
 
 #[test]
@@ -309,6 +329,8 @@ fn should_parse_simple_query() {
         .unwrap(),
     ));
     let expected: Vec<MessageData> = vec![MessageData::Postgres(PostgresMessageData {
+        query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
+        result_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
         query: Some("select 1".to_string()),
         parameter_values: vec![],
         resultset_col_names: vec![],
@@ -361,6 +383,8 @@ fn should_parse_prepared_statement() {
     ));
     let expected: Vec<MessageData> = vec![
         MessageData::Postgres(PostgresMessageData {
+            query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
+            result_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
             query: Some("select 1".to_string()),
             parameter_values: vec![],
             resultset_col_names: vec![],
@@ -368,6 +392,8 @@ fn should_parse_prepared_statement() {
             resultset_first_rows: vec![],
         }),
         MessageData::Postgres(PostgresMessageData {
+            query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
+            result_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
             query: Some("select 1".to_string()),
             parameter_values: vec![],
             resultset_col_names: vec![],
@@ -429,6 +455,8 @@ fn should_parse_prepared_statement_with_parameters() {
     ));
     let expected: Vec<MessageData> = vec![
         MessageData::Postgres(PostgresMessageData {
+            query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
+            result_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
             query: Some("select $1".to_string()),
             parameter_values: vec![],
             resultset_col_names: vec![],
@@ -436,6 +464,8 @@ fn should_parse_prepared_statement_with_parameters() {
             resultset_first_rows: vec![],
         }),
         MessageData::Postgres(PostgresMessageData {
+            query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
+            result_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
             query: Some("select $1".to_string()),
             parameter_values: vec!["TRUE".to_string(), "null".to_string(), "TRUER".to_string()],
             resultset_col_names: vec![],
@@ -500,6 +530,8 @@ fn should_parse_query_with_multiple_columns_and_nulls() {
         .unwrap(),
     ));
     let expected: Vec<MessageData> = vec![MessageData::Postgres(PostgresMessageData {
+        query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
+        result_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
         query: Some("select 1".to_string()),
         parameter_values: vec![],
         resultset_col_names: vec!["version".to_string()],
@@ -549,6 +581,8 @@ fn should_parse_query_with_no_parse_and_unknown_bind() {
         .unwrap(),
     ));
     let expected: Vec<MessageData> = vec![MessageData::Postgres(PostgresMessageData {
+        query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
+        result_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
         query: Some("Unknown statement: S_18".to_string()),
         parameter_values: vec![],
         resultset_col_names: vec![],
