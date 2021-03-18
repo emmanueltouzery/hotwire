@@ -48,7 +48,7 @@ impl MessageParser for Http {
 
     fn prepare_treeview(&self, tv: &gtk::TreeView) -> gtk::ListStore {
         let liststore = gtk::ListStore::new(&[
-            // TODO add: response time, content type, body size...
+            // TODO add: content type, body size...
             String::static_type(), // request first line
             String::static_type(), // response first line
             u32::static_type(),    // stream_id
