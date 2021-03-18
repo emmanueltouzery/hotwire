@@ -72,6 +72,11 @@ impl Widget for Win {
             println!("Error loading the CSS: {}", err);
         }
 
+        // https://bugzilla.gnome.org/show_bug.cgi?id=305277
+        gtk::Settings::get_default()
+            .unwrap()
+            .set_property_gtk_alternative_sort_arrows(true);
+
         for (idx, message_parser) in get_message_parsers().iter().enumerate() {
             let tv = gtk::TreeViewBuilder::new()
                 .activate_on_single_click(true)

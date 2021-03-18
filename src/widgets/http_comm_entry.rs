@@ -53,7 +53,21 @@ impl MessageParser for Http {
             String::static_type(), // response first line
             u32::static_type(),    // stream_id
             u32::static_type(),    // index of the comm in the model vector
+            String::static_type(), // request start timestamp (string)
+            i64::static_type(),    // request start timestamp (integer, for sorting)
+            i32::static_type(),    // request duration (nanos, for sorting)
+            String::static_type(), // request duration display
         ]);
+
+        let timestamp_col = gtk::TreeViewColumnBuilder::new()
+            .title("Timestamp")
+            .resizable(true)
+            .sort_column_id(5)
+            .build();
+        let cell_t_txt = gtk::CellRendererTextBuilder::new().build();
+        timestamp_col.pack_start(&cell_t_txt, true);
+        timestamp_col.add_attribute(&cell_t_txt, "text", 4);
+        tv.append_column(&timestamp_col);
 
         let request_col = gtk::TreeViewColumnBuilder::new()
             .title("Request")
@@ -73,6 +87,16 @@ impl MessageParser for Http {
         response_col.pack_start(&cell_resp_txt, true);
         response_col.add_attribute(&cell_resp_txt, "text", 1);
         tv.append_column(&response_col);
+
+        let duration_col = gtk::TreeViewColumnBuilder::new()
+            .title("Duration")
+            .resizable(true)
+            .sort_column_id(6)
+            .build();
+        let cell_d_txt = gtk::CellRendererTextBuilder::new().build();
+        duration_col.pack_start(&cell_d_txt, true);
+        duration_col.add_attribute(&cell_d_txt, "text", 7);
+        tv.append_column(&duration_col);
 
         tv.set_model(Some(&liststore));
 
@@ -105,6 +129,23 @@ impl MessageParser for Http {
             );
             ls.set_value(&iter, 2, &session_id.to_value());
             ls.set_value(&iter, 3, &(idx as u32).to_value());
+            if let Some(ref rq) = http.request {
+                ls.set_value(&iter, 4, &rq.timestamp.to_string().to_value());
+                ls.set_value(&iter, 5, &rq.timestamp.timestamp_nanos().to_value());
+                if let Some(ref rs) = http.response {
+                    ls.set_value(
+                        &iter,
+                        6,
+                        &(rs.timestamp - rq.timestamp).num_milliseconds().to_value(),
+                    );
+                    ls.set_value(
+                        &iter,
+                        7,
+                        &format!("{} ms", (rs.timestamp - rq.timestamp).num_milliseconds())
+                            .to_value(),
+                    );
+                }
+            }
         }
     }
 

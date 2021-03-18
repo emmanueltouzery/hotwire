@@ -38,12 +38,25 @@ impl MessageParser for Postgres {
 
     fn prepare_treeview(&self, tv: &gtk::TreeView) -> gtk::ListStore {
         let liststore = gtk::ListStore::new(&[
-            // TODO add: response time...
             String::static_type(), // query first line
             String::static_type(), // response info (number of rows..)
             u32::static_type(),    // stream_id
             u32::static_type(),    // index of the comm in the model vector
+            String::static_type(), // query start timestamp (string)
+            i64::static_type(),    // query start timestamp (integer, for sorting)
+            i32::static_type(),    // query duration (nanos, for sorting)
+            String::static_type(), // query duration display
         ]);
+
+        let timestamp_col = gtk::TreeViewColumnBuilder::new()
+            .title("Timestamp")
+            .resizable(true)
+            .sort_column_id(5)
+            .build();
+        let cell_t_txt = gtk::CellRendererTextBuilder::new().build();
+        timestamp_col.pack_start(&cell_t_txt, true);
+        timestamp_col.add_attribute(&cell_t_txt, "text", 4);
+        tv.append_column(&timestamp_col);
 
         let query_col = gtk::TreeViewColumnBuilder::new()
             .title("Query")
@@ -63,6 +76,16 @@ impl MessageParser for Postgres {
         result_col.pack_start(&cell_r_txt, true);
         result_col.add_attribute(&cell_r_txt, "text", 1);
         tv.append_column(&result_col);
+
+        let duration_col = gtk::TreeViewColumnBuilder::new()
+            .title("Duration")
+            .resizable(true)
+            .sort_column_id(6)
+            .build();
+        let cell_d_txt = gtk::CellRendererTextBuilder::new().build();
+        duration_col.pack_start(&cell_d_txt, true);
+        duration_col.add_attribute(&cell_d_txt, "text", 7);
+        tv.append_column(&duration_col);
 
         tv.set_model(Some(&liststore));
 
@@ -91,6 +114,28 @@ impl MessageParser for Postgres {
             );
             ls.set_value(&iter, 2, &session_id.to_value());
             ls.set_value(&iter, 3, &(idx as i32).to_value());
+            ls.set_value(&iter, 4, &postgres.query_timestamp.to_string().to_value());
+            ls.set_value(
+                &iter,
+                5,
+                &postgres.query_timestamp.timestamp_nanos().to_value(),
+            );
+            ls.set_value(
+                &iter,
+                6,
+                &(postgres.result_timestamp - postgres.query_timestamp)
+                    .num_milliseconds()
+                    .to_value(),
+            );
+            ls.set_value(
+                &iter,
+                7,
+                &format!(
+                    "{} ms",
+                    (postgres.result_timestamp - postgres.query_timestamp).num_milliseconds()
+                )
+                .to_value(),
+            );
         }
     }
 
