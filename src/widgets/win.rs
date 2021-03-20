@@ -4,6 +4,7 @@ use crate::widgets::comm_remote_server::MessageParser;
 use crate::widgets::comm_remote_server::MessageParserDetailsMsg;
 use crate::widgets::http_comm_entry::Http;
 use crate::widgets::postgres_comm_entry::Postgres;
+use crate::BgFunc;
 use crate::TSharkCommunication;
 use glib::translate::ToGlib;
 use gtk::prelude::*;
@@ -14,17 +15,27 @@ use std::cmp::Reverse;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::process::Command;
+use std::sync::mpsc;
 
 const CSS_DATA: &[u8] = include_bytes!("../../resources/style.css");
+
+const WELCOME_STACK_NAME: &str = "welcome";
+const LOADING_STACK_NAME: &str = "loading";
+const NORMAL_STACK_NAME: &str = "normal";
 
 pub fn get_message_parsers() -> Vec<Box<dyn MessageParser>> {
     vec![Box::new(Http), Box::new(Postgres)]
 }
 
+pub type LoadedDataParams = (Vec<CommTargetCardData>, Vec<(StreamInfo, Vec<MessageData>)>);
+
 #[derive(Msg)]
 pub enum Msg {
     OpenFile,
+
+    LoadedData(LoadedDataParams),
 
     SelectCard(Option<usize>),
     SelectRemoteIpStream(gtk::TreeSelection),
@@ -38,7 +49,7 @@ pub enum Msg {
     Quit,
 }
 
-struct StreamInfo {
+pub struct StreamInfo {
     stream_id: u32,
     target_ip: String,
     target_port: u32,
@@ -47,6 +58,8 @@ struct StreamInfo {
 
 pub struct Model {
     relm: relm::Relm<Win>,
+    bg_sender: mpsc::Sender<BgFunc>,
+
     streams: Vec<(StreamInfo, Vec<MessageData>)>,
     comm_target_cards: Vec<CommTargetCardData>,
     selected_card: Option<CommTargetCardData>,
@@ -55,6 +68,9 @@ pub struct Model {
     comm_remote_servers_stores: Vec<gtk::ListStore>,
     comm_remote_servers_treeviews: Vec<gtk::TreeView>,
     disable_tree_view_selection_events: bool,
+
+    _loaded_data_channel: relm::Channel<LoadedDataParams>,
+    loaded_data_sender: relm::Sender<LoadedDataParams>,
 
     _comm_targets_components: Vec<Component<CommTargetCard>>,
 
@@ -156,7 +172,7 @@ impl Widget for Win {
         Ok(())
     }
 
-    fn model(relm: &relm::Relm<Self>, _: ()) -> Model {
+    fn model(relm: &relm::Relm<Self>, bg_sender: mpsc::Sender<BgFunc>) -> Model {
         gtk::IconTheme::get_default()
             .unwrap()
             .add_resource_path("/icons");
@@ -166,8 +182,15 @@ impl Widget for Win {
             u32::static_type(),
         ]);
 
+        let stream = relm.stream().clone();
+        let (_loaded_data_channel, loaded_data_sender) =
+            relm::Channel::new(move |ch_data: LoadedDataParams| {
+                stream.emit(Msg::LoadedData(ch_data));
+            });
+
         Model {
             relm: relm.clone(),
+            bg_sender,
             _comm_targets_components: vec![],
             selected_card: None,
             remote_ips_streams_tree_store,
@@ -175,6 +198,8 @@ impl Widget for Win {
             comm_remote_servers_treeviews: vec![],
             disable_tree_view_selection_events: false,
             details_component_streams: vec![],
+            loaded_data_sender,
+            _loaded_data_channel,
             comm_target_cards: vec![],
             streams: vec![],
         }
@@ -185,7 +210,18 @@ impl Widget for Win {
             Msg::OpenFile => {
                 self.open_file();
             }
+            Msg::LoadedData((comm_target_cards, streams)) => {
+                self.widgets.loading_spinner.stop();
+                self.model.comm_target_cards = comm_target_cards;
+                self.model.streams = streams;
+                self.refresh_comm_targets();
+                self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, None, None);
+                self.widgets
+                    .root_stack
+                    .set_visible_child_name(NORMAL_STACK_NAME);
+            }
             Msg::SelectCard(maybe_idx) => {
+                println!("card changed");
                 self.model.selected_card = maybe_idx
                     .and_then(|idx| self.model.comm_target_cards.get(idx as usize))
                     .cloned();
@@ -195,6 +231,7 @@ impl Widget for Win {
                 // }
             }
             Msg::SelectRemoteIpStream(selection) => {
+                println!("remote selection changed");
                 if let Some((model, iter)) = selection.get_selected() {
                     if let Some(mut path) = model.get_path(&iter) {
                         match path.get_indices_with_depth().as_slice() {
@@ -292,32 +329,46 @@ impl Widget for Win {
         dialog.set_filter(&filter);
         if dialog.run() == gtk::ResponseType::Accept {
             if let Some(fname) = dialog.get_filename() {
-                let tshark_output = Command::new("tshark")
-                    .args(&[
-                        "-r",
-                        fname.to_str().expect("invalid filename"),
-                        "-Tjson",
-                        "--no-duplicate-keys",
-                        "tcp",
-                        // "tcp.stream eq 104",
-                    ])
-                    .output()
-                    .expect("failed calling tshark");
-                if !tshark_output.status.success() {
-                    eprintln!("tshark returned error code {}", tshark_output.status);
-                    std::process::exit(1);
-                }
-                let output_str = std::str::from_utf8(&tshark_output.stdout)
-                    .expect("tshark output is not valid utf8");
-                match serde_json::from_str::<Vec<TSharkCommunication>>(&output_str) {
-                    Ok(packets) => self.handle_packets(packets),
-                    Err(e) => panic!(format!("tshark output is not valid json: {:?}", e)),
-                }
+                self.widgets.loading_spinner.start();
+                self.widgets
+                    .root_stack
+                    .set_visible_child_name(LOADING_STACK_NAME);
+                let s = self.model.loaded_data_sender.clone();
+                self.model
+                    .bg_sender
+                    .send(BgFunc::new(move || {
+                        Self::load_file(fname.clone(), s.clone());
+                    }))
+                    .unwrap();
             }
         }
     }
 
-    fn handle_packets(&mut self, packets: Vec<TSharkCommunication>) {
+    fn load_file(fname: PathBuf, sender: relm::Sender<LoadedDataParams>) {
+        let tshark_output = Command::new("tshark")
+            .args(&[
+                "-r",
+                fname.to_str().expect("invalid filename"),
+                "-Tjson",
+                "--no-duplicate-keys",
+                "tcp",
+                // "tcp.stream eq 104",
+            ])
+            .output()
+            .expect("failed calling tshark");
+        if !tshark_output.status.success() {
+            eprintln!("tshark returned error code {}", tshark_output.status);
+            std::process::exit(1);
+        }
+        let output_str =
+            std::str::from_utf8(&tshark_output.stdout).expect("tshark output is not valid utf8");
+        match serde_json::from_str::<Vec<TSharkCommunication>>(&output_str) {
+            Ok(packets) => Self::handle_packets(packets, sender),
+            Err(e) => panic!(format!("tshark output is not valid json: {:?}", e)),
+        }
+    }
+
+    fn handle_packets(packets: Vec<TSharkCommunication>, sender: relm::Sender<LoadedDataParams>) {
         let mut by_stream: Vec<_> = packets
             .into_iter()
             // .filter(|p| p.source.layers.http.is_some())
@@ -365,7 +416,7 @@ impl Widget for Win {
             .collect();
         parsed_streams.sort_by_key(|(_parser, id, _ip_src, _card_key, _pstream)| *id);
 
-        self.model.comm_target_cards = parsed_streams
+        let comm_target_cards = parsed_streams
             .iter()
             .fold(
                 HashMap::<(String, u32), CommTargetCardData>::new(),
@@ -400,7 +451,7 @@ impl Widget for Win {
             .map(|(k, v)| v)
             .collect();
 
-        self.model.streams = parsed_streams
+        let streams = parsed_streams
             .into_iter()
             .map(|(_parser, id, ip_src, card_key, pstream)| {
                 (
@@ -415,8 +466,7 @@ impl Widget for Win {
             })
             .collect();
 
-        self.refresh_comm_targets();
-        self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, None, None);
+        sender.send((comm_target_cards, streams)).unwrap();
     }
 
     fn refresh_comm_targets(&mut self) {
@@ -604,31 +654,58 @@ impl Widget for Win {
                     },
                 }
             },
-            gtk::Box {
-                hexpand: true,
-                #[style_class="sidebar"]
-                gtk::ScrolledWindow {
-                    property_width_request: 250,
-                    #[name="comm_target_list"]
-                    gtk::ListBox {
-                        row_selected(_, row) =>
-                            Msg::SelectCard(row.map(|r| r.get_index() as usize))
-                    }
+            #[name="root_stack"]
+            gtk::Stack {
+                gtk::Label {
+                    child: {
+                        name: Some(WELCOME_STACK_NAME)
+                    },
+                    label: "Welcome to Hotwire!"
                 },
-                gtk::ScrolledWindow {
-                    property_width_request: 150,
-                    #[name="remote_ips_streams_treeview"]
-                    gtk::TreeView {
-                        activate_on_single_click: true,
-                        model: Some(&self.model.remote_ips_streams_tree_store),
-                        selection.changed(selection) => Msg::SelectRemoteIpStream(selection.clone()),
+                gtk::Box {
+                    child: {
+                        name: Some(LOADING_STACK_NAME)
+                    },
+                    #[name="loading_spinner"]
+                    gtk::Spinner {
+                        hexpand: true,
+                        halign: gtk::Align::End,
+                    },
+                    gtk::Label {
+                        label: "Loading the file, please wait",
+                        hexpand: true,
+                        xalign: 0.0,
                     },
                 },
-                gtk::Separator {
-                    orientation: gtk::Orientation::Vertical,
+                gtk::Box {
+                    child: {
+                        name: Some(NORMAL_STACK_NAME)
+                    },
+                    hexpand: true,
+                    #[style_class="sidebar"]
+                    gtk::ScrolledWindow {
+                        property_width_request: 250,
+                        #[name="comm_target_list"]
+                        gtk::ListBox {
+                            row_selected(_, row) =>
+                                Msg::SelectCard(row.map(|r| r.get_index() as usize))
+                        }
+                    },
+                    gtk::ScrolledWindow {
+                        property_width_request: 150,
+                        #[name="remote_ips_streams_treeview"]
+                        gtk::TreeView {
+                            activate_on_single_click: true,
+                            model: Some(&self.model.remote_ips_streams_tree_store),
+                            selection.changed(selection) => Msg::SelectRemoteIpStream(selection.clone()),
+                        },
+                    },
+                    gtk::Separator {
+                        orientation: gtk::Orientation::Vertical,
+                    },
+                    #[name="comm_remote_servers_stack"]
+                    gtk::Stack {}
                 },
-                #[name="comm_remote_servers_stack"]
-                gtk::Stack {}
             },
             delete_event(_, _) => (Msg::Quit, Inhibit(false)),
         }
