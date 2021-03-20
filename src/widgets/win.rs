@@ -1,8 +1,5 @@
-use super::comm_remote_server::{CommRemoteServer, CommRemoteServerData, MessageData};
+use super::comm_remote_server::MessageData;
 use super::comm_target_card::{CommTargetCard, CommTargetCardData};
-use super::http_comm_entry::HttpMessageData;
-use super::postgres_comm_entry;
-use crate::icons::Icon;
 use crate::widgets::comm_remote_server::MessageParser;
 use crate::widgets::comm_remote_server::MessageParserDetailsMsg;
 use crate::widgets::http_comm_entry::Http;
@@ -10,11 +7,14 @@ use crate::widgets::postgres_comm_entry::Postgres;
 use crate::TSharkCommunication;
 use glib::translate::ToGlib;
 use gtk::prelude::*;
+use itertools::Itertools;
 use relm::{Component, ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
+use std::cmp::Reverse;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::process::Command;
 
 const CSS_DATA: &[u8] = include_bytes!("../../resources/style.css");
 
@@ -24,6 +24,8 @@ pub fn get_message_parsers() -> Vec<Box<dyn MessageParser>> {
 
 #[derive(Msg)]
 pub enum Msg {
+    OpenFile,
+
     SelectCard(Option<usize>),
     SelectRemoteIpStream(gtk::TreeSelection),
 
@@ -154,69 +156,10 @@ impl Widget for Win {
         Ok(())
     }
 
-    fn model(
-        relm: &relm::Relm<Self>,
-        streams: Vec<(Option<u32>, Vec<TSharkCommunication>)>,
-    ) -> Model {
+    fn model(relm: &relm::Relm<Self>, _: ()) -> Model {
         gtk::IconTheme::get_default()
             .unwrap()
             .add_resource_path("/icons");
-        let message_parsers = get_message_parsers();
-
-        let mut parsed_streams: Vec<_> = streams
-            .iter()
-            .filter_map(|(id, comms)| {
-                comms
-                    .iter()
-                    .find_map(|c| message_parsers.iter().find(|p| p.is_my_message(c)))
-                    .map(|parser| {
-                        let layers = &comms.first().unwrap().source.layers;
-                        let card_key = (
-                            layers.ip.as_ref().unwrap().ip_dst.clone(),
-                            layers.tcp.as_ref().unwrap().port_dst,
-                        );
-                        let ip_src = layers.ip.as_ref().unwrap().ip_src.clone();
-                        (parser, id, ip_src, card_key, parser.parse_stream(&comms))
-                    })
-            })
-            .collect();
-        parsed_streams.sort_by_key(|(_parser, id, _ip_src, _card_key, _pstream)| *id);
-
-        let comm_target_cards: Vec<_> = parsed_streams
-            .iter()
-            .fold(
-                HashMap::<(String, u32), CommTargetCardData>::new(),
-                |mut sofar, (parser, _stream_id, ip_src, card_key, items)| {
-                    if let Some(target_card) = sofar.get_mut(&card_key) {
-                        target_card.remote_hosts.insert(ip_src.to_string());
-                        target_card.incoming_session_count += 1;
-                    } else {
-                        let mut remote_hosts = BTreeSet::new();
-                        remote_hosts.insert(ip_src.to_string());
-                        let protocol_index = message_parsers
-                            .iter()
-                            // comparing by the protocol icon is.. quite horrible..
-                            .position(|p| p.protocol_icon() == parser.protocol_icon())
-                            .unwrap();
-                        sofar.insert(
-                            card_key.clone(),
-                            CommTargetCardData {
-                                ip: card_key.0.clone(),
-                                protocol_index,
-                                protocol_icon: parser.protocol_icon(),
-                                port: card_key.1,
-                                remote_hosts,
-                                incoming_session_count: 1,
-                            },
-                        );
-                    }
-                    sofar
-                },
-            )
-            .into_iter()
-            .map(|(k, v)| v)
-            .collect();
-
         let remote_ips_streams_tree_store = gtk::TreeStore::new(&[
             String::static_type(),
             pango::Weight::static_type(),
@@ -225,21 +168,6 @@ impl Widget for Win {
 
         Model {
             relm: relm.clone(),
-            streams: parsed_streams
-                .into_iter()
-                .map(|(_parser, id, ip_src, card_key, pstream)| {
-                    (
-                        StreamInfo {
-                            stream_id: id.unwrap(),
-                            target_ip: card_key.0,
-                            target_port: card_key.1,
-                            source_ip: ip_src,
-                        },
-                        pstream,
-                    )
-                })
-                .collect(),
-            comm_target_cards,
             _comm_targets_components: vec![],
             selected_card: None,
             remote_ips_streams_tree_store,
@@ -247,11 +175,16 @@ impl Widget for Win {
             comm_remote_servers_treeviews: vec![],
             disable_tree_view_selection_events: false,
             details_component_streams: vec![],
+            comm_target_cards: vec![],
+            streams: vec![],
         }
     }
 
     fn update(&mut self, event: Msg) {
         match event {
+            Msg::OpenFile => {
+                self.open_file();
+            }
             Msg::SelectCard(maybe_idx) => {
                 self.model.selected_card = maybe_idx
                     .and_then(|idx| self.model.comm_target_cards.get(idx as usize))
@@ -346,6 +279,144 @@ impl Widget for Win {
             }
             Msg::Quit => gtk::main_quit(),
         }
+    }
+
+    fn open_file(&mut self) {
+        let dialog = gtk::FileChooserNativeBuilder::new()
+            .action(gtk::FileChooserAction::Open)
+            .title("Select file")
+            .modal(true)
+            .build();
+        let filter = gtk::FileFilter::new();
+        filter.add_pattern("*.pcap");
+        dialog.set_filter(&filter);
+        if dialog.run() == gtk::ResponseType::Accept {
+            if let Some(fname) = dialog.get_filename() {
+                let tshark_output = Command::new("tshark")
+                    .args(&[
+                        "-r",
+                        fname.to_str().expect("invalid filename"),
+                        "-Tjson",
+                        "--no-duplicate-keys",
+                        "tcp",
+                        // "tcp.stream eq 104",
+                    ])
+                    .output()
+                    .expect("failed calling tshark");
+                if !tshark_output.status.success() {
+                    eprintln!("tshark returned error code {}", tshark_output.status);
+                    std::process::exit(1);
+                }
+                let output_str = std::str::from_utf8(&tshark_output.stdout)
+                    .expect("tshark output is not valid utf8");
+                match serde_json::from_str::<Vec<TSharkCommunication>>(&output_str) {
+                    Ok(packets) => self.handle_packets(packets),
+                    Err(e) => panic!(format!("tshark output is not valid json: {:?}", e)),
+                }
+            }
+        }
+    }
+
+    fn handle_packets(&mut self, packets: Vec<TSharkCommunication>) {
+        let mut by_stream: Vec<_> = packets
+            .into_iter()
+            // .filter(|p| p.source.layers.http.is_some())
+            .map(|p| (p.source.layers.tcp.as_ref().map(|t| t.stream), p))
+            .into_group_map()
+            .into_iter()
+            .collect();
+        by_stream.sort_by_key(|p| Reverse(p.1.len()));
+        println!(
+            "{} streams, length as from {:?} to {:?}.",
+            by_stream.len(),
+            by_stream.first().map(|f| f.1.len()),
+            by_stream.last().map(|l| l.1.len())
+        );
+        println!("src desc count");
+        // for stream in &by_stream[0..10] {
+        for stream in &by_stream {
+            let layers = &stream.1.first().as_ref().unwrap().source.layers;
+            let ip = layers.ip.as_ref().unwrap();
+            let tcp = layers.tcp.as_ref().unwrap();
+        }
+
+        // for packet in &by_stream.first().unwrap().1 {
+        //     println!("{:?}", packet.source.layers.http);
+        // }
+
+        let message_parsers = get_message_parsers();
+
+        let mut parsed_streams: Vec<_> = by_stream
+            .iter()
+            .filter_map(|(id, comms)| {
+                comms
+                    .iter()
+                    .find_map(|c| message_parsers.iter().find(|p| p.is_my_message(c)))
+                    .map(|parser| {
+                        let layers = &comms.first().unwrap().source.layers;
+                        let card_key = (
+                            layers.ip.as_ref().unwrap().ip_dst.clone(),
+                            layers.tcp.as_ref().unwrap().port_dst,
+                        );
+                        let ip_src = layers.ip.as_ref().unwrap().ip_src.clone();
+                        (parser, id, ip_src, card_key, parser.parse_stream(&comms))
+                    })
+            })
+            .collect();
+        parsed_streams.sort_by_key(|(_parser, id, _ip_src, _card_key, _pstream)| *id);
+
+        self.model.comm_target_cards = parsed_streams
+            .iter()
+            .fold(
+                HashMap::<(String, u32), CommTargetCardData>::new(),
+                |mut sofar, (parser, _stream_id, ip_src, card_key, items)| {
+                    if let Some(target_card) = sofar.get_mut(&card_key) {
+                        target_card.remote_hosts.insert(ip_src.to_string());
+                        target_card.incoming_session_count += 1;
+                    } else {
+                        let mut remote_hosts = BTreeSet::new();
+                        remote_hosts.insert(ip_src.to_string());
+                        let protocol_index = message_parsers
+                            .iter()
+                            // comparing by the protocol icon is.. quite horrible..
+                            .position(|p| p.protocol_icon() == parser.protocol_icon())
+                            .unwrap();
+                        sofar.insert(
+                            card_key.clone(),
+                            CommTargetCardData {
+                                ip: card_key.0.clone(),
+                                protocol_index,
+                                protocol_icon: parser.protocol_icon(),
+                                port: card_key.1,
+                                remote_hosts,
+                                incoming_session_count: 1,
+                            },
+                        );
+                    }
+                    sofar
+                },
+            )
+            .into_iter()
+            .map(|(k, v)| v)
+            .collect();
+
+        self.model.streams = parsed_streams
+            .into_iter()
+            .map(|(_parser, id, ip_src, card_key, pstream)| {
+                (
+                    StreamInfo {
+                        stream_id: id.unwrap(),
+                        target_ip: card_key.0,
+                        target_port: card_key.1,
+                        source_ip: ip_src,
+                    },
+                    pstream,
+                )
+            })
+            .collect();
+
+        self.refresh_comm_targets();
+        self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, None, None);
     }
 
     fn refresh_comm_targets(&mut self) {
@@ -508,6 +579,29 @@ impl Widget for Win {
                 gtk::HeaderBar {
                     show_close_button: true,
                     title: Some("Hotwire"),
+                    gtk::MenuButton {
+                        image: Some(&gtk::Image::from_icon_name(Some("open-menu-symbolic"), gtk::IconSize::Menu)),
+                        child: {
+                            pack_type: gtk::PackType::End
+                        },
+                        active: false,
+                        popover: view! {
+                            gtk::Popover {
+                                visible: false,
+                                gtk::Box {
+                                    margin_top: 10,
+                                    margin_start: 10,
+                                    margin_end: 10,
+                                    margin_bottom: 10,
+                                    gtk::ModelButton {
+                                        label: "Open",
+                                        hexpand: true,
+                                        clicked => Msg::OpenFile,
+                                    }
+                                }
+                            }
+                        },
+                    },
                 }
             },
             gtk::Box {
