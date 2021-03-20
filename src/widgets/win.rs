@@ -666,6 +666,7 @@ impl Widget for Win {
                     child: {
                         name: Some(LOADING_STACK_NAME)
                     },
+                    spacing: 5,
                     #[name="loading_spinner"]
                     gtk::Spinner {
                         hexpand: true,
