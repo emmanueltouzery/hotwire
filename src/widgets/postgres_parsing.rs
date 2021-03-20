@@ -2,11 +2,13 @@
 use super::postgres_comm_entry::PostgresMessageData;
 use crate::widgets::comm_remote_server::MessageData;
 use crate::TSharkCommunication;
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::NaiveDateTime;
 use std::collections::HashMap;
 
 #[cfg(test)]
 use crate::tshark_communication::{TSharkFrameLayer, TSharkLayers, TSharkSource};
+#[cfg(test)]
+use chrono::NaiveDate;
 
 #[derive(Debug)]
 pub enum PostgresWireMessage {
