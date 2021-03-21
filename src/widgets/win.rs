@@ -60,6 +60,8 @@ pub struct Model {
     relm: relm::Relm<Win>,
     bg_sender: mpsc::Sender<BgFunc>,
 
+    current_file_path: Option<PathBuf>,
+
     streams: Vec<(StreamInfo, Vec<MessageData>)>,
     comm_target_cards: Vec<CommTargetCardData>,
     selected_card: Option<CommTargetCardData>,
@@ -81,6 +83,37 @@ pub struct Model {
 enum RefreshRemoteIpsAndStreams {
     Yes,
     No,
+}
+
+#[derive(PartialEq, Eq)]
+pub enum TSharkMode {
+    Json,
+    JsonRaw,
+}
+
+pub fn invoke_tshark(
+    fname: PathBuf,
+    tshark_mode: TSharkMode,
+    filters: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let tshark_output = Command::new("tshark")
+        .args(&[
+            "-r",
+            fname.to_str().expect("invalid filename"),
+            if tshark_mode == TSharkMode::Json {
+                "-Tjson"
+            } else {
+                "-Tjsonraw"
+            },
+            "--no-duplicate-keys",
+            filters,
+            // "tcp.stream eq 104",
+        ])
+        .output()?;
+    if !tshark_output.status.success() {
+        return Err(format!("tshark returned error code {}", tshark_output.status).into());
+    }
+    Ok(String::from_utf8(tshark_output.stdout)?)
 }
 
 #[widget]
@@ -309,9 +342,10 @@ impl Widget for Win {
                     .get(idx as usize)
                     .unwrap();
                 for component_stream in &self.model.details_component_streams {
-                    // println!("{:?}", msg_data);
-                    component_stream
-                        .emit(MessageParserDetailsMsg::DisplayDetails(msg_data.clone()));
+                    component_stream.emit(MessageParserDetailsMsg::DisplayDetails(
+                        msg_data.clone(),
+                        self.model.current_file_path.as_ref().unwrap().clone(),
+                    ));
                 }
             }
             Msg::Quit => gtk::main_quit(),
@@ -345,23 +379,7 @@ impl Widget for Win {
     }
 
     fn load_file(fname: PathBuf, sender: relm::Sender<LoadedDataParams>) {
-        let tshark_output = Command::new("tshark")
-            .args(&[
-                "-r",
-                fname.to_str().expect("invalid filename"),
-                "-Tjson",
-                "--no-duplicate-keys",
-                "tcp",
-                // "tcp.stream eq 104",
-            ])
-            .output()
-            .expect("failed calling tshark");
-        if !tshark_output.status.success() {
-            eprintln!("tshark returned error code {}", tshark_output.status);
-            std::process::exit(1);
-        }
-        let output_str =
-            std::str::from_utf8(&tshark_output.stdout).expect("tshark output is not valid utf8");
+        let output_str = invoke_tshark(fname, TSharkMode::Json, "tcp").expect("tshark error");
         match serde_json::from_str::<Vec<TSharkCommunication>>(&output_str) {
             Ok(packets) => Self::handle_packets(packets, sender),
             Err(e) => panic!(format!("tshark output is not valid json: {:?}", e)),

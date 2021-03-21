@@ -5,6 +5,7 @@ use std::thread;
 
 pub mod icons;
 mod tshark_communication;
+mod tshark_communication_raw;
 mod widgets;
 
 // we do slow operations in a separate thread not to block the GUI thread.

@@ -44,6 +44,11 @@ pub struct TSharkIpLayer {
 #[derive(Deserialize)]
 pub struct TSharkTcpLayer {
     #[serde(
+        rename = "tcp.seq",
+        deserialize_with = "deserialize_number_from_string"
+    )]
+    pub seq_number: u32,
+    #[serde(
         rename = "tcp.stream",
         deserialize_with = "deserialize_number_from_string"
     )]

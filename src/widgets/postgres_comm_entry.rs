@@ -3,12 +3,14 @@ use crate::icons::Icon;
 use crate::widgets::comm_remote_server::MessageData;
 use crate::widgets::comm_remote_server::MessageParser;
 use crate::widgets::comm_remote_server::MessageParserDetailsMsg;
+use crate::BgFunc;
 use crate::TSharkCommunication;
 use chrono::{NaiveDateTime, Utc};
 use gtk::prelude::*;
 use itertools::Itertools;
 use relm::{ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
+use std::sync::mpsc;
 
 pub struct Postgres;
 
@@ -142,6 +144,7 @@ impl MessageParser for Postgres {
     fn add_details_to_scroll(
         &self,
         parent: &gtk::ScrolledWindow,
+        _bg_sender: mpsc::Sender<BgFunc>,
     ) -> relm::StreamHandle<MessageParserDetailsMsg> {
         let component = Box::leak(Box::new(parent.add_widget::<PostgresCommEntry>(
             PostgresMessageData {
@@ -198,7 +201,7 @@ impl Widget for PostgresCommEntry {
 
     fn update(&mut self, event: MessageParserDetailsMsg) {
         match event {
-            MessageParserDetailsMsg::DisplayDetails(MessageData::Postgres(msg)) => {
+            MessageParserDetailsMsg::DisplayDetails(MessageData::Postgres(msg), _path) => {
                 self.model.data = msg;
 
                 let field_descs: Vec<_> = self

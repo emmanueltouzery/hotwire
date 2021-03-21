@@ -1,11 +1,14 @@
 use super::http_comm_entry::{HttpCommEntry, HttpMessageData};
 use super::postgres_comm_entry::{PostgresCommEntry, PostgresMessageData};
 use crate::icons::Icon;
+use crate::BgFunc;
 use crate::TSharkCommunication;
 use gtk::prelude::*;
 use relm::{Component, ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::mpsc;
 
 pub trait MessageParser {
     fn is_my_message(&self, msg: &TSharkCommunication) -> bool;
@@ -16,12 +19,15 @@ pub trait MessageParser {
     fn add_details_to_scroll(
         &self,
         paned: &gtk::ScrolledWindow,
+        bg_sender: mpsc::Sender<BgFunc>,
     ) -> relm::StreamHandle<MessageParserDetailsMsg>;
 }
 
 #[derive(Msg)]
 pub enum MessageParserDetailsMsg {
-    DisplayDetails(MessageData),
+    DisplayDetails(PathBuf, MessageData),
+
+    GotImage(Vec<u8>), // TODO this http-specific...
 }
 
 #[derive(Msg)]

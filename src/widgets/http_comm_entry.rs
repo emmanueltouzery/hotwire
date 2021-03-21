@@ -1,14 +1,22 @@
 use crate::icons::Icon;
+use crate::tshark_communication_raw::TSharkCommunicationRaw;
 use crate::widgets::comm_remote_server::MessageData;
 use crate::widgets::comm_remote_server::MessageParser;
 use crate::widgets::comm_remote_server::MessageParserDetailsMsg;
+use crate::win;
+use crate::BgFunc;
 use crate::TSharkCommunication;
 use chrono::NaiveDateTime;
 use gtk::prelude::*;
 use relm::{ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
+use std::path::Path;
+use std::sync::mpsc;
 
 pub struct Http;
+
+const TEXT_CONTENTS_STACK_NAME: &str = "text";
+const IMAGE_CONTENTS_STACK_NAME: &str = "image";
 
 impl MessageParser for Http {
     fn is_my_message(&self, msg: &TSharkCommunication) -> bool {
@@ -57,6 +65,9 @@ impl MessageParser for Http {
             i64::static_type(),    // request start timestamp (integer, for sorting)
             i32::static_type(),    // request duration (nanos, for sorting)
             String::static_type(), // request duration display
+            String::static_type(), // request content type
+            String::static_type(), // response content type
+            u32::static_type(),    // tcp sequence number
         ]);
 
         let timestamp_col = gtk::TreeViewColumnBuilder::new()
@@ -97,6 +108,16 @@ impl MessageParser for Http {
         duration_col.pack_start(&cell_d_txt, true);
         duration_col.add_attribute(&cell_d_txt, "text", 7);
         tv.append_column(&duration_col);
+
+        let response_ct_col = gtk::TreeViewColumnBuilder::new()
+            .title("Resp Content type")
+            .resizable(true)
+            .sort_column_id(9)
+            .build();
+        let cell_resp_ct_txt = gtk::CellRendererTextBuilder::new().build();
+        response_ct_col.pack_start(&cell_resp_ct_txt, true);
+        response_ct_col.add_attribute(&cell_resp_ct_txt, "text", 9);
+        tv.append_column(&response_ct_col);
 
         tv.set_model(Some(&liststore));
 
@@ -144,6 +165,9 @@ impl MessageParser for Http {
                         &format!("{} ms", (rs.timestamp - rq.timestamp).num_milliseconds())
                             .to_value(),
                     );
+                    ls.set_value(&iter, 8, &rq.content_type.to_value());
+                    ls.set_value(&iter, 9, &rs.content_type.to_value());
+                    ls.set_value(&iter, 10, &rs.content_type.to_value());
                 }
             }
         }
@@ -152,31 +176,31 @@ impl MessageParser for Http {
     fn add_details_to_scroll(
         &self,
         parent: &gtk::ScrolledWindow,
+        bg_sender: mpsc::Sender<BgFunc>,
     ) -> relm::StreamHandle<MessageParserDetailsMsg> {
-        let component = Box::leak(Box::new(parent.add_widget::<HttpCommEntry>(
-            HttpMessageData {
-                request: None,
-                response: None,
-            },
-        )));
+        let component = Box::leak(Box::new(parent.add_widget::<HttpCommEntry>(bg_sender)));
         component.stream()
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HttpRequestData {
+    pub tcp_seq_number: u32,
     pub timestamp: NaiveDateTime,
     pub first_line: String,
     pub other_lines: String,
     pub body: Option<String>,
+    pub content_type: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HttpResponseData {
+    pub tcp_seq_number: u32,
     pub timestamp: NaiveDateTime,
     pub first_line: String,
     pub other_lines: String,
     pub body: Option<String>,
+    pub content_type: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -212,32 +236,34 @@ fn parse_request_response(comm: &TSharkCommunication) -> RequestOrResponseOrOthe
                 .to_string()
         };
         if let Some(req_line) = http_map.get("http.request.line") {
+            let other_lines_vec: Vec<_> = req_line
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap())
+                .collect();
             return RequestOrResponseOrOther::Request(HttpRequestData {
+                tcp_seq_number: comm.source.layers.tcp.unwrap().seq_number,
                 timestamp: comm.source.layers.frame.frame_time,
                 first_line: extract_first_line("http.request.method"),
-                other_lines: itertools::free::join(
-                    req_line
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .map(|v| v.as_str().unwrap()),
-                    "",
-                ),
+                other_lines: other_lines_vec.join(""),
+                content_type: get_http_header_value(&other_lines_vec, "Content-Type"),
                 body,
             });
         }
         if let Some(resp_line) = http_map.get("http.response.line") {
+            let other_lines_vec: Vec<_> = resp_line
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap())
+                .collect();
             return RequestOrResponseOrOther::Response(HttpResponseData {
+                tcp_seq_number: comm.source.layers.tcp.unwrap().seq_number,
                 timestamp: comm.source.layers.frame.frame_time,
                 first_line: extract_first_line("http.response.code"),
-                other_lines: itertools::free::join(
-                    resp_line
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .map(|v| v.as_str().unwrap()),
-                    "",
-                ),
+                other_lines: other_lines_vec.join(""),
+                content_type: get_http_header_value(&other_lines_vec, "Content-Type"),
                 body,
             });
         }
@@ -245,22 +271,94 @@ fn parse_request_response(comm: &TSharkCommunication) -> RequestOrResponseOrOthe
     RequestOrResponseOrOther::Other
 }
 
+// TODO turns out there is http.content_type from tshark
+fn get_http_header_value(other_lines: &[&str], header_name: &str) -> Option<String> {
+    // TODO use String.split_once after rust 1.52 is stabilized
+    other_lines.iter().find_map(|l| {
+        let mut parts = l.splitn(2, ": ");
+        if parts.next() == Some(header_name) {
+            parts.next().map(|s| s.trim_end().to_string())
+        } else {
+            None
+        }
+    })
+}
+
 pub struct Model {
     data: HttpMessageData,
+    bg_sender: mpsc::Sender<BgFunc>,
 }
 
 #[widget]
 impl Widget for HttpCommEntry {
-    fn model(relm: &relm::Relm<Self>, data: HttpMessageData) -> Model {
-        Model { data }
+    fn model(relm: &relm::Relm<Self>, bg_sender: mpsc::Sender<BgFunc>) -> Model {
+        Model {
+            data: HttpMessageData {
+                request: None,
+                response: None,
+            },
+            bg_sender,
+        }
     }
 
     fn update(&mut self, event: MessageParserDetailsMsg) {
         match event {
-            MessageParserDetailsMsg::DisplayDetails(MessageData::Http(msg)) => {
+            MessageParserDetailsMsg::DisplayDetails(MessageData::Http(msg), file_path) => {
+                match (
+                    &msg.response.as_ref().and_then(|r| r.content_type.as_ref()),
+                    self.model
+                        .data
+                        .response
+                        .as_ref()
+                        .and_then(|r| r.body.as_ref()),
+                ) {
+                    (Some(content_type), Some(body)) if content_type.starts_with("image/") => {
+                        self.model
+                            .bg_sender
+                            .send(BgFunc::new(move || {
+                                Self::load_image(&file_path, msg.tcp_seq_number)
+                            }))
+                            .unwrap();
+                    }
+                    _ => {
+                        self.widgets
+                            .contents_stack
+                            .set_visible_child_name(TEXT_CONTENTS_STACK_NAME);
+                    }
+                }
                 self.model.data = msg;
             }
+            MessageParserDetailsMsg::GotImage(bytes) => {
+                self.widgets
+                    .body_image
+                    .set_from_pixbuf(gdk_pixbuf::Pixbuf::from_inline(bytes, true).ok().as_ref());
+                self.widgets
+                    .contents_stack
+                    .set_visible_child_name(IMAGE_CONTENTS_STACK_NAME);
+            }
             _ => {}
+        }
+    }
+
+    fn load_image(file_path: &Path, tcp_seq_number: u32) {
+        let output_str = win::invoke_tshark(
+            file_path,
+            win::TSharkMode::JsonRaw,
+            format!("tcp.seq eq {}", tcp_seq_number),
+        )
+        .expect("tshark error");
+        match serde_json::from_str::<Vec<TSharkCommunicationRaw>>(&output_str) {
+            Ok(packets) => {
+                let bytes = packets
+                    .first()
+                    .unwrap()
+                    .source
+                    .layers
+                    .http
+                    .unwrap()
+                    .file_data;
+            }
+            Err(e) => panic!(format!("tshark output is not valid json: {:?}", e)),
         }
     }
 
@@ -296,11 +394,23 @@ impl Widget for HttpCommEntry {
                 label: &self.model.data.response.as_ref().map(|r| r.other_lines.as_str()).unwrap_or(""),
                 xalign: 0.0
             },
-            gtk::Label {
-                label: self.model.data.response.as_ref().and_then(|r| r.body.as_ref()).map(|b| b.as_str()).unwrap_or(""),
-                xalign: 0.0,
-                visible: self.model.data.response.as_ref().and_then(|r| r.body.as_ref()).is_some()
-            },
+            #[name="contents_stack"]
+            gtk::Stack {
+                gtk::Label {
+                    child: {
+                        name: Some(TEXT_CONTENTS_STACK_NAME)
+                    },
+                    label: self.model.data.response.as_ref().and_then(|r| r.body.as_ref()).map(|b| b.as_str()).unwrap_or(""),
+                    xalign: 0.0,
+                    visible: self.model.data.response.as_ref().and_then(|r| r.body.as_ref()).is_some()
+                },
+                #[name="body_image"]
+                gtk::Image {
+                    child: {
+                        name: Some(IMAGE_CONTENTS_STACK_NAME)
+                    },
+                }
+            }
         }
     }
 }
