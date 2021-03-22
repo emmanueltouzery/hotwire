@@ -86,7 +86,9 @@ impl MessageParser for Http {
             .expand(true)
             .resizable(true)
             .build();
-        let cell_r_txt = gtk::CellRendererTextBuilder::new().build();
+        let cell_r_txt = gtk::CellRendererTextBuilder::new()
+            .ellipsize(pango::EllipsizeMode::End)
+            .build();
         request_col.pack_start(&cell_r_txt, true);
         request_col.add_attribute(&cell_r_txt, "text", 0);
         tv.append_column(&request_col);

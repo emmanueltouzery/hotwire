@@ -65,7 +65,9 @@ impl MessageParser for Postgres {
             .expand(true)
             .resizable(true)
             .build();
-        let cell_q_txt = gtk::CellRendererTextBuilder::new().build();
+        let cell_q_txt = gtk::CellRendererTextBuilder::new()
+            .ellipsize(pango::EllipsizeMode::End)
+            .build();
         query_col.pack_start(&cell_q_txt, true);
         query_col.add_attribute(&cell_q_txt, "text", 0);
         tv.append_column(&query_col);
@@ -104,7 +106,7 @@ impl MessageParser for Postgres {
                 &postgres
                     .query
                     .as_deref()
-                    .map(|q| if q.len() > 150 { &q[..150] } else { q })
+                    .map(|q| if q.len() > 250 { &q[..250] } else { q })
                     .unwrap_or("couldn't get query")
                     .replace("\n", "")
                     .to_value(),
