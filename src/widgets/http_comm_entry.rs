@@ -253,7 +253,10 @@ fn parse_request_response(comm: &TSharkCommunication) -> RequestOrResponseOrOthe
                 timestamp: comm.source.layers.frame.frame_time,
                 first_line: extract_first_line("http.request.method"),
                 other_lines: other_lines_vec.join(""),
-                content_type: get_http_header_value(&other_lines_vec, "Content-Type"),
+                content_type: http_map
+                    .get("http.content_type")
+                    .and_then(|c| c.as_str())
+                    .map(|c| c.to_string()),
                 body,
             });
         }
@@ -269,25 +272,15 @@ fn parse_request_response(comm: &TSharkCommunication) -> RequestOrResponseOrOthe
                 timestamp: comm.source.layers.frame.frame_time,
                 first_line: extract_first_line("http.response.code"),
                 other_lines: other_lines_vec.join(""),
-                content_type: get_http_header_value(&other_lines_vec, "Content-Type"),
+                content_type: http_map
+                    .get("http.content_type")
+                    .and_then(|c| c.as_str())
+                    .map(|c| c.to_string()),
                 body,
             });
         }
     }
     RequestOrResponseOrOther::Other
-}
-
-// TODO turns out there is http.content_type from tshark
-fn get_http_header_value(other_lines: &[&str], header_name: &str) -> Option<String> {
-    // TODO use String.split_once after rust 1.52 is stabilized
-    other_lines.iter().find_map(|l| {
-        let mut parts = l.splitn(2, ": ");
-        if parts.next() == Some(header_name) {
-            parts.next().map(|s| s.trim_end().to_string())
-        } else {
-            None
-        }
-    })
 }
 
 pub struct Model {
