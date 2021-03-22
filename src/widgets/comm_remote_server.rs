@@ -25,7 +25,7 @@ pub trait MessageParser {
 
 #[derive(Msg)]
 pub enum MessageParserDetailsMsg {
-    DisplayDetails(PathBuf, MessageData),
+    DisplayDetails(mpsc::Sender<BgFunc>, PathBuf, MessageData),
 
     GotImage(Vec<u8>), // TODO this http-specific...
 }
@@ -106,7 +106,7 @@ impl Widget for CommRemoteServer {
                     MessageData::Http(http) => http_components.push(
                         self.widgets
                             .comm_entries
-                            .add_widget::<HttpCommEntry>((*http).clone()),
+                            .add_widget::<HttpCommEntry>(((*http).clone())),
                     ),
                     MessageData::Postgres(pg) => pg_components.push(
                         self.widgets

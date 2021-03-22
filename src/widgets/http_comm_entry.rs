@@ -3,10 +3,11 @@ use crate::tshark_communication_raw::TSharkCommunicationRaw;
 use crate::widgets::comm_remote_server::MessageData;
 use crate::widgets::comm_remote_server::MessageParser;
 use crate::widgets::comm_remote_server::MessageParserDetailsMsg;
-use crate::win;
+use crate::widgets::win;
 use crate::BgFunc;
 use crate::TSharkCommunication;
 use chrono::NaiveDateTime;
+use gdk_pixbuf::prelude::*;
 use gtk::prelude::*;
 use relm::{ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
@@ -167,7 +168,7 @@ impl MessageParser for Http {
                     );
                     ls.set_value(&iter, 8, &rq.content_type.to_value());
                     ls.set_value(&iter, 9, &rs.content_type.to_value());
-                    ls.set_value(&iter, 10, &rs.content_type.to_value());
+                    ls.set_value(&iter, 10, &rs.tcp_seq_number.to_value());
                 }
             }
         }
@@ -178,7 +179,12 @@ impl MessageParser for Http {
         parent: &gtk::ScrolledWindow,
         bg_sender: mpsc::Sender<BgFunc>,
     ) -> relm::StreamHandle<MessageParserDetailsMsg> {
-        let component = Box::leak(Box::new(parent.add_widget::<HttpCommEntry>(bg_sender)));
+        let component = Box::leak(Box::new(parent.add_widget::<HttpCommEntry>(
+            HttpMessageData {
+                request: None,
+                response: None,
+            },
+        )));
         component.stream()
     }
 }
@@ -243,7 +249,7 @@ fn parse_request_response(comm: &TSharkCommunication) -> RequestOrResponseOrOthe
                 .map(|v| v.as_str().unwrap())
                 .collect();
             return RequestOrResponseOrOther::Request(HttpRequestData {
-                tcp_seq_number: comm.source.layers.tcp.unwrap().seq_number,
+                tcp_seq_number: comm.source.layers.tcp.as_ref().unwrap().seq_number,
                 timestamp: comm.source.layers.frame.frame_time,
                 first_line: extract_first_line("http.request.method"),
                 other_lines: other_lines_vec.join(""),
@@ -259,7 +265,7 @@ fn parse_request_response(comm: &TSharkCommunication) -> RequestOrResponseOrOthe
                 .map(|v| v.as_str().unwrap())
                 .collect();
             return RequestOrResponseOrOther::Response(HttpResponseData {
-                tcp_seq_number: comm.source.layers.tcp.unwrap().seq_number,
+                tcp_seq_number: comm.source.layers.tcp.as_ref().unwrap().seq_number,
                 timestamp: comm.source.layers.frame.frame_time,
                 first_line: extract_first_line("http.response.code"),
                 other_lines: other_lines_vec.join(""),
@@ -286,24 +292,31 @@ fn get_http_header_value(other_lines: &[&str], header_name: &str) -> Option<Stri
 
 pub struct Model {
     data: HttpMessageData,
-    bg_sender: mpsc::Sender<BgFunc>,
+
+    _got_image_channel: relm::Channel<Vec<u8>>,
+    got_image_sender: relm::Sender<Vec<u8>>,
 }
 
 #[widget]
 impl Widget for HttpCommEntry {
-    fn model(relm: &relm::Relm<Self>, bg_sender: mpsc::Sender<BgFunc>) -> Model {
+    fn model(relm: &relm::Relm<Self>, data: HttpMessageData) -> Model {
+        let stream = relm.stream().clone();
+        let (_got_image_channel, got_image_sender) =
+            relm::Channel::new(move |r: Vec<u8>| stream.emit(MessageParserDetailsMsg::GotImage(r)));
         Model {
-            data: HttpMessageData {
-                request: None,
-                response: None,
-            },
-            bg_sender,
+            data,
+            _got_image_channel,
+            got_image_sender,
         }
     }
 
     fn update(&mut self, event: MessageParserDetailsMsg) {
         match event {
-            MessageParserDetailsMsg::DisplayDetails(MessageData::Http(msg), file_path) => {
+            MessageParserDetailsMsg::DisplayDetails(
+                bg_sender,
+                file_path,
+                MessageData::Http(msg),
+            ) => {
                 match (
                     &msg.response.as_ref().and_then(|r| r.content_type.as_ref()),
                     self.model
@@ -312,11 +325,14 @@ impl Widget for HttpCommEntry {
                         .as_ref()
                         .and_then(|r| r.body.as_ref()),
                 ) {
-                    (Some(content_type), Some(body)) if content_type.starts_with("image/") => {
-                        self.model
-                            .bg_sender
+                    (Some(content_type), Some(body))
+                        if content_type.starts_with("image/") && msg.response.is_some() =>
+                    {
+                        let seq_no = msg.response.as_ref().unwrap().tcp_seq_number;
+                        let s = self.model.got_image_sender.clone();
+                        bg_sender
                             .send(BgFunc::new(move || {
-                                Self::load_image(&file_path, msg.tcp_seq_number)
+                                Self::load_image(&file_path, seq_no, s.clone())
                             }))
                             .unwrap();
                     }
@@ -329,9 +345,12 @@ impl Widget for HttpCommEntry {
                 self.model.data = msg;
             }
             MessageParserDetailsMsg::GotImage(bytes) => {
+                let loader = gdk_pixbuf::PixbufLoader::new();
+                loader.write(&bytes).unwrap();
+                loader.close().unwrap();
                 self.widgets
                     .body_image
-                    .set_from_pixbuf(gdk_pixbuf::Pixbuf::from_inline(bytes, true).ok().as_ref());
+                    .set_from_pixbuf(loader.get_pixbuf().as_ref());
                 self.widgets
                     .contents_stack
                     .set_visible_child_name(IMAGE_CONTENTS_STACK_NAME);
@@ -340,25 +359,26 @@ impl Widget for HttpCommEntry {
         }
     }
 
-    fn load_image(file_path: &Path, tcp_seq_number: u32) {
+    fn load_image(file_path: &Path, tcp_seq_number: u32, s: relm::Sender<Vec<u8>>) {
         let output_str = win::invoke_tshark(
             file_path,
             win::TSharkMode::JsonRaw,
-            format!("tcp.seq eq {}", tcp_seq_number),
+            &format!("tcp.seq eq {}", tcp_seq_number),
         )
         .expect("tshark error");
         match serde_json::from_str::<Vec<TSharkCommunicationRaw>>(&output_str) {
-            Ok(packets) => {
-                let bytes = packets
-                    .first()
-                    .unwrap()
-                    .source
-                    .layers
-                    .http
-                    .unwrap()
-                    .file_data;
+            Ok(mut packets) if packets.len() == 1 => {
+                let bytes = packets.pop().unwrap().source.layers.http.unwrap().file_data;
+                s.send(bytes);
             }
-            Err(e) => panic!(format!("tshark output is not valid json: {:?}", e)),
+            Err(e) => panic!(format!(
+                "tshark output is not valid json: {:?}, tcp stream {}",
+                e, tcp_seq_number
+            )),
+            _ => panic!(format!(
+                "unexpected json from tshark: {:?}, tcp stream {}",
+                output_str, tcp_seq_number
+            )),
         }
     }
 

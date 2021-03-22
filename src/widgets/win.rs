@@ -15,6 +15,7 @@ use std::cmp::Reverse;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::mpsc;
@@ -29,7 +30,11 @@ pub fn get_message_parsers() -> Vec<Box<dyn MessageParser>> {
     vec![Box::new(Http), Box::new(Postgres)]
 }
 
-pub type LoadedDataParams = (Vec<CommTargetCardData>, Vec<(StreamInfo, Vec<MessageData>)>);
+pub type LoadedDataParams = (
+    PathBuf,
+    Vec<CommTargetCardData>,
+    Vec<(StreamInfo, Vec<MessageData>)>,
+);
 
 #[derive(Msg)]
 pub enum Msg {
@@ -92,7 +97,7 @@ pub enum TSharkMode {
 }
 
 pub fn invoke_tshark(
-    fname: PathBuf,
+    fname: &Path,
     tshark_mode: TSharkMode,
     filters: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
@@ -147,7 +152,7 @@ impl Widget for Win {
             let scroll2 = gtk::ScrolledWindowBuilder::new().build();
             self.model
                 .details_component_streams
-                .push(message_parser.add_details_to_scroll(&scroll2));
+                .push(message_parser.add_details_to_scroll(&scroll2, self.model.bg_sender.clone()));
             scroll2.set_property_height_request(200);
             paned.pack2(&scroll2, false, true);
             let rstream = self.model.relm.stream().clone();
@@ -235,6 +240,7 @@ impl Widget for Win {
             _loaded_data_channel,
             comm_target_cards: vec![],
             streams: vec![],
+            current_file_path: None,
         }
     }
 
@@ -243,8 +249,9 @@ impl Widget for Win {
             Msg::OpenFile => {
                 self.open_file();
             }
-            Msg::LoadedData((comm_target_cards, streams)) => {
+            Msg::LoadedData((fname, comm_target_cards, streams)) => {
                 self.widgets.loading_spinner.stop();
+                self.model.current_file_path = Some(fname);
                 self.model.comm_target_cards = comm_target_cards;
                 self.model.streams = streams;
                 self.refresh_comm_targets();
@@ -343,8 +350,9 @@ impl Widget for Win {
                     .unwrap();
                 for component_stream in &self.model.details_component_streams {
                     component_stream.emit(MessageParserDetailsMsg::DisplayDetails(
-                        msg_data.clone(),
+                        self.model.bg_sender.clone(),
                         self.model.current_file_path.as_ref().unwrap().clone(),
+                        msg_data.clone(),
                     ));
                 }
             }
@@ -379,14 +387,18 @@ impl Widget for Win {
     }
 
     fn load_file(fname: PathBuf, sender: relm::Sender<LoadedDataParams>) {
-        let output_str = invoke_tshark(fname, TSharkMode::Json, "tcp").expect("tshark error");
+        let output_str = invoke_tshark(&fname, TSharkMode::Json, "tcp").expect("tshark error");
         match serde_json::from_str::<Vec<TSharkCommunication>>(&output_str) {
-            Ok(packets) => Self::handle_packets(packets, sender),
+            Ok(packets) => Self::handle_packets(fname, packets, sender),
             Err(e) => panic!(format!("tshark output is not valid json: {:?}", e)),
         }
     }
 
-    fn handle_packets(packets: Vec<TSharkCommunication>, sender: relm::Sender<LoadedDataParams>) {
+    fn handle_packets(
+        fname: PathBuf,
+        packets: Vec<TSharkCommunication>,
+        sender: relm::Sender<LoadedDataParams>,
+    ) {
         let mut by_stream: Vec<_> = packets
             .into_iter()
             // .filter(|p| p.source.layers.http.is_some())
@@ -484,7 +496,7 @@ impl Widget for Win {
             })
             .collect();
 
-        sender.send((comm_target_cards, streams)).unwrap();
+        sender.send((fname, comm_target_cards, streams)).unwrap();
     }
 
     fn refresh_comm_targets(&mut self) {

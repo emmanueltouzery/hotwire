@@ -24,10 +24,20 @@ pub struct TSharkLayerHttpRaw {
     pub file_data: Vec<u8>,
 }
 
+// the format is weird. the image bytes are the first element of the array,
+// not sure what the others are, ignoring them for now.
+//
+//    "http.file_data_raw": [
+//     "89504e470d0a1a0a...
+//     388,
+//     7934,
+//     0,
+//     26
+//   ]
 fn parse_bytes<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
 where
     D: Deserializer<'de>,
 {
-    let s: &str = de::Deserialize::deserialize(deserializer)?;
-    Ok(hex::decode(s)?)
+    let s: Vec<serde_json::Value> = de::Deserialize::deserialize(deserializer)?;
+    hex::decode(s.first().unwrap().as_str().unwrap()).map_err(de::Error::custom)
 }

@@ -201,7 +201,11 @@ impl Widget for PostgresCommEntry {
 
     fn update(&mut self, event: MessageParserDetailsMsg) {
         match event {
-            MessageParserDetailsMsg::DisplayDetails(MessageData::Postgres(msg), _path) => {
+            MessageParserDetailsMsg::DisplayDetails(
+                _bg_sender,
+                _path,
+                MessageData::Postgres(msg),
+            ) => {
                 self.model.data = msg;
 
                 let field_descs: Vec<_> = self
