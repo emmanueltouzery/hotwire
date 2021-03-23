@@ -8,4 +8,5 @@ impl Icon {
 
     pub const HTTP: Icon = Icon("http");
     pub const DATABASE: Icon = Icon("database");
+    pub const LOCK: Icon = Icon("lock");
 }

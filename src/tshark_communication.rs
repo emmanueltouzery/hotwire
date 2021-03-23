@@ -21,8 +21,9 @@ pub struct TSharkLayers {
     pub frame: TSharkFrameLayer,
     pub ip: Option<TSharkIpLayer>,
     pub tcp: Option<TSharkTcpLayer>,
-    pub http: Option<Value>,
-    pub pgsql: Option<Value>,
+    pub http: Option<Value>,  // TODO no more value
+    pub pgsql: Option<Value>, // TODO no more value
+    pub tls: Option<Value>,   // TODO no more value
 }
 
 #[derive(Deserialize)]

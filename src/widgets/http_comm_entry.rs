@@ -1,8 +1,6 @@
 use crate::icons::Icon;
 use crate::tshark_communication_raw::TSharkCommunicationRaw;
-use crate::widgets::comm_remote_server::MessageData;
-use crate::widgets::comm_remote_server::MessageParser;
-use crate::widgets::comm_remote_server::MessageParserDetailsMsg;
+use crate::widgets::comm_remote_server::{MessageData, MessageParser, MessageParserDetailsMsg};
 use crate::widgets::win;
 use crate::BgFunc;
 use crate::TSharkCommunication;
@@ -10,7 +8,7 @@ use chrono::NaiveDateTime;
 use gdk_pixbuf::prelude::*;
 use gtk::prelude::*;
 use relm::{ContainerWidget, Widget};
-use relm_derive::{widget, Msg};
+use relm_derive::widget;
 use std::path::Path;
 use std::sync::mpsc;
 
@@ -57,7 +55,7 @@ impl MessageParser for Http {
 
     fn prepare_treeview(&self, tv: &gtk::TreeView) -> gtk::ListStore {
         let liststore = gtk::ListStore::new(&[
-            // TODO add: content type, body size...
+            // TODO add: body size...
             String::static_type(), // request first line
             String::static_type(), // response first line
             u32::static_type(),    // stream_id

@@ -4,6 +4,7 @@ use crate::widgets::comm_remote_server::MessageParser;
 use crate::widgets::comm_remote_server::MessageParserDetailsMsg;
 use crate::widgets::http_comm_entry::Http;
 use crate::widgets::postgres_comm_entry::Postgres;
+use crate::widgets::tls_comm_entry::Tls;
 use crate::BgFunc;
 use crate::TSharkCommunication;
 use glib::translate::ToGlib;
@@ -29,7 +30,7 @@ const LOADING_STACK_NAME: &str = "loading";
 const NORMAL_STACK_NAME: &str = "normal";
 
 pub fn get_message_parsers() -> Vec<Box<dyn MessageParser>> {
-    vec![Box::new(Http), Box::new(Postgres)]
+    vec![Box::new(Http), Box::new(Postgres), Box::new(Tls)]
 }
 
 pub type LoadedDataParams = (
