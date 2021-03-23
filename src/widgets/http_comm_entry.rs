@@ -96,6 +96,7 @@ impl MessageParser for Http {
         let response_col = gtk::TreeViewColumnBuilder::new()
             .title("Response")
             .resizable(true)
+            .sort_column_id(1) // sort by string.. i could add an integer col with the resp code...
             .build();
         let cell_resp_txt = gtk::CellRendererTextBuilder::new().build();
         response_col.pack_start(&cell_resp_txt, true);
