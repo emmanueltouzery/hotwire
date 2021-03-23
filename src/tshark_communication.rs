@@ -75,6 +75,6 @@ where
     // > Timezone is completely ignored. Similar to the glibc strptime treatment of this format code.
     // > It is not possible to reliably convert from an abbreviation to an offset, for example CDT
     // > can mean either Central Daylight Time (North America) or China Daylight Time.
-    let s: &str = de::Deserialize::deserialize(deserializer)?;
-    NaiveDateTime::parse_from_str(s, "%b %e, %Y %T.%f %Z").map_err(de::Error::custom)
+    let s: String = de::Deserialize::deserialize(deserializer)?;
+    NaiveDateTime::parse_from_str(&s, "%b %e, %Y %T.%f %Z").map_err(de::Error::custom)
 }

@@ -15,9 +15,11 @@ use std::cmp::Reverse;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::io::BufReader;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
+use std::process::Stdio;
 use std::sync::mpsc;
 
 const CSS_DATA: &[u8] = include_bytes!("../../resources/style.css");
@@ -96,12 +98,16 @@ pub enum TSharkMode {
     JsonRaw,
 }
 
-pub fn invoke_tshark(
+pub fn invoke_tshark<T>(
     fname: &Path,
     tshark_mode: TSharkMode,
     filters: &str,
-) -> Result<String, Box<dyn std::error::Error>> {
-    let tshark_output = Command::new("tshark")
+) -> Result<Vec<T>, Box<dyn std::error::Error>>
+where
+    T: serde::de::DeserializeOwned,
+{
+    // piping from tshark, not to load the entire JSON in ram...
+    let tshark_child = Command::new("tshark")
         .args(&[
             "-r",
             fname.to_str().expect("invalid filename"),
@@ -114,11 +120,10 @@ pub fn invoke_tshark(
             filters,
             // "tcp.stream eq 104",
         ])
-        .output()?;
-    if !tshark_output.status.success() {
-        return Err(format!("tshark returned error code {}", tshark_output.status).into());
-    }
-    Ok(String::from_utf8(tshark_output.stdout)?)
+        .stdout(Stdio::piped())
+        .spawn()?;
+    let reader = BufReader::new(tshark_child.stdout.unwrap());
+    Ok(serde_json::de::from_reader(reader)?)
 }
 
 #[widget]
@@ -387,11 +392,9 @@ impl Widget for Win {
     }
 
     fn load_file(fname: PathBuf, sender: relm::Sender<LoadedDataParams>) {
-        let output_str = invoke_tshark(&fname, TSharkMode::Json, "tcp").expect("tshark error");
-        match serde_json::from_str::<Vec<TSharkCommunication>>(&output_str) {
-            Ok(packets) => Self::handle_packets(fname, packets, sender),
-            Err(e) => panic!(format!("tshark output is not valid json: {:?}", e)),
-        }
+        let packets = invoke_tshark::<TSharkCommunication>(&fname, TSharkMode::Json, "tcp")
+            .expect("tshark error");
+        Self::handle_packets(fname, packets, sender)
     }
 
     fn handle_packets(

@@ -355,25 +355,20 @@ impl Widget for HttpCommEntry {
     }
 
     fn load_image(file_path: &Path, tcp_seq_number: u32, s: relm::Sender<Vec<u8>>) {
-        let output_str = win::invoke_tshark(
+        let mut packets = win::invoke_tshark::<TSharkCommunicationRaw>(
             file_path,
             win::TSharkMode::JsonRaw,
             &format!("tcp.seq eq {}", tcp_seq_number),
         )
         .expect("tshark error");
-        match serde_json::from_str::<Vec<TSharkCommunicationRaw>>(&output_str) {
-            Ok(mut packets) if packets.len() == 1 => {
-                let bytes = packets.pop().unwrap().source.layers.http.unwrap().file_data;
-                s.send(bytes);
-            }
-            Err(e) => panic!(format!(
-                "tshark output is not valid json: {:?}, tcp stream {}",
-                e, tcp_seq_number
-            )),
-            _ => panic!(format!(
-                "unexpected json from tshark: {:?}, tcp stream {}",
-                output_str, tcp_seq_number
-            )),
+        if packets.len() == 1 {
+            let bytes = packets.pop().unwrap().source.layers.http.unwrap().file_data;
+            s.send(bytes).unwrap();
+        } else {
+            panic!(format!(
+                "unexpected json from tshark, tcp stream {}",
+                tcp_seq_number
+            ));
         }
     }
 
