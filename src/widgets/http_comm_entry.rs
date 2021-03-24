@@ -72,7 +72,7 @@ impl MessageParser for Http {
         }
     }
 
-    fn prepare_treeview(&self, tv: &gtk::TreeView) -> gtk::ListStore {
+    fn prepare_treeview(&self, tv: &gtk::TreeView) -> (gtk::TreeModelSort, gtk::ListStore) {
         let liststore = gtk::ListStore::new(&[
             // TODO add: body size...
             String::static_type(), // request first line
@@ -144,7 +144,7 @@ impl MessageParser for Http {
         model_sort.set_sort_column_id(gtk::SortColumn::Index(5), gtk::SortType::Ascending);
         tv.set_model(Some(&model_sort));
 
-        liststore
+        (model_sort, liststore)
     }
 
     fn populate_treeview(&self, ls: &gtk::ListStore, session_id: u32, messages: &Vec<MessageData>) {

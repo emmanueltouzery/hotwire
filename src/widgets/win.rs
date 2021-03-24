@@ -144,7 +144,7 @@ impl Widget for Win {
             let tv = gtk::TreeViewBuilder::new()
                 .activate_on_single_click(true)
                 .build();
-            let store = message_parser.prepare_treeview(&tv);
+            let (modelsort, store) = message_parser.prepare_treeview(&tv);
             self.model.comm_remote_servers_stores.push(store.clone());
             self.model.comm_remote_servers_treeviews.push(tv.clone());
             let scroll = gtk::ScrolledWindowBuilder::new()
@@ -165,7 +165,10 @@ impl Widget for Win {
             let rstream = self.model.relm.stream().clone();
             tv.get_selection().connect_changed(move |selection| {
                 if let Some((model, iter)) = selection.get_selected() {
-                    if let Some(path) = model.get_path(&iter) {
+                    if let Some(path) = model
+                        .get_path(&iter)
+                        .and_then(|p| modelsort.convert_path_to_child_path(&p))
+                    {
                         let iter = store.get_iter(&path).unwrap();
                         let stream_id = store.get_value(&iter, 2);
                         let idx = store.get_value(&iter, 3);

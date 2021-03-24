@@ -38,7 +38,7 @@ impl MessageParser for Postgres {
         postgres_parsing::parse_pg_stream(all_vals)
     }
 
-    fn prepare_treeview(&self, tv: &gtk::TreeView) -> gtk::ListStore {
+    fn prepare_treeview(&self, tv: &gtk::TreeView) -> (gtk::TreeModelSort, gtk::ListStore) {
         let liststore = gtk::ListStore::new(&[
             String::static_type(), // query first line
             String::static_type(), // response info (number of rows..)
@@ -95,7 +95,7 @@ impl MessageParser for Postgres {
         model_sort.set_sort_column_id(gtk::SortColumn::Index(5), gtk::SortType::Ascending);
         tv.set_model(Some(&model_sort));
 
-        liststore
+        (model_sort, liststore)
     }
 
     fn populate_treeview(&self, ls: &gtk::ListStore, session_id: u32, messages: &Vec<MessageData>) {

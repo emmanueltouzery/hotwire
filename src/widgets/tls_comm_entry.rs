@@ -29,7 +29,7 @@ impl MessageParser for Tls {
         }
     }
 
-    fn prepare_treeview(&self, tv: &gtk::TreeView) -> gtk::ListStore {
+    fn prepare_treeview(&self, tv: &gtk::TreeView) -> (gtk::TreeModelSort, gtk::ListStore) {
         let liststore = gtk::ListStore::new(&[
             String::static_type(), // description
             i32::static_type(), // dummy (win has list store columns 2 & 3 hardcoded for stream & row idx)
@@ -48,9 +48,11 @@ impl MessageParser for Tls {
         data_col.pack_start(&cell_r_txt, true);
         data_col.add_attribute(&cell_r_txt, "text", 0);
         tv.append_column(&data_col);
-        tv.set_model(Some(&liststore));
 
-        liststore
+        let model_sort = gtk::TreeModelSort::new(&liststore);
+        tv.set_model(Some(&model_sort));
+
+        (model_sort, liststore)
     }
 
     fn populate_treeview(&self, ls: &gtk::ListStore, session_id: u32, messages: &Vec<MessageData>) {
