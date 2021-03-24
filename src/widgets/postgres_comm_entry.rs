@@ -91,7 +91,9 @@ impl MessageParser for Postgres {
         duration_col.add_attribute(&cell_d_txt, "text", 7);
         tv.append_column(&duration_col);
 
-        tv.set_model(Some(&liststore));
+        let model_sort = gtk::TreeModelSort::new(&liststore);
+        model_sort.set_sort_column_id(gtk::SortColumn::Index(5), gtk::SortType::Ascending);
+        tv.set_model(Some(&model_sort));
 
         liststore
     }
