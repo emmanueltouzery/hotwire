@@ -35,14 +35,15 @@ impl MessageParser for Http {
         let mut summary_details = None;
         for msg in stream {
             if summary_details.is_none() {
-                if let Some(h) = msg
-                    .source
-                    .layers
-                    .http
-                    .as_ref()
-                    .and_then(|h| h.http_host.as_ref())
-                {
-                    summary_details = Some(h.clone());
+                if let Some(h) = msg.source.layers.http.as_ref() {
+                    match (
+                        get_http_header_value(&h.other_lines, "X-Forwarded-Server"),
+                        h.http_host.as_ref(),
+                    ) {
+                        (Some(fwd), _) => summary_details = Some(fwd.clone()),
+                        (_, Some(host)) => summary_details = Some(host.clone()),
+                        _ => {}
+                    }
                 }
             }
             match parse_request_response(msg) {
@@ -208,6 +209,18 @@ impl MessageParser for Http {
         )));
         component.stream()
     }
+}
+
+fn get_http_header_value(other_lines: &str, header_name: &str) -> Option<String> {
+    // TODO use String.split_once after rust 1.52 is stabilized
+    other_lines.lines().find_map(|l| {
+        let mut parts = l.splitn(2, ": ");
+        if parts.next() == Some(header_name) {
+            parts.next().map(|s| s.trim_end().to_string())
+        } else {
+            None
+        }
+    })
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

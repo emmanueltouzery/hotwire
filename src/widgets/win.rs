@@ -2,6 +2,7 @@ use super::comm_remote_server::MessageData;
 use super::comm_target_card::{CommTargetCard, CommTargetCardData};
 use crate::widgets::comm_remote_server::MessageParser;
 use crate::widgets::comm_remote_server::MessageParserDetailsMsg;
+use crate::widgets::comm_target_card::SummaryDetails;
 use crate::widgets::http_comm_entry::Http;
 use crate::widgets::postgres_comm_entry::Postgres;
 use crate::widgets::tls_comm_entry::Tls;
@@ -441,6 +442,14 @@ impl Widget for Win {
                     if let Some(target_card) = sofar.get_mut(&card_key) {
                         target_card.remote_hosts.insert(ip_src.to_string());
                         target_card.incoming_session_count += 1;
+                        if target_card.summary_details.is_none() && items.summary_details.is_some()
+                        {
+                            target_card.summary_details = SummaryDetails::new(
+                                items.summary_details.as_deref().unwrap(),
+                                &target_card.ip,
+                                target_card.port,
+                            );
+                        }
                     } else {
                         let mut remote_hosts = BTreeSet::new();
                         remote_hosts.insert(ip_src.to_string());
@@ -458,7 +467,10 @@ impl Widget for Win {
                                 port: card_key.1,
                                 remote_hosts,
                                 incoming_session_count: 1,
-                                summary_details: items.summary_details.clone(),
+                                summary_details: items
+                                    .summary_details
+                                    .as_ref()
+                                    .and_then(|d| SummaryDetails::new(d, &card_key.0, card_key.1)),
                             },
                         );
                     }

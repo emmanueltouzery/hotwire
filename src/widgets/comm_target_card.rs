@@ -7,14 +7,34 @@ use std::collections::BTreeSet;
 #[derive(Msg)]
 pub enum Msg {}
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
+pub struct SummaryDetails {
+    details: String, // non public on purpose, please use ::new
+}
+
+impl SummaryDetails {
+    pub fn new(details: &str, ip: &str, port: u32) -> Option<SummaryDetails> {
+        // meant to avoid for http to have ip+port repeated for ip+port display,
+        // and then again for the details, which is the hostname, in case the hostname
+        // was just the IP
+        if !CommTargetCard::server_ip_port_display_format(ip, port).starts_with(details) {
+            Some(SummaryDetails {
+                details: details.to_string(),
+            })
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct CommTargetCardData {
     pub ip: String,
     pub port: u32,
     pub protocol_index: usize,
     pub remote_hosts: BTreeSet<String>,
     pub protocol_icon: Icon,
-    pub summary_details: Option<String>,
+    pub summary_details: Option<SummaryDetails>,
     pub incoming_session_count: usize,
 }
 
@@ -24,26 +44,18 @@ pub struct Model {
 
 #[widget]
 impl Widget for CommTargetCard {
-    fn model(relm: &relm::Relm<Self>, orig_data: CommTargetCardData) -> Model {
-        let mut data = orig_data;
-        if data
-            .summary_details
-            .as_deref()
-            .filter(|details| Self::server_ip_port_display(&data).starts_with(details))
-            .is_some()
-        {
-            // messy... meant to avoid for http to have ip+port repeated for ip+port display,
-            // and then again for the details, which is the hostname, in case the hostname
-            // was just the IP
-            data.summary_details = None;
-        }
+    fn model(_relm: &relm::Relm<Self>, data: CommTargetCardData) -> Model {
         Model { data }
     }
 
-    fn update(&mut self, event: Msg) {}
+    fn update(&mut self, _event: Msg) {}
 
     fn server_ip_port_display(data: &CommTargetCardData) -> String {
-        format!("{}:{}", data.ip, data.port)
+        Self::server_ip_port_display_format(&data.ip, data.port)
+    }
+
+    fn server_ip_port_display_format(ip: &str, port: u32) -> String {
+        format!("{}:{}", ip, port)
     }
 
     fn details_display(data: &CommTargetCardData) -> String {
@@ -88,7 +100,7 @@ impl Widget for CommTargetCard {
                         left_attach: 0,
                         top_attach: 0,
                     },
-                    label: self.model.data.summary_details.as_deref().unwrap_or(""),
+                    label: self.model.data.summary_details.as_ref().map(|d| d.details.as_str()).unwrap_or(""),
                     visible: self.model.data.summary_details.is_some(),
                 }
             }
