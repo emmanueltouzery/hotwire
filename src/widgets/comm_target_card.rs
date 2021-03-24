@@ -14,6 +14,7 @@ pub struct CommTargetCardData {
     pub protocol_index: usize,
     pub remote_hosts: BTreeSet<String>,
     pub protocol_icon: Icon,
+    pub summary_details: Option<String>,
     pub incoming_session_count: usize,
 }
 
@@ -23,7 +24,19 @@ pub struct Model {
 
 #[widget]
 impl Widget for CommTargetCard {
-    fn model(relm: &relm::Relm<Self>, data: CommTargetCardData) -> Model {
+    fn model(relm: &relm::Relm<Self>, orig_data: CommTargetCardData) -> Model {
+        let mut data = orig_data;
+        if data
+            .summary_details
+            .as_deref()
+            .filter(|details| Self::server_ip_port_display(&data).starts_with(details))
+            .is_some()
+        {
+            // messy... meant to avoid for http to have ip+port repeated for ip+port display,
+            // and then again for the details, which is the hostname, in case the hostname
+            // was just the IP
+            data.summary_details = None;
+        }
         Model { data }
     }
 
@@ -70,6 +83,14 @@ impl Widget for CommTargetCard {
                         top_attach: 2,
                     },
                 },
+                gtk::Label {
+                    cell: {
+                        left_attach: 0,
+                        top_attach: 0,
+                    },
+                    label: self.model.data.summary_details.as_deref().unwrap_or(""),
+                    visible: self.model.data.summary_details.is_some(),
+                }
             }
         }
     }

@@ -1,8 +1,8 @@
 use super::postgres_parsing;
 use crate::icons::Icon;
-use crate::widgets::comm_remote_server::MessageData;
-use crate::widgets::comm_remote_server::MessageParser;
-use crate::widgets::comm_remote_server::MessageParserDetailsMsg;
+use crate::widgets::comm_remote_server::{
+    MessageData, MessageParser, MessageParserDetailsMsg, StreamData,
+};
 use crate::BgFunc;
 use crate::TSharkCommunication;
 use chrono::{NaiveDateTime, Utc};
@@ -23,9 +23,9 @@ impl MessageParser for Postgres {
         Icon::DATABASE
     }
 
-    fn parse_stream(&self, stream: &[TSharkCommunication]) -> Vec<MessageData> {
+    fn parse_stream(&self, stream: Vec<TSharkCommunication>) -> StreamData {
         let mut all_vals = vec![];
-        for msg in stream {
+        for msg in &stream {
             let root = msg.source.layers.pgsql.as_ref();
             match root {
                 Some(serde_json::Value::Object(_)) => all_vals.push((msg, root.unwrap())),

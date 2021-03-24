@@ -1,20 +1,24 @@
-use super::http_comm_entry::{HttpCommEntry, HttpMessageData};
-use super::postgres_comm_entry::{PostgresCommEntry, PostgresMessageData};
+use super::http_comm_entry::HttpMessageData;
+use super::postgres_comm_entry::PostgresMessageData;
 use super::tls_comm_entry::TlsMessageData;
 use crate::icons::Icon;
 use crate::BgFunc;
 use crate::TSharkCommunication;
 use gtk::prelude::*;
-use relm::{Component, ContainerWidget, Widget};
+use relm::Widget;
 use relm_derive::{widget, Msg};
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc;
+
+pub struct StreamData {
+    pub messages: Vec<MessageData>,
+    pub summary_details: Option<String>,
+}
 
 pub trait MessageParser {
     fn is_my_message(&self, msg: &TSharkCommunication) -> bool;
     fn protocol_icon(&self) -> Icon;
-    fn parse_stream(&self, stream: &[TSharkCommunication]) -> Vec<MessageData>;
+    fn parse_stream(&self, stream: Vec<TSharkCommunication>) -> StreamData;
     fn prepare_treeview(&self, tv: &gtk::TreeView) -> gtk::ListStore;
     fn populate_treeview(&self, ls: &gtk::ListStore, session_id: u32, messages: &Vec<MessageData>);
     fn add_details_to_scroll(

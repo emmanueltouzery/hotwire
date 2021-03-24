@@ -1,6 +1,8 @@
 pub struct Tls;
 use crate::icons::Icon;
-use crate::widgets::comm_remote_server::{MessageData, MessageParser, MessageParserDetailsMsg};
+use crate::widgets::comm_remote_server::{
+    MessageData, MessageParser, MessageParserDetailsMsg, StreamData,
+};
 use crate::BgFunc;
 use crate::TSharkCommunication;
 use gtk::prelude::*;
@@ -20,8 +22,11 @@ impl MessageParser for Tls {
         Icon::LOCK
     }
 
-    fn parse_stream(&self, stream: &[TSharkCommunication]) -> Vec<MessageData> {
-        vec![MessageData::Tls(TlsMessageData {})]
+    fn parse_stream(&self, stream: Vec<TSharkCommunication>) -> StreamData {
+        StreamData {
+            messages: vec![MessageData::Tls(TlsMessageData {})],
+            summary_details: None,
+        }
     }
 
     fn prepare_treeview(&self, tv: &gtk::TreeView) -> gtk::ListStore {

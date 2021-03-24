@@ -1,6 +1,6 @@
 // https://www.postgresql.org/docs/12/protocol.html
 use super::postgres_comm_entry::PostgresMessageData;
-use crate::widgets::comm_remote_server::MessageData;
+use crate::widgets::comm_remote_server::{MessageData, StreamData};
 use crate::TSharkCommunication;
 use chrono::NaiveDateTime;
 use std::collections::HashMap;
@@ -32,9 +32,7 @@ pub enum PostgresWireMessage {
     },
 }
 
-pub fn parse_pg_stream(
-    all_vals: Vec<(&TSharkCommunication, &serde_json::Value)>,
-) -> Vec<MessageData> {
+pub fn parse_pg_stream(all_vals: Vec<(&TSharkCommunication, &serde_json::Value)>) -> StreamData {
     let decoded_messages = all_vals
         .into_iter()
         .filter_map(|(p, v)| parse_pg_value(p, v))
@@ -197,8 +195,8 @@ fn hex_chars_to_string(hex_chars: &str) -> Option<String> {
     //     .join("")
 }
 
-fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> Vec<MessageData> {
-    let mut r = vec![];
+fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> StreamData {
+    let mut messages = vec![];
     let mut cur_query = None;
     let mut cur_col_names = vec![];
     let mut cur_rs_row_count = 0;
@@ -247,7 +245,7 @@ fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> Vec<MessageData> {
             }
             PostgresWireMessage::ReadyForQuery { timestamp } => {
                 if was_bind {
-                    r.push(MessageData::Postgres(PostgresMessageData {
+                    messages.push(MessageData::Postgres(PostgresMessageData {
                         query: cur_query_with_fallback,
                         query_timestamp: query_timestamp.unwrap(), // know it was populated since was_bind is true
                         result_timestamp: timestamp,
@@ -268,7 +266,10 @@ fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> Vec<MessageData> {
             }
         }
     }
-    r
+    StreamData {
+        messages,
+        summary_details: None,
+    }
 }
 
 #[cfg(test)]

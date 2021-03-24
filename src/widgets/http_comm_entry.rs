@@ -1,6 +1,9 @@
 use crate::icons::Icon;
+use crate::tshark_communication::{HttpType, TSharkHttp};
 use crate::tshark_communication_raw::TSharkCommunicationRaw;
-use crate::widgets::comm_remote_server::{MessageData, MessageParser, MessageParserDetailsMsg};
+use crate::widgets::comm_remote_server::{
+    MessageData, MessageParser, MessageParserDetailsMsg, StreamData,
+};
 use crate::widgets::win;
 use crate::BgFunc;
 use crate::TSharkCommunication;
@@ -26,16 +29,28 @@ impl MessageParser for Http {
         Icon::HTTP
     }
 
-    fn parse_stream(&self, stream: &[TSharkCommunication]) -> Vec<MessageData> {
+    fn parse_stream(&self, stream: Vec<TSharkCommunication>) -> StreamData {
         let mut cur_request = None;
-        let mut result = vec![];
+        let mut messages = vec![];
+        let mut summary_details = None;
         for msg in stream {
+            if summary_details.is_none() {
+                if let Some(h) = msg
+                    .source
+                    .layers
+                    .http
+                    .as_ref()
+                    .and_then(|h| h.http_host.as_ref())
+                {
+                    summary_details = Some(h.clone());
+                }
+            }
             match parse_request_response(msg) {
                 RequestOrResponseOrOther::Request(r) => {
                     cur_request = Some(r);
                 }
                 RequestOrResponseOrOther::Response(r) => {
-                    result.push(MessageData::Http(HttpMessageData {
+                    messages.push(MessageData::Http(HttpMessageData {
                         request: cur_request,
                         response: Some(r),
                     }));
@@ -45,12 +60,15 @@ impl MessageParser for Http {
             }
         }
         if let Some(r) = cur_request {
-            result.push(MessageData::Http(HttpMessageData {
+            messages.push(MessageData::Http(HttpMessageData {
                 request: Some(r),
                 response: None,
             }));
         }
-        result
+        StreamData {
+            messages,
+            summary_details,
+        }
     }
 
     fn prepare_treeview(&self, tv: &gtk::TreeView) -> gtk::ListStore {
@@ -224,66 +242,27 @@ enum RequestOrResponseOrOther {
     Other,
 }
 
-fn parse_request_response(comm: &TSharkCommunication) -> RequestOrResponseOrOther {
-    let serde_json = comm.source.layers.http.as_ref();
-    if let Some(serde_json::Value::Object(http_map)) = serde_json {
-        let body = http_map
-            .get("http.file_data")
-            .and_then(|v| v.as_str())
-            .map(|v| v.trim().to_string());
-        let extract_first_line = |key_name| {
-            http_map
-                .iter()
-                .find(|(_k, v)| {
-                    matches!(
-                        v,
-                        serde_json::Value::Object(fields) if fields.contains_key(key_name))
-                })
-                .map(|(k, _v)| k.as_str())
-                .unwrap_or("")
-                .trim_end_matches("\\r\\n")
-                .to_string()
-        };
-        if let Some(req_line) = http_map.get("http.request.line") {
-            let other_lines_vec: Vec<_> = req_line
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|v| v.as_str().unwrap())
-                .collect();
-            return RequestOrResponseOrOther::Request(HttpRequestData {
-                tcp_seq_number: comm.source.layers.tcp.as_ref().unwrap().seq_number,
-                timestamp: comm.source.layers.frame.frame_time,
-                first_line: extract_first_line("http.request.method"),
-                other_lines: other_lines_vec.join(""),
-                content_type: http_map
-                    .get("http.content_type")
-                    .and_then(|c| c.as_str())
-                    .map(|c| c.to_string()),
-                body,
-            });
-        }
-        if let Some(resp_line) = http_map.get("http.response.line") {
-            let other_lines_vec: Vec<_> = resp_line
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|v| v.as_str().unwrap())
-                .collect();
-            return RequestOrResponseOrOther::Response(HttpResponseData {
-                tcp_seq_number: comm.source.layers.tcp.as_ref().unwrap().seq_number,
-                timestamp: comm.source.layers.frame.frame_time,
-                first_line: extract_first_line("http.response.code"),
-                other_lines: other_lines_vec.join(""),
-                content_type: http_map
-                    .get("http.content_type")
-                    .and_then(|c| c.as_str())
-                    .map(|c| c.to_string()),
-                body,
-            });
-        }
+fn parse_request_response(comm: TSharkCommunication) -> RequestOrResponseOrOther {
+    let http = comm.source.layers.http;
+    match http.map(|h| (h.http_type, h)) {
+        Some((HttpType::Request, h)) => RequestOrResponseOrOther::Request(HttpRequestData {
+            tcp_seq_number: comm.source.layers.tcp.as_ref().unwrap().seq_number,
+            timestamp: comm.source.layers.frame.frame_time,
+            body: h.body,
+            first_line: h.first_line,
+            other_lines: h.other_lines,
+            content_type: h.content_type,
+        }),
+        Some((HttpType::Response, h)) => RequestOrResponseOrOther::Response(HttpResponseData {
+            tcp_seq_number: comm.source.layers.tcp.as_ref().unwrap().seq_number,
+            timestamp: comm.source.layers.frame.frame_time,
+            body: h.body,
+            first_line: h.first_line,
+            other_lines: h.other_lines,
+            content_type: h.content_type,
+        }),
+        _ => RequestOrResponseOrOther::Other,
     }
-    RequestOrResponseOrOther::Other
 }
 
 pub struct Model {

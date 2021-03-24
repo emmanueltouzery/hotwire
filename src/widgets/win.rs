@@ -415,17 +415,20 @@ impl Widget for Win {
         let message_parsers = get_message_parsers();
 
         let mut parsed_streams: Vec<_> = by_stream
-            .iter()
+            .into_iter()
             .filter_map(|(id, comms)| {
-                comms
+                let parser = comms
                     .iter()
-                    .find_map(|c| message_parsers.iter().find(|p| p.is_my_message(c)))
-                    .map(|parser| {
-                        let layers = &comms.first().unwrap().source.layers;
-                        let card_key = (layers.ip_dst(), layers.tcp.as_ref().unwrap().port_dst);
-                        let ip_src = layers.ip_src();
-                        (parser, id, ip_src, card_key, parser.parse_stream(&comms))
-                    })
+                    .find_map(|c| message_parsers.iter().find(|p| p.is_my_message(c)));
+
+                if let Some(p) = parser {
+                    let layers = &comms.first().unwrap().source.layers;
+                    let card_key = (layers.ip_dst(), layers.tcp.as_ref().unwrap().port_dst);
+                    let ip_src = layers.ip_src();
+                    Some((p, id, ip_src, card_key, p.parse_stream(comms)))
+                } else {
+                    None
+                }
             })
             .collect();
         parsed_streams.sort_by_key(|(_parser, id, _ip_src, _card_key, _pstream)| *id);
@@ -455,6 +458,7 @@ impl Widget for Win {
                                 port: card_key.1,
                                 remote_hosts,
                                 incoming_session_count: 1,
+                                summary_details: items.summary_details.clone(),
                             },
                         );
                     }
@@ -475,7 +479,7 @@ impl Widget for Win {
                         target_port: card_key.1,
                         source_ip: ip_src,
                     },
-                    pstream,
+                    pstream.messages,
                 )
             })
             .collect();
