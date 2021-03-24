@@ -422,11 +422,8 @@ impl Widget for Win {
                     .find_map(|c| message_parsers.iter().find(|p| p.is_my_message(c)))
                     .map(|parser| {
                         let layers = &comms.first().unwrap().source.layers;
-                        let card_key = (
-                            layers.ip.as_ref().unwrap().ip_dst.clone(),
-                            layers.tcp.as_ref().unwrap().port_dst,
-                        );
-                        let ip_src = layers.ip.as_ref().unwrap().ip_src.clone();
+                        let card_key = (layers.ip_dst(), layers.tcp.as_ref().unwrap().port_dst);
+                        let ip_src = layers.ip_src();
                         (parser, id, ip_src, card_key, parser.parse_stream(&comms))
                     })
             })

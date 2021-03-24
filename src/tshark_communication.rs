@@ -16,17 +16,36 @@ pub struct TSharkSource {
     pub layers: TSharkLayers,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct TSharkLayers {
     pub frame: TSharkFrameLayer,
     pub ip: Option<TSharkIpLayer>,
+    pub ipv6: Option<TSharkIpV6Layer>,
     pub tcp: Option<TSharkTcpLayer>,
     pub http: Option<Value>,  // TODO no more value
     pub pgsql: Option<Value>, // TODO no more value
     pub tls: Option<Value>,   // TODO no more value
 }
 
-#[derive(Deserialize)]
+impl TSharkLayers {
+    pub fn ip_src(&self) -> String {
+        self.ip
+            .as_ref()
+            .map(|i| &i.ip_src)
+            .unwrap_or_else(|| self.ipv6.as_ref().map(|i| &i.ip_src).unwrap())
+            .clone()
+    }
+
+    pub fn ip_dst(&self) -> String {
+        self.ip
+            .as_ref()
+            .map(|i| &i.ip_dst)
+            .unwrap_or_else(|| self.ipv6.as_ref().map(|i| &i.ip_dst).unwrap())
+            .clone()
+    }
+}
+
+#[derive(Deserialize, Debug)]
 pub struct TSharkFrameLayer {
     #[serde(rename = "frame.time", deserialize_with = "parse_frame_time")]
     pub frame_time: NaiveDateTime,
@@ -34,7 +53,7 @@ pub struct TSharkFrameLayer {
     // pub time_relative: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct TSharkIpLayer {
     #[serde(rename = "ip.src")]
     pub ip_src: String,
@@ -42,7 +61,15 @@ pub struct TSharkIpLayer {
     pub ip_dst: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
+pub struct TSharkIpV6Layer {
+    #[serde(rename = "ipv6.src")]
+    pub ip_src: String,
+    #[serde(rename = "ipv6.dst")]
+    pub ip_dst: String,
+}
+
+#[derive(Deserialize, Debug)]
 pub struct TSharkTcpLayer {
     #[serde(
         rename = "tcp.seq",
