@@ -411,23 +411,6 @@ impl Widget for Win {
             .into_iter()
             .collect();
         by_stream.sort_by_key(|p| Reverse(p.1.len()));
-        println!(
-            "{} streams, length as from {:?} to {:?}.",
-            by_stream.len(),
-            by_stream.first().map(|f| f.1.len()),
-            by_stream.last().map(|l| l.1.len())
-        );
-        println!("src desc count");
-        // for stream in &by_stream[0..10] {
-        for stream in &by_stream {
-            let layers = &stream.1.first().as_ref().unwrap().source.layers;
-            let ip = layers.ip.as_ref().unwrap();
-            let tcp = layers.tcp.as_ref().unwrap();
-        }
-
-        // for packet in &by_stream.first().unwrap().1 {
-        //     println!("{:?}", packet.source.layers.http);
-        // }
 
         let message_parsers = get_message_parsers();
 
