@@ -13,6 +13,7 @@ use gtk::prelude::*;
 use itertools::Itertools;
 use relm::{Component, ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
+use std::cell::Cell;
 use std::cmp::Reverse;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
@@ -22,6 +23,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::process::Stdio;
+use std::rc::Rc;
 use std::sync::mpsc;
 
 const CSS_DATA: &[u8] = include_bytes!("../../resources/style.css");
@@ -40,7 +42,7 @@ pub type LoadedDataParams = (
     Vec<(StreamInfo, Vec<MessageData>)>,
 );
 
-#[derive(Msg)]
+#[derive(Msg, Debug)]
 pub enum Msg {
     OpenFile,
 
@@ -58,6 +60,7 @@ pub enum Msg {
     Quit,
 }
 
+#[derive(Debug)]
 pub struct StreamInfo {
     stream_id: u32,
     target_ip: String,
@@ -72,6 +75,7 @@ pub struct Model {
     window_subtitle: Option<String>,
     current_file_path: Option<PathBuf>,
 
+    is_refresh_ongoing: Rc<Cell<bool>>,
     streams: Vec<(StreamInfo, Vec<MessageData>)>,
     comm_target_cards: Vec<CommTargetCardData>,
     selected_card: Option<CommTargetCardData>,
@@ -165,7 +169,11 @@ impl Widget for Win {
             scroll2.set_property_height_request(200);
             paned.pack2(&scroll2, false, true);
             let rstream = self.model.relm.stream().clone();
+            let is_refresh_ongoing = self.model.is_refresh_ongoing.clone();
             tv.get_selection().connect_changed(move |selection| {
+                if is_refresh_ongoing.get() {
+                    return;
+                }
                 if let Some((model, iter)) = selection.get_selected() {
                     if let Some(path) = model
                         .get_path(&iter)
@@ -241,6 +249,7 @@ impl Widget for Win {
         Model {
             relm: relm.clone(),
             bg_sender,
+            is_refresh_ongoing: Rc::new(Cell::new(false)),
             _comm_targets_components: vec![],
             selected_card: None,
             selected_server_or_stream: None,
@@ -259,6 +268,12 @@ impl Widget for Win {
     }
 
     fn update(&mut self, event: Msg) {
+        match &event {
+            Msg::LoadedData(_) => println!("event: loadeddata"),
+            _ => {
+                dbg!(&event);
+            }
+        }
         match event {
             Msg::OpenFile => {
                 self.open_file();
@@ -282,20 +297,22 @@ impl Widget for Win {
             }
             Msg::SelectCard(maybe_idx) => {
                 println!("card changed");
+                self.model.is_refresh_ongoing.set(true);
                 self.model.selected_card = maybe_idx
                     .and_then(|idx| self.model.comm_target_cards.get(idx as usize))
                     .cloned();
                 self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, None, None);
+                self.model.is_refresh_ongoing.set(false);
                 self.model.selected_server_or_stream = Some(gtk::TreePath::new_first());
                 // if let Some(vadj) = self.widgets.remote_servers_scroll.get_vadjustment() {
                 //     vadj.set_value(0.0);
                 // }
             }
             Msg::SelectRemoteIpStream(selection) => {
-                println!("remote selection changed");
                 if let Some((model, iter)) = selection.get_selected() {
                     if let Some(path) = model.get_path(&iter) {
                         if Some(&path) != self.model.selected_server_or_stream.as_ref() {
+                            println!("remote selection changed");
                             self.refresh_remote_ip_stream(path);
                         }
                     }
