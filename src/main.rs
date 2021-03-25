@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate lazy_static;
+
 use crate::tshark_communication::TSharkCommunication;
 use relm::Widget;
 use std::sync::mpsc;

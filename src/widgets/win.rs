@@ -13,6 +13,7 @@ use gtk::prelude::*;
 use itertools::Itertools;
 use relm::{Component, ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
+use std::cmp;
 use std::cmp::Reverse;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
@@ -23,6 +24,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::process::Stdio;
 use std::sync::mpsc;
+use std::sync::Arc;
 
 const CSS_DATA: &[u8] = include_bytes!("../../resources/style.css");
 
@@ -30,14 +32,15 @@ const WELCOME_STACK_NAME: &str = "welcome";
 const LOADING_STACK_NAME: &str = "loading";
 const NORMAL_STACK_NAME: &str = "normal";
 
-pub fn get_message_parsers() -> Vec<Box<dyn MessageParser>> {
-    vec![Box::new(Http), Box::new(Postgres), Box::new(Tls)]
+lazy_static! {
+    static ref MESSAGE_PARSERS: Vec<Box<dyn MessageParser + Sync>> =
+        vec![Box::new(Http), Box::new(Postgres), Box::new(Tls)];
 }
 
 pub type LoadedDataParams = (
     PathBuf,
     Vec<CommTargetCardData>,
-    Vec<(StreamInfo, Vec<MessageData>)>,
+    Vec<(StreamInfo, Arc<Vec<MessageData>>)>,
 );
 
 #[derive(Msg)]
@@ -72,7 +75,7 @@ pub struct Model {
     window_subtitle: Option<String>,
     current_file_path: Option<PathBuf>,
 
-    streams: Vec<(StreamInfo, Vec<MessageData>)>,
+    streams: Vec<(StreamInfo, Arc<Vec<MessageData>>)>,
     comm_target_cards: Vec<CommTargetCardData>,
     selected_card: Option<CommTargetCardData>,
     selected_server_or_stream: Option<gtk::TreePath>,
@@ -142,7 +145,7 @@ impl Widget for Win {
             .unwrap()
             .set_property_gtk_alternative_sort_arrows(true);
 
-        for (idx, message_parser) in get_message_parsers().iter().enumerate() {
+        for (idx, message_parser) in MESSAGE_PARSERS.iter().enumerate() {
             let tv = gtk::TreeViewBuilder::new()
                 .activate_on_single_click(true)
                 .build();
@@ -430,14 +433,12 @@ impl Widget for Win {
             .collect();
         by_stream.sort_by_key(|p| Reverse(p.1.len()));
 
-        let message_parsers = get_message_parsers();
-
         let mut parsed_streams: Vec<_> = by_stream
             .into_iter()
             .filter_map(|(id, comms)| {
                 let parser = comms
                     .iter()
-                    .find_map(|c| message_parsers.iter().find(|p| p.is_my_message(c)));
+                    .find_map(|c| MESSAGE_PARSERS.iter().find(|p| p.is_my_message(c)));
 
                 if let Some(p) = parser {
                     let layers = &comms.first().unwrap().source.layers;
@@ -470,7 +471,7 @@ impl Widget for Win {
                     } else {
                         let mut remote_hosts = BTreeSet::new();
                         remote_hosts.insert(ip_src.to_string());
-                        let protocol_index = message_parsers
+                        let protocol_index = MESSAGE_PARSERS
                             .iter()
                             // comparing by the protocol icon is.. quite horrible..
                             .position(|p| p.protocol_icon() == parser.protocol_icon())
@@ -508,7 +509,7 @@ impl Widget for Win {
                         target_port: card_key.1,
                         source_ip: ip_src,
                     },
-                    pstream.messages,
+                    Arc::new(pstream.messages),
                 )
             })
             .collect();
@@ -541,6 +542,9 @@ impl Widget for Win {
         card: &CommTargetCardData,
         remote_ips: &HashSet<String>,
     ) {
+        self.widgets
+            .remote_ips_streams_treeview
+            .freeze_child_notify();
         self.model.remote_ips_streams_tree_store.clear();
         let all_iter = self.model.remote_ips_streams_tree_store.append(None);
         self.model
@@ -600,6 +604,7 @@ impl Widget for Win {
             }
         }
 
+        self.widgets.remote_ips_streams_treeview.thaw_child_notify();
         self.widgets.remote_ips_streams_treeview.expand_all();
     }
 
@@ -609,14 +614,19 @@ impl Widget for Win {
         constrain_remote_ip: Option<String>,
         constrain_stream_id: Option<u32>,
     ) {
+        // println!("freeze child notify");
+        // for tv in &self.model.comm_remote_servers_treeviews {
+        //     tv.freeze_child_notify();
+        // }
+        println!("clearing stores");
         for store in &self.model.comm_remote_servers_stores {
             store.clear();
         }
+        println!("done clearing stores");
         if let Some(card) = self.model.selected_card.as_ref().cloned() {
             let target_ip = card.ip.clone();
             let target_port = card.port;
             let mut by_remote_ip = HashMap::new();
-            let parsers = get_message_parsers();
             for (stream_info, messages) in &self.model.streams {
                 if stream_info.target_ip != target_ip || stream_info.target_port != target_port {
                     continue;
@@ -637,11 +647,11 @@ impl Widget for Win {
                     .or_insert_with(Vec::new);
                 remote_server_streams.push((stream_info.stream_id, messages));
             }
-            let mp = parsers.get(card.protocol_index).unwrap();
+            let mp = MESSAGE_PARSERS.get(card.protocol_index).unwrap();
             self.widgets
                 .comm_remote_servers_stack
                 .set_visible_child_name(&card.protocol_index.to_string());
-            let store = &self
+            let store = self
                 .model
                 .comm_remote_servers_stores
                 .get(card.protocol_index)
@@ -649,7 +659,16 @@ impl Widget for Win {
             self.model.disable_tree_view_selection_events = true;
             for (remote_ip, tcp_sessions) in &by_remote_ip {
                 for (session_id, session) in tcp_sessions {
-                    mp.populate_treeview(&store, *session_id, &session);
+                    let sid = *session_id;
+                    let mut i = 0;
+                    let s = (*store).clone();
+                    let ss = (*session).clone();
+                    glib::idle_add_local(move || {
+                        let chunk = &ss[i..(cmp::min(i + 10, ss.len()))];
+                        mp.populate_treeview(&s, sid, chunk);
+                        i += 10;
+                        glib::Continue(i < ss.len())
+                    });
                 }
             }
             self.model.disable_tree_view_selection_events = false;
@@ -667,6 +686,10 @@ impl Widget for Win {
                 self.refresh_remote_ips_streams_tree(&card, &ip_hash);
             }
         }
+        // println!("thaw child notify");
+        // for tv in &self.model.comm_remote_servers_treeviews {
+        //     tv.thaw_child_notify();
+        // }
     }
 
     view! {
@@ -745,6 +768,7 @@ impl Widget for Win {
                         #[name="remote_ips_streams_treeview"]
                         gtk::TreeView {
                             activate_on_single_click: true,
+                            fixed_height_mode: true,
                             model: Some(&self.model.remote_ips_streams_tree_store),
                             selection.changed(selection) => Msg::SelectRemoteIpStream(selection.clone()),
                         },

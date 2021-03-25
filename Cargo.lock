@@ -597,6 +597,7 @@ dependencies = [
  "hex",
  "includedir_codegen",
  "itertools 0.10.0",
+ "lazy_static",
  "pango",
  "relm",
  "relm-derive",
