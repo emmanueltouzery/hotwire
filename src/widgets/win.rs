@@ -69,6 +69,7 @@ pub struct Model {
     relm: relm::Relm<Win>,
     bg_sender: mpsc::Sender<BgFunc>,
 
+    window_subtitle: Option<String>,
     current_file_path: Option<PathBuf>,
 
     streams: Vec<(StreamInfo, Vec<MessageData>)>,
@@ -251,6 +252,7 @@ impl Widget for Win {
             comm_target_cards: vec![],
             streams: vec![],
             current_file_path: None,
+            window_subtitle: None,
         }
     }
 
@@ -261,6 +263,12 @@ impl Widget for Win {
             }
             Msg::LoadedData((fname, comm_target_cards, streams)) => {
                 self.widgets.loading_spinner.stop();
+                self.model.window_subtitle = Some(
+                    fname
+                        // .file_name().unwrap()
+                        .to_string_lossy()
+                        .to_string(),
+                );
                 self.model.current_file_path = Some(fname);
                 self.model.comm_target_cards = comm_target_cards;
                 self.model.streams = streams;
@@ -662,6 +670,7 @@ impl Widget for Win {
                 gtk::HeaderBar {
                     show_close_button: true,
                     title: Some("Hotwire"),
+                    subtitle: self.model.window_subtitle.as_deref(),
                     gtk::MenuButton {
                         image: Some(&gtk::Image::from_icon_name(Some("open-menu-symbolic"), gtk::IconSize::Menu)),
                         child: {
