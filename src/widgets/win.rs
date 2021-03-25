@@ -8,6 +8,7 @@ use crate::widgets::postgres_comm_entry::Postgres;
 use crate::widgets::tls_comm_entry::Tls;
 use crate::BgFunc;
 use crate::TSharkCommunication;
+use gdk::prelude::*;
 use glib::translate::ToGlib;
 use gtk::prelude::*;
 use itertools::Itertools;
@@ -297,12 +298,28 @@ impl Widget for Win {
             }
             Msg::SelectCard(maybe_idx) => {
                 println!("card changed");
+                let wait_cursor = gdk::Cursor::new_for_display(
+                    &self.widgets.window.get_display(),
+                    gdk::CursorType::Watch,
+                );
+                if let Some(p) = self.widgets.root_stack.get_parent_window() {
+                    p.set_cursor(Some(&wait_cursor));
+                }
+                self.widgets.comm_target_list.set_sensitive(false);
+                self.widgets
+                    .remote_ips_streams_treeview
+                    .set_sensitive(false);
                 self.model.is_refresh_ongoing.set(true);
                 self.model.selected_card = maybe_idx
                     .and_then(|idx| self.model.comm_target_cards.get(idx as usize))
                     .cloned();
                 self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, None, None);
+                if let Some(p) = self.widgets.root_stack.get_parent_window() {
+                    p.set_cursor(None);
+                }
                 self.model.is_refresh_ongoing.set(false);
+                self.widgets.comm_target_list.set_sensitive(true);
+                self.widgets.remote_ips_streams_treeview.set_sensitive(true);
                 self.model.selected_server_or_stream = Some(gtk::TreePath::new_first());
                 // if let Some(vadj) = self.widgets.remote_servers_scroll.get_vadjustment() {
                 //     vadj.set_value(0.0);
@@ -332,7 +349,7 @@ impl Widget for Win {
                 );
             }
             Msg::DisplayDetails(stream_id, idx) => {
-                let msg_data = self
+                if let Some(msg_data) = self
                     .model
                     .streams
                     .iter()
@@ -340,13 +357,14 @@ impl Widget for Win {
                     .unwrap()
                     .1
                     .get(idx as usize)
-                    .unwrap();
-                for component_stream in &self.model.details_component_streams {
-                    component_stream.emit(MessageParserDetailsMsg::DisplayDetails(
-                        self.model.bg_sender.clone(),
-                        self.model.current_file_path.as_ref().unwrap().clone(),
-                        msg_data.clone(),
-                    ));
+                {
+                    for component_stream in &self.model.details_component_streams {
+                        component_stream.emit(MessageParserDetailsMsg::DisplayDetails(
+                            self.model.bg_sender.clone(),
+                            self.model.current_file_path.as_ref().unwrap().clone(),
+                            msg_data.clone(),
+                        ));
+                    }
                 }
             }
             Msg::Quit => gtk::main_quit(),
@@ -666,7 +684,13 @@ impl Widget for Win {
             self.model.disable_tree_view_selection_events = true;
             for (remote_ip, tcp_sessions) in &by_remote_ip {
                 for (session_id, session) in tcp_sessions {
-                    mp.populate_treeview(&store, *session_id, &session);
+                    for chunk in session.chunks(100) {
+                        mp.populate_treeview(&store, *session_id, chunk);
+                        // https://developer.gnome.org/gtk3/stable/gtk3-General.html#gtk-events-pending
+                        while gtk::events_pending() {
+                            gtk::main_iteration();
+                        }
+                    }
                 }
             }
             self.model.disable_tree_view_selection_events = false;
