@@ -55,7 +55,13 @@ impl MessageParser for Tls {
         (model_sort, liststore)
     }
 
-    fn populate_treeview(&self, ls: &gtk::ListStore, session_id: u32, messages: &[MessageData]) {
+    fn populate_treeview(
+        &self,
+        ls: &gtk::ListStore,
+        session_id: u32,
+        messages: &[MessageData],
+        start_idx: i32,
+    ) {
         ls.insert_with_values(
             None,
             &[0, 2, 3],

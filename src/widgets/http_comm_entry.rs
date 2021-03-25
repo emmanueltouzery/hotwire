@@ -147,7 +147,13 @@ impl MessageParser for Http {
         (model_sort, liststore)
     }
 
-    fn populate_treeview(&self, ls: &gtk::ListStore, session_id: u32, messages: &[MessageData]) {
+    fn populate_treeview(
+        &self,
+        ls: &gtk::ListStore,
+        session_id: u32,
+        messages: &[MessageData],
+        start_idx: i32,
+    ) {
         for (idx, message) in messages.iter().enumerate() {
             let iter = ls.append();
             let http = message.as_http().unwrap();
@@ -172,7 +178,7 @@ impl MessageParser for Http {
                     .to_value(),
             );
             ls.set_value(&iter, 2, &session_id.to_value());
-            ls.set_value(&iter, 3, &(idx as u32).to_value());
+            ls.set_value(&iter, 3, &(start_idx + idx as i32).to_value());
             if let Some(ref rq) = http.request {
                 ls.set_value(&iter, 4, &rq.timestamp.to_string().to_value());
                 ls.set_value(&iter, 5, &rq.timestamp.timestamp_nanos().to_value());

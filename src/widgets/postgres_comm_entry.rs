@@ -100,8 +100,13 @@ impl MessageParser for Postgres {
         (model_sort, liststore)
     }
 
-    fn populate_treeview(&self, ls: &gtk::ListStore, session_id: u32, messages: &[MessageData]) {
-        println!("inserting {} messages... START", messages.len());
+    fn populate_treeview(
+        &self,
+        ls: &gtk::ListStore,
+        session_id: u32,
+        messages: &[MessageData],
+        start_idx: i32,
+    ) {
         for (idx, message) in messages.iter().enumerate() {
             let postgres = message.as_postgres().unwrap();
             ls.insert_with_values(
@@ -117,7 +122,7 @@ impl MessageParser for Postgres {
                         .to_value(),
                     &format!("{} rows", postgres.resultset_row_count).to_value(),
                     &session_id.to_value(),
-                    &(idx as i32).to_value(),
+                    &(start_idx + idx as i32).to_value(),
                     &postgres.query_timestamp.to_string().to_value(),
                     &postgres.query_timestamp.timestamp_nanos().to_value(),
                     &(postgres.result_timestamp - postgres.query_timestamp)
@@ -132,7 +137,6 @@ impl MessageParser for Postgres {
                 ],
             );
         }
-        println!("inserting {} messages... DONE", messages.len());
     }
 
     fn add_details_to_scroll(

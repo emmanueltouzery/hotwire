@@ -354,9 +354,7 @@ impl Widget for Win {
                     .streams
                     .iter()
                     .find(|(stream_info, items)| stream_info.stream_id == stream_id)
-                    .unwrap()
-                    .1
-                    .get(idx as usize)
+                    .and_then(|s| s.1.get(idx as usize))
                 {
                     for component_stream in &self.model.details_component_streams {
                         component_stream.emit(MessageParserDetailsMsg::DisplayDetails(
@@ -684,8 +682,10 @@ impl Widget for Win {
             self.model.disable_tree_view_selection_events = true;
             for (remote_ip, tcp_sessions) in &by_remote_ip {
                 for (session_id, session) in tcp_sessions {
+                    let mut idx = 0;
                     for chunk in session.chunks(100) {
-                        mp.populate_treeview(&store, *session_id, chunk);
+                        mp.populate_treeview(&store, *session_id, chunk, idx);
+                        idx += 100;
                         // https://developer.gnome.org/gtk3/stable/gtk3-General.html#gtk-events-pending
                         while gtk::events_pending() {
                             gtk::main_iteration();
