@@ -48,6 +48,7 @@ impl MessageParser for Postgres {
             i64::static_type(),    // query start timestamp (integer, for sorting)
             i32::static_type(),    // query duration (nanos, for sorting)
             String::static_type(), // query duration display
+            i64::static_type(),    // number of rows, for sorting
         ]);
 
         let timestamp_col = gtk::TreeViewColumnBuilder::new()
@@ -75,6 +76,7 @@ impl MessageParser for Postgres {
         let result_col = gtk::TreeViewColumnBuilder::new()
             .title("Result")
             .resizable(true)
+            .sort_column_id(8)
             .build();
         let cell_r_txt = gtk::CellRendererTextBuilder::new().build();
         result_col.pack_start(&cell_r_txt, true);
@@ -104,7 +106,7 @@ impl MessageParser for Postgres {
             let postgres = message.as_postgres().unwrap();
             ls.insert_with_values(
                 None,
-                &[0, 1, 2, 3, 4, 5, 6, 7],
+                &[0, 1, 2, 3, 4, 5, 6, 7, 8],
                 &[
                     &postgres
                         .query
@@ -126,6 +128,7 @@ impl MessageParser for Postgres {
                         (postgres.result_timestamp - postgres.query_timestamp).num_milliseconds()
                     )
                     .to_value(),
+                    &(postgres.resultset_row_count as u32).to_value(),
                 ],
             );
         }
