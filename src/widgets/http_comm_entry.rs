@@ -147,7 +147,7 @@ impl MessageParser for Http {
         (model_sort, liststore)
     }
 
-    fn populate_treeview(&self, ls: &gtk::ListStore, session_id: u32, messages: &Vec<MessageData>) {
+    fn populate_treeview(&self, ls: &gtk::ListStore, session_id: u32, messages: &[MessageData]) {
         for (idx, message) in messages.iter().enumerate() {
             let iter = ls.append();
             let http = message.as_http().unwrap();

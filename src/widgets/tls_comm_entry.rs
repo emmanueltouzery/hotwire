@@ -55,11 +55,16 @@ impl MessageParser for Tls {
         (model_sort, liststore)
     }
 
-    fn populate_treeview(&self, ls: &gtk::ListStore, session_id: u32, messages: &Vec<MessageData>) {
-        let iter = ls.append();
-        ls.set_value(&iter, 0, &"Encrypted TLS stream".to_value());
-        ls.set_value(&iter, 2, &session_id.to_value());
-        ls.set_value(&iter, 3, &0.to_value());
+    fn populate_treeview(&self, ls: &gtk::ListStore, session_id: u32, messages: &[MessageData]) {
+        ls.insert_with_values(
+            None,
+            &[0, 2, 3],
+            &[
+                &"Encrypted TLS stream".to_value(),
+                &session_id.to_value(),
+                &0.to_value(),
+            ],
+        );
     }
 
     fn add_details_to_scroll(

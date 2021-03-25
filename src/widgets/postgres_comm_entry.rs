@@ -98,51 +98,38 @@ impl MessageParser for Postgres {
         (model_sort, liststore)
     }
 
-    fn populate_treeview(&self, ls: &gtk::ListStore, session_id: u32, messages: &Vec<MessageData>) {
+    fn populate_treeview(&self, ls: &gtk::ListStore, session_id: u32, messages: &[MessageData]) {
+        println!("inserting {} messages... START", messages.len());
         for (idx, message) in messages.iter().enumerate() {
-            let iter = ls.append();
             let postgres = message.as_postgres().unwrap();
-            ls.set_value(
-                &iter,
-                0,
-                &postgres
-                    .query
-                    .as_deref()
-                    .map(|q| if q.len() > 250 { &q[..250] } else { q })
-                    .unwrap_or("couldn't get query")
-                    .replace("\n", "")
+            ls.insert_with_values(
+                None,
+                &[0, 1, 2, 3, 4, 5, 6, 7],
+                &[
+                    &postgres
+                        .query
+                        .as_deref()
+                        .map(|q| if q.len() > 250 { &q[..250] } else { q })
+                        .unwrap_or("couldn't get query")
+                        .replace("\n", "")
+                        .to_value(),
+                    &format!("{} rows", postgres.resultset_row_count).to_value(),
+                    &session_id.to_value(),
+                    &(idx as i32).to_value(),
+                    &postgres.query_timestamp.to_string().to_value(),
+                    &postgres.query_timestamp.timestamp_nanos().to_value(),
+                    &(postgres.result_timestamp - postgres.query_timestamp)
+                        .num_milliseconds()
+                        .to_value(),
+                    &format!(
+                        "{} ms",
+                        (postgres.result_timestamp - postgres.query_timestamp).num_milliseconds()
+                    )
                     .to_value(),
-            );
-            ls.set_value(
-                &iter,
-                1,
-                &format!("{} rows", postgres.resultset_row_count).to_value(),
-            );
-            ls.set_value(&iter, 2, &session_id.to_value());
-            ls.set_value(&iter, 3, &(idx as i32).to_value());
-            ls.set_value(&iter, 4, &postgres.query_timestamp.to_string().to_value());
-            ls.set_value(
-                &iter,
-                5,
-                &postgres.query_timestamp.timestamp_nanos().to_value(),
-            );
-            ls.set_value(
-                &iter,
-                6,
-                &(postgres.result_timestamp - postgres.query_timestamp)
-                    .num_milliseconds()
-                    .to_value(),
-            );
-            ls.set_value(
-                &iter,
-                7,
-                &format!(
-                    "{} ms",
-                    (postgres.result_timestamp - postgres.query_timestamp).num_milliseconds()
-                )
-                .to_value(),
+                ],
             );
         }
+        println!("inserting {} messages... DONE", messages.len());
     }
 
     fn add_details_to_scroll(
