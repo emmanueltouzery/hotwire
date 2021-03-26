@@ -10,6 +10,7 @@ use gtk::prelude::*;
 use itertools::Itertools;
 use relm::{ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
+use std::borrow::Cow;
 use std::sync::mpsc;
 
 pub struct Postgres;
@@ -166,7 +167,7 @@ pub struct PostgresMessageData {
     // in that case we won't be able to recover the query string.
     pub query_timestamp: NaiveDateTime,
     pub result_timestamp: NaiveDateTime,
-    pub query: Option<String>,
+    pub query: Option<Cow<'static, str>>,
     pub parameter_values: Vec<String>,
     pub resultset_col_names: Vec<String>,
     pub resultset_row_count: usize,

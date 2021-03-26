@@ -3,6 +3,7 @@ use super::postgres_comm_entry::PostgresMessageData;
 use crate::widgets::comm_remote_server::{MessageData, StreamData};
 use crate::TSharkCommunication;
 use chrono::NaiveDateTime;
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 #[cfg(test)]
@@ -17,6 +18,9 @@ pub enum PostgresWireMessage {
         username: Option<String>,
         database: Option<String>,
         application: Option<String>,
+    },
+    CopyData {
+        timestamp: NaiveDateTime,
     },
     Parse {
         query: Option<String>,
@@ -81,6 +85,9 @@ fn parse_pg_value(
                 None
             }
         }
+        Some("Copy data") => Some(PostgresWireMessage::CopyData {
+            timestamp: packet.source.layers.frame.frame_time,
+        }),
         Some("Parse") => {
             Some(PostgresWireMessage::Parse {
                 // query: format!("{} -> {}", time_relative, q),
@@ -242,12 +249,12 @@ fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> StreamData {
                 application,
             } => {
                 messages.push(MessageData::Postgres(PostgresMessageData {
-                    query: Some(format!(
+                    query: Some(Cow::Owned(format!(
                         "LOGIN: user: {}, db: {}, app: {}",
                         username,
                         database,
                         application.as_deref().unwrap_or("-")
-                    )),
+                    ))),
                     query_timestamp: timestamp,
                     result_timestamp: timestamp,
                     parameter_values: vec![],
@@ -295,7 +302,7 @@ fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> StreamData {
             PostgresWireMessage::ReadyForQuery { timestamp } => {
                 if was_bind {
                     messages.push(MessageData::Postgres(PostgresMessageData {
-                        query: cur_query_with_fallback,
+                        query: cur_query_with_fallback.map(Cow::Owned),
                         query_timestamp: query_timestamp.unwrap(), // know it was populated since was_bind is true
                         result_timestamp: timestamp,
                         parameter_values: cur_parameter_values,
@@ -312,6 +319,17 @@ fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> StreamData {
                 cur_rs_row_count = 0;
                 cur_rs_first_rows = vec![];
                 query_timestamp = None;
+            }
+            PostgresWireMessage::CopyData { timestamp } => {
+                messages.push(MessageData::Postgres(PostgresMessageData {
+                    query: Some(Cow::Borrowed("COPY DATA")),
+                    query_timestamp: timestamp,
+                    result_timestamp: timestamp,
+                    parameter_values: vec![],
+                    resultset_col_names: vec![],
+                    resultset_row_count: 0,
+                    resultset_first_rows: vec![],
+                }));
             }
         }
     }
