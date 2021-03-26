@@ -12,6 +12,12 @@ use chrono::NaiveDate;
 
 #[derive(Debug)]
 pub enum PostgresWireMessage {
+    Startup {
+        timestamp: NaiveDateTime,
+        username: Option<String>,
+        database: Option<String>,
+        application: Option<String>,
+    },
     Parse {
         query: Option<String>,
         statement: Option<String>,
@@ -40,6 +46,11 @@ pub fn parse_pg_stream(all_vals: Vec<(&TSharkCommunication, &serde_json::Value)>
     merge_message_datas(decoded_messages)
 }
 
+fn as_string_array(val: &serde_json::Value) -> Option<Vec<&str>> {
+    val.as_array()
+        .and_then(|v| v.into_iter().map(|i| i.as_str()).collect())
+}
+
 // now postgres bound parameters.. $1, $2..
 // for instance in session 34
 fn parse_pg_value(
@@ -51,99 +62,115 @@ fn parse_pg_value(
         .and_then(|o| o.get("pgsql.type"))
         .and_then(|t| t.as_str());
     // if let Some(query_info) = obj.and_then(|o| o.get("pgsql.query")) {
-    if typ == Some("Parse") {
-        return Some(PostgresWireMessage::Parse {
-            // query: format!("{} -> {}", time_relative, q),
-            query: obj
-                .and_then(|o| o.get("pgsql.query"))
-                .and_then(|s| s.as_str())
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string()),
-            statement: obj
-                .and_then(|o| o.get("pgsql.statement"))
-                .and_then(|s| s.as_str())
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string()),
-        });
-    }
-    if typ == Some("Bind") {
-        // for prepared statements, the first time we get parse & statement+query
-        // the following times we get bind and only statement (statement ID)
-        // we can then recover the query from the statement id in post-processing.
-        return Some(PostgresWireMessage::Bind {
-            // query: format!("{} -> {}", time_relative, q),
-            timestamp: packet.source.layers.frame.frame_time,
-            statement: obj
-                .and_then(|o| o.get("pgsql.statement"))
-                .and_then(|s| s.as_str())
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string()),
-            parameter_values: obj
-                .and_then(|o| o.iter().find(|(k, _v)| k.starts_with("Parameter values: ")))
-                .and_then(|(_k, v)| {
-                    if let serde_json::Value::Object(tree) = v {
-                        let col_lengths: Vec<i32> =
-                            parse_str_or_array(tree.get("pgsql.val.length").unwrap(), |s| {
-                                s.parse().unwrap_or(0)
-                            });
-                        let raw_cols =
-                            parse_str_or_array(tree.get("pgsql.val.data").unwrap(), |s| {
-                                hex_chars_to_string(s).unwrap_or_default() // TODO should check pgsql.oid.type.. sometimes i get integers here
-                            });
-                        return Some(add_cols(raw_cols, col_lengths));
-                    }
-                    None
+    match typ {
+        Some("Startup message") => {
+            if let (Some(names), Some(vals)) = (
+                obj.and_then(|o| o.get("pgsql.parameter_name"))
+                    .and_then(as_string_array),
+                obj.and_then(|o| o.get("pgsql.parameter_value"))
+                    .and_then(as_string_array),
+            ) {
+                let idx_to_key: HashMap<_, _> = names.into_iter().zip(vals.into_iter()).collect();
+                Some(PostgresWireMessage::Startup {
+                    timestamp: packet.source.layers.frame.frame_time,
+                    username: idx_to_key.get("user").map(|x| x.to_string()),
+                    database: idx_to_key.get("database").map(|x| x.to_string()),
+                    application: idx_to_key.get("application_name").map(|x| x.to_string()),
                 })
-                .unwrap_or_else(Vec::new),
-        });
-    }
-    if typ == Some("Ready for query") {
-        return Some(PostgresWireMessage::ReadyForQuery {
-            timestamp: packet.source.layers.frame.frame_time,
-        });
-    }
-    if typ == Some("Row description") {
-        let tree = obj.unwrap().get("pgsql.field.count_tree").unwrap();
-        let col_names = match tree.get("pgsql.col.name") {
-            Some(serde_json::Value::String(s)) => {
-                vec![s.to_string()]
+            } else {
+                None
             }
-            Some(serde_json::Value::Array(ar)) => {
-                ar.iter().map(|v| v.as_str().unwrap().to_string()).collect()
-            }
-            _ => vec![],
-        };
-        return Some(PostgresWireMessage::RowDescription { col_names });
-    }
-    if typ == Some("Data row") {
-        let col_count = obj
-            .unwrap()
-            .get("pgsql.field.count")
-            .unwrap()
-            .as_str()
-            .unwrap()
-            .parse::<usize>()
-            .unwrap();
-        let tree = obj.unwrap().get("pgsql.field.count_tree").unwrap();
-        let col_lengths: Vec<i32> =
-            parse_str_or_array(tree.get("pgsql.val.length").unwrap(), |s| {
-                s.parse().unwrap_or(0) // TODO the _or(0) is a workaround because we didn't code everything yet
-            });
-
-        let raw_cols = tree
-            .get("pgsql.val.data")
-            // TODO the or_default is a workaround because we didn't code everything yet
-            .map(|t| parse_str_or_array(t, |s| hex_chars_to_string(s).unwrap_or_default()))
-            .unwrap_or_else(Vec::new);
-        let cols = add_cols(raw_cols, col_lengths);
-        if col_count != cols.len() {
-            panic!("{} != {}", col_count, cols.len());
         }
-        return Some(PostgresWireMessage::ResultSetRow { cols });
-    }
+        Some("Parse") => {
+            Some(PostgresWireMessage::Parse {
+                // query: format!("{} -> {}", time_relative, q),
+                query: obj
+                    .and_then(|o| o.get("pgsql.query"))
+                    .and_then(|s| s.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string()),
+                statement: obj
+                    .and_then(|o| o.get("pgsql.statement"))
+                    .and_then(|s| s.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string()),
+            })
+        }
+        Some("Bind") => {
+            // for prepared statements, the first time we get parse & statement+query
+            // the following times we get bind and only statement (statement ID)
+            // we can then recover the query from the statement id in post-processing.
+            Some(PostgresWireMessage::Bind {
+                // query: format!("{} -> {}", time_relative, q),
+                timestamp: packet.source.layers.frame.frame_time,
+                statement: obj
+                    .and_then(|o| o.get("pgsql.statement"))
+                    .and_then(|s| s.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string()),
+                parameter_values: obj
+                    .and_then(|o| o.iter().find(|(k, _v)| k.starts_with("Parameter values: ")))
+                    .and_then(|(_k, v)| {
+                        if let serde_json::Value::Object(tree) = v {
+                            let col_lengths: Vec<i32> =
+                                parse_str_or_array(tree.get("pgsql.val.length").unwrap(), |s| {
+                                    s.parse().unwrap_or(0)
+                                });
+                            let raw_cols =
+                                parse_str_or_array(tree.get("pgsql.val.data").unwrap(), |s| {
+                                    hex_chars_to_string(s).unwrap_or_default() // TODO should check pgsql.oid.type.. sometimes i get integers here
+                                });
+                            return Some(add_cols(raw_cols, col_lengths));
+                        }
+                        None
+                    })
+                    .unwrap_or_else(Vec::new),
+            })
+        }
+        Some("Ready for query") => Some(PostgresWireMessage::ReadyForQuery {
+            timestamp: packet.source.layers.frame.frame_time,
+        }),
+        Some("Row description") => {
+            let tree = obj.unwrap().get("pgsql.field.count_tree").unwrap();
+            let col_names = match tree.get("pgsql.col.name") {
+                Some(serde_json::Value::String(s)) => {
+                    vec![s.to_string()]
+                }
+                Some(serde_json::Value::Array(ar)) => {
+                    ar.iter().map(|v| v.as_str().unwrap().to_string()).collect()
+                }
+                _ => vec![],
+            };
+            Some(PostgresWireMessage::RowDescription { col_names })
+        }
+        Some("Data row") => {
+            let col_count = obj
+                .unwrap()
+                .get("pgsql.field.count")
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .parse::<usize>()
+                .unwrap();
+            let tree = obj.unwrap().get("pgsql.field.count_tree").unwrap();
+            let col_lengths: Vec<i32> =
+                parse_str_or_array(tree.get("pgsql.val.length").unwrap(), |s| {
+                    s.parse().unwrap_or(0) // TODO the _or(0) is a workaround because we didn't code everything yet
+                });
 
-    // "pgsql.type": "Bind",
-    None
+            let raw_cols = tree
+                .get("pgsql.val.data")
+                // TODO the or_default is a workaround because we didn't code everything yet
+                .map(|t| parse_str_or_array(t, |s| hex_chars_to_string(s).unwrap_or_default()))
+                .unwrap_or_else(Vec::new);
+            let cols = add_cols(raw_cols, col_lengths);
+            if col_count != cols.len() {
+                panic!("{} != {}", col_count, cols.len());
+            }
+            Some(PostgresWireMessage::ResultSetRow { cols })
+        }
+        _ => None,
+    }
 }
 
 fn parse_str_or_array<T>(val: &serde_json::Value, converter: impl Fn(&str) -> T) -> Vec<T> {
@@ -208,6 +235,28 @@ fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> StreamData {
     let mut query_timestamp = None;
     for md in mds {
         match md {
+            PostgresWireMessage::Startup {
+                timestamp,
+                username: Some(ref username),
+                database: Some(ref database),
+                application,
+            } => {
+                messages.push(MessageData::Postgres(PostgresMessageData {
+                    query: Some(format!(
+                        "LOGIN: user: {}, db: {}, app: {}",
+                        username,
+                        database,
+                        application.as_deref().unwrap_or("-")
+                    )),
+                    query_timestamp: timestamp,
+                    result_timestamp: timestamp,
+                    parameter_values: vec![],
+                    resultset_col_names: vec![],
+                    resultset_row_count: 0,
+                    resultset_first_rows: vec![],
+                }));
+            }
+            PostgresWireMessage::Startup { .. } => {}
             PostgresWireMessage::Parse {
                 ref query,
                 ref statement,
@@ -281,9 +330,11 @@ fn as_json_array(json: &serde_json::Value) -> Vec<(&TSharkCommunication, &serde_
                     frame_time: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
                 },
                 ip: None,
+                ipv6: None,
                 tcp: None,
                 http: None,
                 pgsql: None,
+                tls: None,
             },
         },
     }));
@@ -330,7 +381,8 @@ fn should_parse_simple_query() {
         "#,
         )
         .unwrap(),
-    ));
+    ))
+    .messages;
     let expected: Vec<MessageData> = vec![MessageData::Postgres(PostgresMessageData {
         query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
         result_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
@@ -383,7 +435,8 @@ fn should_parse_prepared_statement() {
         "#,
         )
         .unwrap(),
-    ));
+    ))
+    .messages;
     let expected: Vec<MessageData> = vec![
         MessageData::Postgres(PostgresMessageData {
             query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
@@ -455,7 +508,8 @@ fn should_parse_prepared_statement_with_parameters() {
         "#,
         )
         .unwrap(),
-    ));
+    ))
+    .messages;
     let expected: Vec<MessageData> = vec![
         MessageData::Postgres(PostgresMessageData {
             query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
@@ -492,7 +546,8 @@ fn should_not_generate_queries_for_just_a_ready_message() {
         "#,
         )
         .unwrap(),
-    ));
+    ))
+    .messages;
     let expected: Vec<MessageData> = vec![];
     assert_eq!(expected, parsed);
 }
@@ -531,7 +586,8 @@ fn should_parse_query_with_multiple_columns_and_nulls() {
         "#,
         )
         .unwrap(),
-    ));
+    ))
+    .messages;
     let expected: Vec<MessageData> = vec![MessageData::Postgres(PostgresMessageData {
         query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
         result_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
@@ -582,7 +638,8 @@ fn should_parse_query_with_no_parse_and_unknown_bind() {
         "#,
         )
         .unwrap(),
-    ));
+    ))
+    .messages;
     let expected: Vec<MessageData> = vec![MessageData::Postgres(PostgresMessageData {
         query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
         result_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),

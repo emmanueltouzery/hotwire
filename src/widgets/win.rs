@@ -674,7 +674,7 @@ impl Widget for Win {
                 self.model.remote_ips_streams_tree_store.set_value(
                     &session_iter,
                     0,
-                    &format!("Session {}", stream_info.stream_id).to_value(),
+                    &format!("Stream {}", stream_info.stream_id).to_value(),
                 );
                 self.model.remote_ips_streams_tree_store.set_value(
                     &session_iter,
