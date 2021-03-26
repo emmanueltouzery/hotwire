@@ -45,6 +45,7 @@ pub type LoadedDataParams = (
 pub enum Msg {
     OpenFile,
 
+    FinishedTShark,
     LoadedData(LoadedDataParams),
 
     SelectCard(Option<usize>),
@@ -96,6 +97,9 @@ pub struct Model {
     remote_ips_streams_tree_store: gtk::TreeStore,
     comm_remote_servers_stores: Vec<gtk::ListStore>,
     comm_remote_servers_treeviews: Vec<(gtk::TreeView, TreeViewSignals)>,
+
+    _finished_tshark_channel: relm::Channel<()>,
+    finished_tshark_sender: relm::Sender<()>,
 
     _loaded_data_channel: relm::Channel<LoadedDataParams>,
     loaded_data_sender: relm::Sender<LoadedDataParams>,
@@ -307,6 +311,11 @@ impl Widget for Win {
                 stream.emit(Msg::LoadedData(ch_data));
             });
 
+        let stream2 = relm.stream().clone();
+        let (_finished_tshark_channel, finished_tshark_sender) = relm::Channel::new(move |_| {
+            stream2.emit(Msg::FinishedTShark);
+        });
+
         Model {
             relm: relm.clone(),
             bg_sender,
@@ -319,6 +328,8 @@ impl Widget for Win {
             details_component_streams: vec![],
             loaded_data_sender,
             _loaded_data_channel,
+            finished_tshark_sender,
+            _finished_tshark_channel,
             comm_target_cards: vec![],
             streams: vec![],
             current_file_path: None,
@@ -336,6 +347,10 @@ impl Widget for Win {
         match event {
             Msg::OpenFile => {
                 self.open_file();
+            }
+            Msg::FinishedTShark => {
+                self.widgets.loading_tshark_label.set_visible(false);
+                self.widgets.loading_parsing_label.set_visible(true);
             }
             Msg::LoadedData((fname, comm_target_cards, streams)) => {
                 self.widgets.loading_spinner.stop();
@@ -485,23 +500,31 @@ impl Widget for Win {
         if dialog.run() == gtk::ResponseType::Accept {
             if let Some(fname) = dialog.get_filename() {
                 self.widgets.loading_spinner.start();
+                self.widgets.loading_parsing_label.set_visible(false);
+                self.widgets.loading_tshark_label.set_visible(true);
                 self.widgets
                     .root_stack
                     .set_visible_child_name(LOADING_STACK_NAME);
                 let s = self.model.loaded_data_sender.clone();
+                let t = self.model.finished_tshark_sender.clone();
                 self.model
                     .bg_sender
                     .send(BgFunc::new(move || {
-                        Self::load_file(fname.clone(), s.clone());
+                        Self::load_file(fname.clone(), s.clone(), t.clone());
                     }))
                     .unwrap();
             }
         }
     }
 
-    fn load_file(fname: PathBuf, sender: relm::Sender<LoadedDataParams>) {
+    fn load_file(
+        fname: PathBuf,
+        sender: relm::Sender<LoadedDataParams>,
+        finished_tshark: relm::Sender<()>,
+    ) {
         let packets = invoke_tshark::<TSharkCommunication>(&fname, TSharkMode::Json, "tcp")
             .expect("tshark error");
+        finished_tshark.send(()).unwrap();
         Self::handle_packets(fname, packets, sender)
     }
 
@@ -814,16 +837,33 @@ impl Widget for Win {
                     child: {
                         name: Some(LOADING_STACK_NAME)
                     },
-                    spacing: 5,
-                    #[name="loading_spinner"]
-                    gtk::Spinner {
-                        hexpand: true,
-                        halign: gtk::Align::End,
+                    orientation: gtk::Orientation::Vertical,
+                    valign: gtk::Align::Center,
+                    gtk::Box {
+                        spacing: 5,
+                        #[name="loading_spinner"]
+                        gtk::Spinner {
+                            hexpand: true,
+                            halign: gtk::Align::End,
+                        },
+                        #[style_class="title"]
+                        gtk::Label {
+                            label: "Loading the file, please wait",
+                            hexpand: true,
+                            xalign: 0.0,
+                        },
                     },
+                    #[style_class="subtitle"]
+                    #[name="loading_tshark_label"]
                     gtk::Label {
-                        label: "Loading the file, please wait",
+                        label: "Communication with tshark",
                         hexpand: true,
-                        xalign: 0.0,
+                    },
+                    #[style_class="subtitle"]
+                    #[name="loading_parsing_label"]
+                    gtk::Label {
+                        label: "Parsing of the packets",
+                        hexpand: true,
                     },
                 },
                 gtk::Box {

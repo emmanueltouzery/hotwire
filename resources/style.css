@@ -20,3 +20,11 @@
   font-weight: bold;
   padding-top: 5px;
 }
+
+.title {
+  font-weight: bold;
+}
+
+.subtitle {
+  color: gray;
+}
