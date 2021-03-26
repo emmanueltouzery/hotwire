@@ -8,6 +8,7 @@ use crate::TSharkCommunication;
 use chrono::{NaiveDateTime, Utc};
 use gtk::prelude::*;
 use itertools::Itertools;
+use regex::Regex;
 use relm::{ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
 use std::borrow::Cow;
@@ -177,6 +178,7 @@ pub struct PostgresMessageData {
 pub struct Model {
     data: PostgresMessageData,
     list_store: Option<gtk::ListStore>,
+    syntax_highlight: Vec<(Regex, String)>,
 }
 
 #[widget]
@@ -195,7 +197,65 @@ impl Widget for PostgresCommEntry {
         Model {
             data,
             list_store: None,
+            syntax_highlight: Self::prepare_syntax_highlight(),
         }
+    }
+
+    fn prepare_syntax_highlight() -> Vec<(Regex, String)> {
+        [
+            "select",
+            "SELECT",
+            "update",
+            "UPDATE",
+            "delete",
+            "DELETE",
+            "from",
+            "FROM",
+            "set",
+            "SET",
+            "join",
+            "JOIN",
+            "on",
+            "ON",
+            "where",
+            "WHERE",
+            "having",
+            "HAVING",
+            "group by",
+            "GROUP BY",
+            "using",
+            "USING",
+            "order by",
+            "ORDER BY",
+            "desc",
+            "DESC",
+            "asc",
+            "ASC",
+            "limit",
+            "LIMIT",
+            "not",
+            "NOT",
+            "in",
+            "IN",
+            "and",
+            "AND",
+            "or",
+            "OR",
+            "inner",
+            "INNER",
+            "left outer",
+            "LEFT OUTER",
+            "outer",
+            "OUTER",
+        ]
+        .iter()
+        .map(|s| {
+            (
+                Regex::new(&format!(r"\b{}\b", s)).unwrap(),
+                format!("<b>{}</b>", s),
+            )
+        })
+        .collect()
     }
 
     fn update(&mut self, event: MessageParserDetailsMsg) {
@@ -255,6 +315,13 @@ impl Widget for PostgresCommEntry {
         }
     }
 
+    fn highlight_sql(highlight: &[(Regex, String)], query: &str) -> String {
+        let result = glib::markup_escape_text(query).to_string();
+        highlight.iter().fold(result, |sofar, (regex, repl)| {
+            regex.replace_all(&sofar, repl).to_string()
+        })
+    }
+
     view! {
         gtk::Box {
             orientation: gtk::Orientation::Vertical,
@@ -265,7 +332,9 @@ impl Widget for PostgresCommEntry {
             spacing: 10,
             #[style_class="http_first_line"]
             gtk::Label {
-                label: self.model.data.query.as_deref().unwrap_or("Failed retrieving the query string"),
+                markup: &Self::highlight_sql(
+                    &self.model.syntax_highlight,
+                    self.model.data.query.as_deref().unwrap_or("Failed retrieving the query string")),
                 line_wrap: true,
                 xalign: 0.0
             },
