@@ -749,13 +749,6 @@ impl Widget for Win {
                     }
                 }
             }
-            self.model
-                .comm_remote_servers_treeviews
-                .get(card.protocol_index)
-                .unwrap()
-                .0
-                .get_selection()
-                .select_path(&gtk::TreePath::new_first());
             if refresh_remote_ips_and_streams == RefreshRemoteIpsAndStreams::Yes {
                 let ip_hash = by_remote_ip
                     .keys()
@@ -765,6 +758,15 @@ impl Widget for Win {
             }
         }
         self.setup_selection_signals(RefreshOngoing::No);
+        if let Some(card) = self.model.selected_card.as_ref().cloned() {
+            self.model
+                .comm_remote_servers_treeviews
+                .get(card.protocol_index)
+                .unwrap()
+                .0
+                .get_selection()
+                .select_path(&gtk::TreePath::new_first());
+        }
     }
 
     view! {
