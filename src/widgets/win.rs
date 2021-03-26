@@ -14,7 +14,6 @@ use gtk::prelude::*;
 use itertools::Itertools;
 use relm::{Component, ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
-use std::cell::Cell;
 use std::cmp::Reverse;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
@@ -24,7 +23,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::process::Stdio;
-use std::rc::Rc;
 use std::sync::mpsc;
 
 const CSS_DATA: &[u8] = include_bytes!("../../resources/style.css");
@@ -69,6 +67,20 @@ pub struct StreamInfo {
     source_ip: String,
 }
 
+// when we reload treeview, tons of selection change signals
+// get emitted. So while we do that we disable those.
+// but in that time we still allow row selection,
+// which are always explicit user clicks.
+// And row activation is only active when loading.
+// Selection change is more precise: also follows keyboard
+// actions for instance
+#[derive(Debug)]
+struct TreeViewSignals {
+    selection_change_signal_id: glib::SignalHandlerId,
+    // row activation disabled due to https://github.com/antoyo/relm/issues/281
+    // row_activation_signal_id: glib::SignalHandlerId,
+}
+
 pub struct Model {
     relm: relm::Relm<Win>,
     bg_sender: mpsc::Sender<BgFunc>,
@@ -76,7 +88,6 @@ pub struct Model {
     window_subtitle: Option<String>,
     current_file_path: Option<PathBuf>,
 
-    is_refresh_ongoing: Rc<Cell<bool>>,
     streams: Vec<(StreamInfo, Vec<MessageData>)>,
     comm_target_cards: Vec<CommTargetCardData>,
     selected_card: Option<CommTargetCardData>,
@@ -84,8 +95,7 @@ pub struct Model {
 
     remote_ips_streams_tree_store: gtk::TreeStore,
     comm_remote_servers_stores: Vec<gtk::ListStore>,
-    comm_remote_servers_treeviews: Vec<gtk::TreeView>,
-    disable_tree_view_selection_events: bool,
+    comm_remote_servers_treeviews: Vec<(gtk::TreeView, TreeViewSignals)>,
 
     _loaded_data_channel: relm::Channel<LoadedDataParams>,
     loaded_data_sender: relm::Sender<LoadedDataParams>,
@@ -135,6 +145,12 @@ where
     Ok(serde_json::de::from_reader(reader)?)
 }
 
+#[derive(Debug)]
+enum RefreshOngoing {
+    Yes,
+    No,
+}
+
 #[widget]
 impl Widget for Win {
     fn init_view(&mut self) {
@@ -153,7 +169,38 @@ impl Widget for Win {
                 .build();
             let (modelsort, store) = message_parser.prepare_treeview(&tv);
             self.model.comm_remote_servers_stores.push(store.clone());
-            self.model.comm_remote_servers_treeviews.push(tv.clone());
+
+            let rstream = self.model.relm.stream().clone();
+            let st = store.clone();
+            let ms = modelsort.clone();
+            let selection_change_signal_id = tv.get_selection().connect_changed(move |selection| {
+                if let Some((model, iter)) = selection.get_selected() {
+                    if let Some(path) = model
+                        .get_path(&iter)
+                        .and_then(|p| ms.convert_path_to_child_path(&p))
+                    {
+                        Self::row_selected(&st, &path, &rstream);
+                    }
+                }
+            });
+            // let rstream2 = self.model.relm.stream().clone();
+            // let st2 = store.clone();
+            // let ms2 = modelsort.clone();
+            // let row_activation_signal_id = tv.connect_row_activated(move |_tv, sort_path, _col| {
+            //     let mpath = ms2.convert_path_to_child_path(&sort_path);
+            //     if let Some(path) = mpath {
+            //         Self::row_selected(&st2, &path, &rstream2);
+            //     }
+            // });
+            // tv.block_signal(&row_activation_signal_id);
+
+            self.model.comm_remote_servers_treeviews.push((
+                tv.clone(),
+                TreeViewSignals {
+                    selection_change_signal_id,
+                    // row_activation_signal_id,
+                },
+            ));
             let scroll = gtk::ScrolledWindowBuilder::new()
                 .expand(true)
                 .child(&tv)
@@ -169,32 +216,6 @@ impl Widget for Win {
                 .push(message_parser.add_details_to_scroll(&scroll2, self.model.bg_sender.clone()));
             scroll2.set_property_height_request(200);
             paned.pack2(&scroll2, false, true);
-            let rstream = self.model.relm.stream().clone();
-            let is_refresh_ongoing = self.model.is_refresh_ongoing.clone();
-            tv.get_selection().connect_changed(move |selection| {
-                if is_refresh_ongoing.get() {
-                    return;
-                }
-                if let Some((model, iter)) = selection.get_selected() {
-                    if let Some(path) = model
-                        .get_path(&iter)
-                        .and_then(|p| modelsort.convert_path_to_child_path(&p))
-                    {
-                        let iter = store.get_iter(&path).unwrap();
-                        let stream_id = store.get_value(&iter, 2);
-                        let idx = store.get_value(&iter, 3);
-                        println!(
-                            "stream: {} idx: {}",
-                            stream_id.get::<u32>().unwrap().unwrap(),
-                            idx.get::<u32>().unwrap().unwrap()
-                        );
-                        rstream.emit(Msg::DisplayDetails(
-                            stream_id.get::<u32>().unwrap().unwrap(),
-                            idx.get::<u32>().unwrap().unwrap(),
-                        ));
-                    }
-                }
-            });
             self.widgets
                 .comm_remote_servers_stack
                 .add_named(&paned, &idx.to_string());
@@ -217,6 +238,45 @@ impl Widget for Win {
 
         self.refresh_comm_targets();
         self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, None, None);
+    }
+
+    fn setup_selection_signals(&self, refresh_ongoing: RefreshOngoing) {
+        dbg!(&refresh_ongoing);
+        match refresh_ongoing {
+            RefreshOngoing::Yes => {
+                for (tv, signals) in &self.model.comm_remote_servers_treeviews {
+                    tv.get_selection()
+                        .block_signal(&signals.selection_change_signal_id);
+                    // tv.unblock_signal(&signals.row_activation_signal_id);
+                }
+            }
+            RefreshOngoing::No => {
+                for (tv, signals) in &self.model.comm_remote_servers_treeviews {
+                    tv.get_selection()
+                        .unblock_signal(&signals.selection_change_signal_id);
+                    // tv.block_signal(&signals.row_activation_signal_id);
+                }
+            }
+        }
+    }
+
+    fn row_selected(
+        store: &gtk::ListStore,
+        path: &gtk::TreePath,
+        rstream: &relm::StreamHandle<Msg>,
+    ) {
+        let iter = store.get_iter(&path).unwrap();
+        let stream_id = store.get_value(&iter, 2);
+        let idx = store.get_value(&iter, 3);
+        println!(
+            "stream: {} idx: {}",
+            stream_id.get::<u32>().unwrap().unwrap(),
+            idx.get::<u32>().unwrap().unwrap()
+        );
+        rstream.emit(Msg::DisplayDetails(
+            stream_id.get::<u32>().unwrap().unwrap(),
+            idx.get::<u32>().unwrap().unwrap(),
+        ));
     }
 
     fn load_style(&self) -> Result<(), Box<dyn std::error::Error>> {
@@ -250,14 +310,12 @@ impl Widget for Win {
         Model {
             relm: relm.clone(),
             bg_sender,
-            is_refresh_ongoing: Rc::new(Cell::new(false)),
             _comm_targets_components: vec![],
             selected_card: None,
             selected_server_or_stream: None,
             remote_ips_streams_tree_store,
             comm_remote_servers_stores: vec![],
             comm_remote_servers_treeviews: vec![],
-            disable_tree_view_selection_events: false,
             details_component_streams: vec![],
             loaded_data_sender,
             _loaded_data_channel,
@@ -309,7 +367,6 @@ impl Widget for Win {
                 self.widgets
                     .remote_ips_streams_treeview
                     .set_sensitive(false);
-                self.model.is_refresh_ongoing.set(true);
                 self.model.selected_card = maybe_idx
                     .and_then(|idx| self.model.comm_target_cards.get(idx as usize))
                     .cloned();
@@ -317,7 +374,6 @@ impl Widget for Win {
                 if let Some(p) = self.widgets.root_stack.get_parent_window() {
                     p.set_cursor(None);
                 }
-                self.model.is_refresh_ongoing.set(false);
                 self.widgets.comm_target_list.set_sensitive(true);
                 self.widgets.remote_ips_streams_treeview.set_sensitive(true);
                 self.model.selected_server_or_stream = Some(gtk::TreePath::new_first());
@@ -642,6 +698,7 @@ impl Widget for Win {
         constrain_remote_ip: Option<String>,
         constrain_stream_id: Option<u32>,
     ) {
+        self.setup_selection_signals(RefreshOngoing::Yes);
         for store in &self.model.comm_remote_servers_stores {
             store.clear();
         }
@@ -679,7 +736,6 @@ impl Widget for Win {
                 .comm_remote_servers_stores
                 .get(card.protocol_index)
                 .unwrap();
-            self.model.disable_tree_view_selection_events = true;
             for (remote_ip, tcp_sessions) in &by_remote_ip {
                 for (session_id, session) in tcp_sessions {
                     let mut idx = 0;
@@ -693,11 +749,11 @@ impl Widget for Win {
                     }
                 }
             }
-            self.model.disable_tree_view_selection_events = false;
             self.model
                 .comm_remote_servers_treeviews
                 .get(card.protocol_index)
                 .unwrap()
+                .0
                 .get_selection()
                 .select_path(&gtk::TreePath::new_first());
             if refresh_remote_ips_and_streams == RefreshRemoteIpsAndStreams::Yes {
@@ -708,6 +764,7 @@ impl Widget for Win {
                 self.refresh_remote_ips_streams_tree(&card, &ip_hash);
             }
         }
+        self.setup_selection_signals(RefreshOngoing::No);
     }
 
     view! {
