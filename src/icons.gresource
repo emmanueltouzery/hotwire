@@ -4,5 +4,20 @@
     <file alias="http-symbolic.svg">fontawesome-5.13.0/svgs/solid/globe.svg</file>
     <file alias="database-symbolic.svg">fontawesome-5.13.0/svgs/solid/database.svg</file>
     <file alias="lock-symbolic.svg">fontawesome-5.13.0/svgs/solid/lock.svg</file>
+    <file alias="insert-symbolic.svg">fontawesome-5.13.0/svgs/solid/plus-circle.svg</file>
+    <file alias="select-symbolic.svg">fontawesome-5.13.0/svgs/solid/search.svg</file>
+    <file alias="update-symbolic.svg">fontawesome-5.13.0/svgs/solid/edit.svg</file>
+    <file alias="delete-symbolic.svg">fontawesome-5.13.0/svgs/solid/trash-alt.svg</file>
+    <file alias="commit-symbolic.svg">fontawesome-5.13.0/svgs/solid/check-circle.svg</file>
+    <file alias="rollback-symbolic.svg">fontawesome-5.13.0/svgs/solid/undo.svg</file>
+    <file alias="system-symbolic.svg">fontawesome-5.13.0/svgs/solid/tools.svg</file>
+    <file alias="drop-symbolic.svg">fontawesome-5.13.0/svgs/solid/folder-minus.svg</file>
+    <file alias="create-symbolic.svg">fontawesome-5.13.0/svgs/solid/folder-plus.svg</file>
+    <file alias="alter-symbolic.svg">fontawesome-5.13.0/svgs/solid/wrench.svg</file>
+    <file alias="plsql-symbolic.svg">fontawesome-5.13.0/svgs/solid/cogs.svg</file>
+    <file alias="login-symbolic.svg">fontawesome-5.13.0/svgs/solid/user-circle.svg</file>
+    <file alias="copy-symbolic.svg">fontawesome-5.13.0/svgs/solid/truck-loading.svg</file>
+    <file alias="other-symbolic.svg">fontawesome-5.13.0/svgs/solid/question-circle.svg</file>
+    <file alias="bookmark-symbolic.svg">fontawesome-5.13.0/svgs/solid/bookmark.svg</file>
   </gresource>
 </gresources>

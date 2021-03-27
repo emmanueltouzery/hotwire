@@ -51,6 +51,7 @@ impl MessageParser for Postgres {
             i32::static_type(),    // query duration (nanos, for sorting)
             String::static_type(), // query duration display
             i64::static_type(),    // number of rows, for sorting
+            String::static_type(), // query type: update, insert..
         ]);
 
         let timestamp_col = gtk::TreeViewColumnBuilder::new()
@@ -63,10 +64,21 @@ impl MessageParser for Postgres {
         timestamp_col.add_attribute(&cell_t_txt, "text", 4);
         tv.append_column(&timestamp_col);
 
+        let queryt_col = gtk::TreeViewColumnBuilder::new()
+            .title("Type")
+            .fixed_width(24)
+            .sort_column_id(9)
+            .build();
+        let cell_qt_txt = gtk::CellRendererPixbufBuilder::new().build();
+        queryt_col.pack_start(&cell_qt_txt, true);
+        queryt_col.add_attribute(&cell_qt_txt, "icon-name", 9);
+        tv.append_column(&queryt_col);
+
         let query_col = gtk::TreeViewColumnBuilder::new()
             .title("Query")
             .expand(true)
             .resizable(true)
+            .sort_column_id(0)
             .build();
         let cell_q_txt = gtk::CellRendererTextBuilder::new()
             .ellipsize(pango::EllipsizeMode::End)
@@ -113,7 +125,7 @@ impl MessageParser for Postgres {
             let postgres = message.as_postgres().unwrap();
             ls.insert_with_values(
                 None,
-                &[0, 1, 2, 3, 4, 5, 6, 7, 8],
+                &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
                 &[
                     &postgres
                         .query
@@ -136,6 +148,7 @@ impl MessageParser for Postgres {
                     )
                     .to_value(),
                     &(postgres.resultset_row_count as u32).to_value(),
+                    &get_query_type_desc(&postgres.query).to_value(),
                 ],
             );
         }
@@ -158,6 +171,45 @@ impl MessageParser for Postgres {
             },
         )));
         component.stream()
+    }
+}
+
+fn get_query_type_desc(query: &Option<Cow<'static, str>>) -> &'static str {
+    if query.as_ref().filter(|q| q.len() >= 6).is_none() {
+        "-"
+    } else {
+        let start_lower = query.as_ref().unwrap()[0..6].to_ascii_lowercase();
+        if start_lower.starts_with("insert") {
+            "insert"
+        } else if start_lower.starts_with("select") {
+            "select"
+        } else if start_lower.starts_with("update") {
+            "update"
+        } else if start_lower.starts_with("delete") {
+            "delete"
+        } else if start_lower.starts_with("commit") {
+            "commit"
+        } else if start_lower.starts_with("rollba") {
+            "rollback"
+        } else if start_lower.starts_with("set ") {
+            "system"
+        } else if start_lower.starts_with("drop ") {
+            "drop"
+        } else if start_lower.starts_with("create") {
+            "create"
+        } else if start_lower.starts_with("alter ") {
+            "alter"
+        } else if start_lower.starts_with("do ") {
+            "plsql"
+        } else if start_lower.starts_with("login") {
+            "login"
+        } else if start_lower.starts_with("copy d") {
+            "copy"
+        } else if start_lower.starts_with("begin") {
+            "bookmark"
+        } else {
+            "other"
+        }
     }
 }
 
