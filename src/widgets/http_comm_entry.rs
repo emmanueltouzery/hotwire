@@ -1,3 +1,4 @@
+use crate::colors;
 use crate::icons::Icon;
 use crate::tshark_communication::{HttpType, TSharkHttp};
 use crate::tshark_communication_raw::TSharkCommunicationRaw;
@@ -86,7 +87,18 @@ impl MessageParser for Http {
             String::static_type(), // request content type
             String::static_type(), // response content type
             u32::static_type(),    // tcp sequence number
+            String::static_type(), // stream color
         ]);
+
+        let streamcolor_col = gtk::TreeViewColumnBuilder::new()
+            .title("S")
+            .fixed_width(10)
+            .sort_column_id(2)
+            .build();
+        let cell_s_txt = gtk::CellRendererTextBuilder::new().build();
+        streamcolor_col.pack_start(&cell_s_txt, true);
+        streamcolor_col.add_attribute(&cell_s_txt, "background", 11);
+        tv.append_column(&streamcolor_col);
 
         let timestamp_col = gtk::TreeViewColumnBuilder::new()
             .title("Timestamp")
@@ -197,6 +209,12 @@ impl MessageParser for Http {
                     ls.set_value(&iter, 8, &rq.content_type.to_value());
                     ls.set_value(&iter, 9, &rs.content_type.to_value());
                     ls.set_value(&iter, 10, &rs.tcp_seq_number.to_value());
+                    ls.set_value(
+                        &iter,
+                        11,
+                        &colors::STREAM_COLORS[session_id as usize % colors::STREAM_COLORS.len()]
+                            .to_value(),
+                    );
                 }
             }
         }

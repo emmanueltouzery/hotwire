@@ -1,4 +1,5 @@
 use super::postgres_parsing;
+use crate::colors;
 use crate::icons::Icon;
 use crate::widgets::comm_remote_server::{
     MessageData, MessageParser, MessageParserDetailsMsg, StreamData,
@@ -52,17 +53,18 @@ impl MessageParser for Postgres {
             String::static_type(), // query duration display
             i64::static_type(),    // number of rows, for sorting
             String::static_type(), // query type: update, insert..
+            String::static_type(), // stream color
         ]);
 
-        let timestamp_col = gtk::TreeViewColumnBuilder::new()
-            .title("Timestamp")
-            .resizable(true)
-            .sort_column_id(5)
+        let streamcolor_col = gtk::TreeViewColumnBuilder::new()
+            .title("S")
+            .fixed_width(10)
+            .sort_column_id(2)
             .build();
-        let cell_t_txt = gtk::CellRendererTextBuilder::new().build();
-        timestamp_col.pack_start(&cell_t_txt, true);
-        timestamp_col.add_attribute(&cell_t_txt, "text", 4);
-        tv.append_column(&timestamp_col);
+        let cell_s_txt = gtk::CellRendererTextBuilder::new().build();
+        streamcolor_col.pack_start(&cell_s_txt, true);
+        streamcolor_col.add_attribute(&cell_s_txt, "background", 10);
+        tv.append_column(&streamcolor_col);
 
         let queryt_col = gtk::TreeViewColumnBuilder::new()
             .title("Type")
@@ -73,6 +75,16 @@ impl MessageParser for Postgres {
         queryt_col.pack_start(&cell_qt_txt, true);
         queryt_col.add_attribute(&cell_qt_txt, "icon-name", 9);
         tv.append_column(&queryt_col);
+
+        let timestamp_col = gtk::TreeViewColumnBuilder::new()
+            .title("Timestamp")
+            .resizable(true)
+            .sort_column_id(5)
+            .build();
+        let cell_t_txt = gtk::CellRendererTextBuilder::new().build();
+        timestamp_col.pack_start(&cell_t_txt, true);
+        timestamp_col.add_attribute(&cell_t_txt, "text", 4);
+        tv.append_column(&timestamp_col);
 
         let query_col = gtk::TreeViewColumnBuilder::new()
             .title("Query")
@@ -125,7 +137,7 @@ impl MessageParser for Postgres {
             let postgres = message.as_postgres().unwrap();
             ls.insert_with_values(
                 None,
-                &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+                &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
                 &[
                     &postgres
                         .query
@@ -149,6 +161,8 @@ impl MessageParser for Postgres {
                     .to_value(),
                     &(postgres.resultset_row_count as u32).to_value(),
                     &get_query_type_desc(&postgres.query).to_value(),
+                    &colors::STREAM_COLORS[session_id as usize % colors::STREAM_COLORS.len()]
+                        .to_value(),
                 ],
             );
         }
@@ -175,35 +189,36 @@ impl MessageParser for Postgres {
 }
 
 fn get_query_type_desc(query: &Option<Cow<'static, str>>) -> &'static str {
-    if query.as_ref().filter(|q| q.len() >= 6).is_none() {
+    if query.as_ref().filter(|q| q.len() >= 5).is_none() {
         "-"
     } else {
-        let start_lower = query.as_ref().unwrap()[0..6].to_ascii_lowercase();
-        if start_lower.starts_with("insert") {
+        let start_lower = query.as_ref().unwrap()[0..5].to_ascii_lowercase();
+        if start_lower.starts_with("inser") {
             "insert"
-        } else if start_lower.starts_with("select") {
+        } else if start_lower.starts_with("selec") {
             "select"
-        } else if start_lower.starts_with("update") {
+        } else if start_lower.starts_with("updat") {
             "update"
-        } else if start_lower.starts_with("delete") {
+        } else if start_lower.starts_with("delet") {
             "delete"
-        } else if start_lower.starts_with("commit") {
+        } else if start_lower.starts_with("commi") {
             "commit"
-        } else if start_lower.starts_with("rollba") {
+        } else if start_lower.starts_with("rollb") {
             "rollback"
         } else if start_lower.starts_with("set ") {
             "system"
         } else if start_lower.starts_with("drop ") {
             "drop"
-        } else if start_lower.starts_with("create") {
+        } else if start_lower.starts_with("creat") {
             "create"
-        } else if start_lower.starts_with("alter ") {
+        } else if start_lower.starts_with("alter") {
             "alter"
         } else if start_lower.starts_with("do ") {
             "plsql"
         } else if start_lower.starts_with("login") {
             "login"
-        } else if start_lower.starts_with("copy d") {
+        } else if start_lower.starts_with("copy ") {
+            // copy data
             "copy"
         } else if start_lower.starts_with("begin") {
             "bookmark"
