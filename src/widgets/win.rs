@@ -183,68 +183,76 @@ impl Widget for Win {
             .set_property_gtk_alternative_sort_arrows(true);
 
         for (idx, message_parser) in get_message_parsers().iter().enumerate() {
-            let tv = gtk::TreeViewBuilder::new()
-                .activate_on_single_click(true)
-                .build();
-            let (modelsort, store) = message_parser.prepare_treeview(&tv);
-            self.model.comm_remote_servers_stores.push(store.clone());
-
-            let rstream = self.model.relm.stream().clone();
-            let st = store.clone();
-            let ms = modelsort.clone();
-            let selection_change_signal_id = tv.get_selection().connect_changed(move |selection| {
-                if let Some((model, iter)) = selection.get_selected() {
-                    if let Some(path) = model
-                        .get_path(&iter)
-                        .and_then(|p| ms.convert_path_to_child_path(&p))
-                    {
-                        Self::row_selected(&st, &path, &rstream);
-                    }
-                }
-            });
-            // let rstream2 = self.model.relm.stream().clone();
-            // let st2 = store.clone();
-            // let ms2 = modelsort.clone();
-            // let row_activation_signal_id = tv.connect_row_activated(move |_tv, sort_path, _col| {
-            //     let mpath = ms2.convert_path_to_child_path(&sort_path);
-            //     if let Some(path) = mpath {
-            //         Self::row_selected(&st2, &path, &rstream2);
-            //     }
-            // });
-            // tv.block_signal(&row_activation_signal_id);
-
-            self.model.comm_remote_servers_treeviews.push((
-                tv.clone(),
-                TreeViewSignals {
-                    selection_change_signal_id,
-                    // row_activation_signal_id,
-                },
-            ));
-            let scroll = gtk::ScrolledWindowBuilder::new()
-                .expand(true)
-                .child(&tv)
-                .build();
-            let paned = gtk::PanedBuilder::new()
-                .orientation(gtk::Orientation::Vertical)
-                .build();
-            paned.pack1(&scroll, true, true);
-
-            let scroll2 = gtk::ScrolledWindowBuilder::new().build();
-            self.model
-                .details_component_streams
-                .push(message_parser.add_details_to_scroll(&scroll2, self.model.bg_sender.clone()));
-            scroll2.set_property_height_request(200);
-            paned.pack2(&scroll2, false, true);
-            self.widgets
-                .comm_remote_servers_stack
-                .add_named(&paned, &idx.to_string());
-            paned.show_all();
+            self.add_message_parser_grid_and_pane(&message_parser, idx);
         }
 
         self.init_remote_ip_streams_tv();
 
         self.refresh_comm_targets();
         self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
+    }
+
+    fn add_message_parser_grid_and_pane(
+        &mut self,
+        message_parser: &Box<dyn MessageParser>,
+        idx: usize,
+    ) {
+        let tv = gtk::TreeViewBuilder::new()
+            .activate_on_single_click(true)
+            .build();
+        let (modelsort, store) = message_parser.prepare_treeview(&tv);
+        self.model.comm_remote_servers_stores.push(store.clone());
+
+        let rstream = self.model.relm.stream().clone();
+        let st = store.clone();
+        let ms = modelsort.clone();
+        let selection_change_signal_id = tv.get_selection().connect_changed(move |selection| {
+            if let Some((model, iter)) = selection.get_selected() {
+                if let Some(path) = model
+                    .get_path(&iter)
+                    .and_then(|p| ms.convert_path_to_child_path(&p))
+                {
+                    Self::row_selected(&st, &path, &rstream);
+                }
+            }
+        });
+        // let rstream2 = self.model.relm.stream().clone();
+        // let st2 = store.clone();
+        // let ms2 = modelsort.clone();
+        // let row_activation_signal_id = tv.connect_row_activated(move |_tv, sort_path, _col| {
+        //     let mpath = ms2.convert_path_to_child_path(&sort_path);
+        //     if let Some(path) = mpath {
+        //         Self::row_selected(&st2, &path, &rstream2);
+        //     }
+        // });
+        // tv.block_signal(&row_activation_signal_id);
+
+        self.model.comm_remote_servers_treeviews.push((
+            tv.clone(),
+            TreeViewSignals {
+                selection_change_signal_id,
+                // row_activation_signal_id,
+            },
+        ));
+        let scroll = gtk::ScrolledWindowBuilder::new()
+            .expand(true)
+            .child(&tv)
+            .build();
+        let paned = gtk::PanedBuilder::new()
+            .orientation(gtk::Orientation::Vertical)
+            .build();
+        paned.pack1(&scroll, true, true);
+
+        let scroll2 = gtk::ScrolledWindowBuilder::new().build();
+        self.model
+            .details_component_streams
+            .push(message_parser.add_details_to_scroll(&scroll2, self.model.bg_sender.clone()));
+        scroll2.set_property_height_request(200);
+        paned.pack2(&scroll2, false, true);
+        self.widgets
+            .comm_remote_servers_stack
+            .add_named(&paned, &idx.to_string());
+        paned.show_all();
     }
 
     fn init_remote_ip_streams_tv(&self) {
