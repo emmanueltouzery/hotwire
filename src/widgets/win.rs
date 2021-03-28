@@ -52,9 +52,7 @@ pub enum Msg {
     SelectCard(Option<usize>),
     SelectRemoteIpStream(gtk::TreeSelection),
 
-    SelectCardAll(CommTargetCardData),
-    SelectCardFromRemoteIp(CommTargetCardData, String),
-    SelectCardFromRemoteIpAndStream(CommTargetCardData, String, u32),
+    SelectCardFromRemoteIpsAndStreams(CommTargetCardData, Vec<String>, Vec<u32>),
 
     DisplayDetails(u32, u32),
 
@@ -90,10 +88,11 @@ pub struct Model {
     window_subtitle: Option<String>,
     current_file_path: Option<PathBuf>,
 
+    sidebar_selection_change_signal_id: Option<glib::SignalHandlerId>,
+
     streams: Vec<(StreamInfo, Vec<MessageData>)>,
     comm_target_cards: Vec<CommTargetCardData>,
     selected_card: Option<CommTargetCardData>,
-    selected_server_or_stream: Option<gtk::TreePath>,
 
     remote_ips_streams_tree_store: gtk::TreeStore,
     comm_remote_servers_stores: Vec<gtk::ListStore>,
@@ -163,6 +162,21 @@ impl Widget for Win {
             println!("Error loading the CSS: {}", err);
         }
 
+        let rstream0 = self.model.relm.stream().clone();
+        self.model.sidebar_selection_change_signal_id = Some(
+            self.widgets
+                .remote_ips_streams_treeview
+                .get_selection()
+                .connect_changed(move |selection| {
+                    rstream0.emit(Msg::SelectRemoteIpStream(selection.clone()));
+                }),
+        );
+
+        self.widgets
+            .remote_ips_streams_treeview
+            .get_selection()
+            .set_mode(gtk::SelectionMode::Multiple);
+
         // https://bugzilla.gnome.org/show_bug.cgi?id=305277
         gtk::Settings::get_default()
             .unwrap()
@@ -230,7 +244,7 @@ impl Widget for Win {
         self.init_remote_ip_streams_tv();
 
         self.refresh_comm_targets();
-        self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, None, None);
+        self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
     }
 
     fn init_remote_ip_streams_tv(&self) {
@@ -255,6 +269,15 @@ impl Widget for Win {
         match refresh_ongoing {
             RefreshOngoing::Yes => {
                 for (tv, signals) in &self.model.comm_remote_servers_treeviews {
+                    self.widgets
+                        .remote_ips_streams_treeview
+                        .get_selection()
+                        .block_signal(
+                            self.model
+                                .sidebar_selection_change_signal_id
+                                .as_ref()
+                                .unwrap(),
+                        );
                     tv.get_selection()
                         .block_signal(&signals.selection_change_signal_id);
                     // tv.unblock_signal(&signals.row_activation_signal_id);
@@ -262,6 +285,15 @@ impl Widget for Win {
             }
             RefreshOngoing::No => {
                 for (tv, signals) in &self.model.comm_remote_servers_treeviews {
+                    self.widgets
+                        .remote_ips_streams_treeview
+                        .get_selection()
+                        .unblock_signal(
+                            self.model
+                                .sidebar_selection_change_signal_id
+                                .as_ref()
+                                .unwrap(),
+                        );
                     tv.get_selection()
                         .unblock_signal(&signals.selection_change_signal_id);
                     // tv.block_signal(&signals.row_activation_signal_id);
@@ -327,7 +359,6 @@ impl Widget for Win {
             bg_sender,
             _comm_targets_components: vec![],
             selected_card: None,
-            selected_server_or_stream: None,
             remote_ips_streams_tree_store,
             comm_remote_servers_stores: vec![],
             comm_remote_servers_treeviews: vec![],
@@ -336,6 +367,7 @@ impl Widget for Win {
             _loaded_data_channel,
             finished_tshark_sender,
             _finished_tshark_channel,
+            sidebar_selection_change_signal_id: None,
             comm_target_cards: vec![],
             streams: vec![],
             current_file_path: None,
@@ -370,7 +402,7 @@ impl Widget for Win {
                 self.model.comm_target_cards = comm_target_cards;
                 self.model.streams = streams;
                 self.refresh_comm_targets();
-                self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, None, None);
+                self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
                 self.widgets
                     .root_stack
                     .set_visible_child_name(NORMAL_STACK_NAME);
@@ -391,38 +423,26 @@ impl Widget for Win {
                 self.model.selected_card = maybe_idx
                     .and_then(|idx| self.model.comm_target_cards.get(idx as usize))
                     .cloned();
-                self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, None, None);
+                self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
                 if let Some(p) = self.widgets.root_stack.get_parent_window() {
                     p.set_cursor(None);
                 }
                 self.widgets.comm_target_list.set_sensitive(true);
                 self.widgets.remote_ips_streams_treeview.set_sensitive(true);
-                self.model.selected_server_or_stream = Some(gtk::TreePath::new_first());
                 // if let Some(vadj) = self.widgets.remote_servers_scroll.get_vadjustment() {
                 //     vadj.set_value(0.0);
                 // }
             }
             Msg::SelectRemoteIpStream(selection) => {
-                if let Some((model, iter)) = selection.get_selected() {
-                    if let Some(path) = model.get_path(&iter) {
-                        if Some(&path) != self.model.selected_server_or_stream.as_ref() {
-                            println!("remote selection changed");
-                            self.refresh_remote_ip_stream(path);
-                        }
-                    }
-                }
+                let (mut paths, model) = selection.get_selected_rows();
+                println!("remote selection changed");
+                self.refresh_remote_ip_stream(&mut paths);
             }
-            Msg::SelectCardAll(_) => {
-                self.refresh_remote_servers(RefreshRemoteIpsAndStreams::No, None, None);
-            }
-            Msg::SelectCardFromRemoteIp(_, remote_ip) => {
-                self.refresh_remote_servers(RefreshRemoteIpsAndStreams::No, Some(remote_ip), None);
-            }
-            Msg::SelectCardFromRemoteIpAndStream(_, remote_ip, stream_id) => {
+            Msg::SelectCardFromRemoteIpsAndStreams(_, remote_ips, stream_ids) => {
                 self.refresh_remote_servers(
                     RefreshRemoteIpsAndStreams::No,
-                    Some(remote_ip),
-                    Some(stream_id),
+                    &remote_ips,
+                    &stream_ids,
                 );
             }
             Msg::DisplayDetails(stream_id, idx) => {
@@ -446,52 +466,49 @@ impl Widget for Win {
         }
     }
 
-    fn refresh_remote_ip_stream(&mut self, mut path: gtk::TreePath) {
-        self.model.selected_server_or_stream = Some(path.clone());
-        match path.get_indices_with_depth().as_slice() {
-            &[0] => self.model.relm.stream().emit(Msg::SelectCardAll(
-                self.model.selected_card.as_ref().unwrap().clone(),
-            )),
-            x if x.len() == 1 => {
-                if let Some(iter) = self.model.remote_ips_streams_tree_store.get_iter(&path) {
-                    let remote_ip = self.model.remote_ips_streams_tree_store.get_value(&iter, 0);
-                    self.model.relm.stream().emit(Msg::SelectCardFromRemoteIp(
-                        self.model.selected_card.as_ref().unwrap().clone(),
-                        remote_ip.get().unwrap().unwrap(),
-                    ));
+    fn refresh_remote_ip_stream(&mut self, paths: &mut [gtk::TreePath]) {
+        let mut allowed_ips = vec![];
+        let mut allowed_stream_ids = vec![];
+        for path in paths {
+            match path.get_indices_with_depth().as_slice() {
+                &[0] => {
+                    // everything is allowed
+                    allowed_ips.clear();
+                    allowed_stream_ids.clear();
+                    break;
                 }
+                x if x.len() == 1 => {
+                    // remote ip
+                    if let Some(iter) = self.model.remote_ips_streams_tree_store.get_iter(&path) {
+                        let remote_ip =
+                            self.model.remote_ips_streams_tree_store.get_value(&iter, 0);
+                        allowed_ips.push(remote_ip.get().unwrap().unwrap());
+                    }
+                }
+                x if x.len() == 2 => {
+                    // stream
+                    let stream_iter = self
+                        .model
+                        .remote_ips_streams_tree_store
+                        .get_iter(&path)
+                        .unwrap();
+                    let stream_id = self
+                        .model
+                        .remote_ips_streams_tree_store
+                        .get_value(&stream_iter, 2);
+                    allowed_stream_ids.push(stream_id.get().unwrap().unwrap());
+                }
+                _ => panic!(path.get_depth()),
             }
-            x if x.len() == 2 => {
-                let stream_iter = self
-                    .model
-                    .remote_ips_streams_tree_store
-                    .get_iter(&path)
-                    .unwrap();
-                let stream_id = self
-                    .model
-                    .remote_ips_streams_tree_store
-                    .get_value(&stream_iter, 2);
-                path.up();
-                let remote_ip_iter = self
-                    .model
-                    .remote_ips_streams_tree_store
-                    .get_iter(&path)
-                    .unwrap();
-                let remote_ip = self
-                    .model
-                    .remote_ips_streams_tree_store
-                    .get_value(&remote_ip_iter, 0);
-                self.model
-                    .relm
-                    .stream()
-                    .emit(Msg::SelectCardFromRemoteIpAndStream(
-                        self.model.selected_card.as_ref().unwrap().clone(),
-                        remote_ip.get().unwrap().unwrap(),
-                        stream_id.get().unwrap().unwrap(),
-                    ));
-            }
-            _ => panic!(path.get_depth()),
         }
+        self.model
+            .relm
+            .stream()
+            .emit(Msg::SelectCardFromRemoteIpsAndStreams(
+                self.model.selected_card.as_ref().unwrap().clone(),
+                allowed_ips,
+                allowed_stream_ids,
+            ));
     }
 
     fn open_file(&mut self) {
@@ -716,8 +733,8 @@ impl Widget for Win {
     fn refresh_remote_servers(
         &mut self,
         refresh_remote_ips_and_streams: RefreshRemoteIpsAndStreams,
-        constrain_remote_ip: Option<String>,
-        constrain_stream_id: Option<u32>,
+        constrain_remote_ips: &[String],
+        constrain_stream_ids: &[u32],
     ) {
         self.setup_selection_signals(RefreshOngoing::Yes);
         for store in &self.model.comm_remote_servers_stores {
@@ -732,19 +749,18 @@ impl Widget for Win {
                 if stream_info.target_ip != target_ip || stream_info.target_port != target_port {
                     continue;
                 }
-                let remote_ip = &stream_info.source_ip;
-                if let Some(ref constrained_remote) = constrain_remote_ip {
-                    if constrained_remote != remote_ip {
-                        continue;
-                    }
-                }
-                if constrain_stream_id.is_some()
-                    && constrain_stream_id != Some(stream_info.stream_id)
-                {
+                let allowed_all =
+                    constrain_remote_ips.is_empty() && constrain_stream_ids.is_empty();
+
+                let allowed_ip = constrain_remote_ips.contains(&stream_info.source_ip);
+                let allowed_stream = constrain_stream_ids.contains(&stream_info.stream_id);
+                let allowed = allowed_all || allowed_ip || allowed_stream;
+
+                if !allowed {
                     continue;
                 }
                 let remote_server_streams = by_remote_ip
-                    .entry(remote_ip.clone())
+                    .entry(stream_info.source_ip.clone())
                     .or_insert_with(Vec::new);
                 remote_server_streams.push((stream_info.stream_id, messages));
             }
@@ -779,14 +795,16 @@ impl Widget for Win {
             }
         }
         self.setup_selection_signals(RefreshOngoing::No);
-        if let Some(card) = self.model.selected_card.as_ref().cloned() {
-            self.model
-                .comm_remote_servers_treeviews
-                .get(card.protocol_index)
-                .unwrap()
-                .0
-                .get_selection()
-                .select_path(&gtk::TreePath::new_first());
+        if refresh_remote_ips_and_streams == RefreshRemoteIpsAndStreams::Yes {
+            if let Some(card) = self.model.selected_card.as_ref().cloned() {
+                self.model
+                    .comm_remote_servers_treeviews
+                    .get(card.protocol_index)
+                    .unwrap()
+                    .0
+                    .get_selection()
+                    .select_path(&gtk::TreePath::new_first());
+            }
         }
     }
 
@@ -884,7 +902,8 @@ impl Widget for Win {
                         gtk::TreeView {
                             activate_on_single_click: true,
                             model: Some(&self.model.remote_ips_streams_tree_store),
-                            selection.changed(selection) => Msg::SelectRemoteIpStream(selection.clone()),
+                            // connecting manually to collect the signal id for blocking
+                            // selection.changed(selection) => Msg::SelectRemoteIpStream(selection.clone()),
                         },
                     },
                     gtk::Separator {
