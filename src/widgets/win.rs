@@ -694,11 +694,11 @@ impl Widget for Win {
             &[0, 1],
             &[&"All".to_value(), &pango::Weight::Bold.to_glib().to_value()],
         );
-        self.widgets.remote_ips_streams_treeview.set_cursor(
-            &gtk::TreePath::new_first(),
-            None::<&gtk::TreeViewColumn>,
-            false,
-        );
+        // self.widgets.remote_ips_streams_treeview.set_cursor(
+        //     &gtk::TreePath::new_first(),
+        //     None::<&gtk::TreeViewColumn>,
+        //     false,
+        // );
         let target_ip = card.ip.clone();
         let target_port = card.port;
 
@@ -806,16 +806,14 @@ impl Widget for Win {
             }
         }
         self.setup_selection_signals(RefreshOngoing::No);
-        if refresh_remote_ips_and_streams == RefreshRemoteIpsAndStreams::Yes {
-            if let Some(card) = self.model.selected_card.as_ref().cloned() {
-                self.model
-                    .comm_remote_servers_treeviews
-                    .get(card.protocol_index)
-                    .unwrap()
-                    .0
-                    .get_selection()
-                    .select_path(&gtk::TreePath::new_first());
-            }
+        if let Some(card) = self.model.selected_card.as_ref().cloned() {
+            self.model
+                .comm_remote_servers_treeviews
+                .get(card.protocol_index)
+                .unwrap()
+                .0
+                .get_selection()
+                .select_path(&gtk::TreePath::new_first());
         }
     }
 
