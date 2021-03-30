@@ -1,8 +1,7 @@
 use super::comm_remote_server::MessageData;
 use super::comm_target_card::{CommTargetCard, CommTargetCardData};
 use crate::colors;
-use crate::widgets::comm_remote_server::MessageParser;
-use crate::widgets::comm_remote_server::MessageParserDetailsMsg;
+use crate::widgets::comm_remote_server::{MessageInfo, MessageParser, MessageParserDetailsMsg};
 use crate::widgets::comm_target_card::SummaryDetails;
 use crate::widgets::http_comm_entry::Http;
 use crate::widgets::postgres_comm_entry::Postgres;
@@ -454,18 +453,22 @@ impl Widget for Win {
                 );
             }
             Msg::DisplayDetails(stream_id, idx) => {
-                if let Some(msg_data) = self
+                if let Some((stream_info, msg_data)) = self
                     .model
                     .streams
                     .iter()
                     .find(|(stream_info, items)| stream_info.stream_id == stream_id)
-                    .and_then(|s| s.1.get(idx as usize))
+                    .and_then(|s| s.1.get(idx as usize).map(|f| (&s.0, f)))
                 {
                     for component_stream in &self.model.details_component_streams {
                         component_stream.emit(MessageParserDetailsMsg::DisplayDetails(
                             self.model.bg_sender.clone(),
                             self.model.current_file_path.as_ref().unwrap().clone(),
-                            msg_data.clone(),
+                            MessageInfo {
+                                stream_id: stream_info.stream_id,
+                                client_ip: stream_info.source_ip.clone(),
+                                message_data: msg_data.clone(),
+                            },
                         ));
                     }
                 }

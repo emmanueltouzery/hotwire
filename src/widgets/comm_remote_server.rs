@@ -34,9 +34,16 @@ pub trait MessageParser {
     ) -> relm::StreamHandle<MessageParserDetailsMsg>;
 }
 
-#[derive(Msg)]
+#[derive(Debug)]
+pub struct MessageInfo {
+    pub stream_id: u32,
+    pub client_ip: String,
+    pub message_data: MessageData,
+}
+
+#[derive(Msg, Debug)]
 pub enum MessageParserDetailsMsg {
-    DisplayDetails(mpsc::Sender<BgFunc>, PathBuf, MessageData),
+    DisplayDetails(mpsc::Sender<BgFunc>, PathBuf, MessageInfo),
 
     GotImage(Vec<u8>), // TODO this http-specific...
 }

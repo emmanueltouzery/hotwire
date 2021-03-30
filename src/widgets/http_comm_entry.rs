@@ -1,9 +1,11 @@
+use super::comm_info_header;
+use super::comm_info_header::CommInfoHeader;
 use crate::colors;
 use crate::icons::Icon;
-use crate::tshark_communication::{HttpType, TSharkHttp};
+use crate::tshark_communication::HttpType;
 use crate::tshark_communication_raw::TSharkCommunicationRaw;
 use crate::widgets::comm_remote_server::{
-    MessageData, MessageParser, MessageParserDetailsMsg, StreamData,
+    MessageData, MessageInfo, MessageParser, MessageParserDetailsMsg, StreamData,
 };
 use crate::widgets::win;
 use crate::BgFunc;
@@ -225,12 +227,14 @@ impl MessageParser for Http {
         parent: &gtk::ScrolledWindow,
         bg_sender: mpsc::Sender<BgFunc>,
     ) -> relm::StreamHandle<MessageParserDetailsMsg> {
-        let component = Box::leak(Box::new(parent.add_widget::<HttpCommEntry>(
+        let component = Box::leak(Box::new(parent.add_widget::<HttpCommEntry>((
+            0,
+            "".to_string(),
             HttpMessageData {
                 request: None,
                 response: None,
             },
-        )));
+        ))));
         component.stream()
     }
 }
@@ -303,6 +307,8 @@ fn parse_request_response(comm: TSharkCommunication) -> RequestOrResponseOrOther
 }
 
 pub struct Model {
+    stream_id: u32,
+    client_ip: String,
     data: HttpMessageData,
 
     _got_image_channel: relm::Channel<Vec<u8>>,
@@ -311,12 +317,15 @@ pub struct Model {
 
 #[widget]
 impl Widget for HttpCommEntry {
-    fn model(relm: &relm::Relm<Self>, data: HttpMessageData) -> Model {
+    fn model(relm: &relm::Relm<Self>, params: (u32, String, HttpMessageData)) -> Model {
+        let (stream_id, client_ip, data) = params;
         let stream = relm.stream().clone();
         let (_got_image_channel, got_image_sender) =
             relm::Channel::new(move |r: Vec<u8>| stream.emit(MessageParserDetailsMsg::GotImage(r)));
         Model {
             data,
+            stream_id,
+            client_ip,
             _got_image_channel,
             got_image_sender,
         }
@@ -327,7 +336,11 @@ impl Widget for HttpCommEntry {
             MessageParserDetailsMsg::DisplayDetails(
                 bg_sender,
                 file_path,
-                MessageData::Http(msg),
+                MessageInfo {
+                    client_ip,
+                    stream_id,
+                    message_data: MessageData::Http(msg),
+                },
             ) => {
                 match (
                     &msg.response.as_ref().and_then(|r| r.content_type.as_ref()),
@@ -355,6 +368,11 @@ impl Widget for HttpCommEntry {
                     }
                 }
                 self.model.data = msg;
+                self.streams
+                    .comm_info_header
+                    .emit(comm_info_header::Msg::Update(client_ip.clone(), stream_id));
+                self.model.stream_id = stream_id;
+                self.model.client_ip = client_ip;
             }
             MessageParserDetailsMsg::GotImage(bytes) => {
                 let loader = gdk_pixbuf::PixbufLoader::new();
@@ -397,6 +415,9 @@ impl Widget for HttpCommEntry {
             margin_start: 10,
             margin_end: 10,
             spacing: 10,
+            #[name="comm_info_header"]
+            CommInfoHeader(self.model.client_ip.clone(), self.model.stream_id) {
+            },
             #[style_class="http_first_line"]
             gtk::Label {
                 label: &self.model.data.request.as_ref().map(|r| r.first_line.as_str()).unwrap_or("Missing request info"),

@@ -1,8 +1,10 @@
+use super::comm_info_header;
+use super::comm_info_header::CommInfoHeader;
 use super::postgres_parsing;
 use crate::colors;
 use crate::icons::Icon;
 use crate::widgets::comm_remote_server::{
-    MessageData, MessageParser, MessageParserDetailsMsg, StreamData,
+    MessageData, MessageInfo, MessageParser, MessageParserDetailsMsg, StreamData,
 };
 use crate::BgFunc;
 use crate::TSharkCommunication;
@@ -173,7 +175,9 @@ impl MessageParser for Postgres {
         parent: &gtk::ScrolledWindow,
         _bg_sender: mpsc::Sender<BgFunc>,
     ) -> relm::StreamHandle<MessageParserDetailsMsg> {
-        let component = Box::leak(Box::new(parent.add_widget::<PostgresCommEntry>(
+        let component = Box::leak(Box::new(parent.add_widget::<PostgresCommEntry>((
+            0,
+            "".to_string(),
             PostgresMessageData {
                 query: None,
                 query_timestamp: Utc::now().naive_local(),
@@ -183,7 +187,7 @@ impl MessageParser for Postgres {
                 resultset_row_count: 0,
                 resultset_first_rows: vec![],
             },
-        )));
+        ))));
         component.stream()
     }
 }
@@ -243,6 +247,8 @@ pub struct PostgresMessageData {
 }
 
 pub struct Model {
+    stream_id: u32,
+    client_ip: String,
     data: PostgresMessageData,
     list_store: Option<gtk::ListStore>,
     syntax_highlight: Vec<(Regex, String)>,
@@ -252,7 +258,8 @@ pub struct Model {
 impl Widget for PostgresCommEntry {
     fn init_view(&mut self) {}
 
-    fn model(relm: &relm::Relm<Self>, data: PostgresMessageData) -> Model {
+    fn model(relm: &relm::Relm<Self>, params: (u32, String, PostgresMessageData)) -> Model {
+        let (stream_id, client_ip, data) = params;
         let field_descs: Vec<_> = data
             .resultset_first_rows
             .first()
@@ -263,6 +270,8 @@ impl Widget for PostgresCommEntry {
 
         Model {
             data,
+            stream_id,
+            client_ip,
             list_store: None,
             syntax_highlight: Self::prepare_syntax_highlight(),
         }
@@ -330,9 +339,18 @@ impl Widget for PostgresCommEntry {
             MessageParserDetailsMsg::DisplayDetails(
                 _bg_sender,
                 _path,
-                MessageData::Postgres(msg),
+                MessageInfo {
+                    stream_id,
+                    client_ip,
+                    message_data: MessageData::Postgres(msg),
+                },
             ) => {
                 self.model.data = msg;
+                self.streams
+                    .comm_info_header
+                    .emit(comm_info_header::Msg::Update(client_ip.clone(), stream_id));
+                self.model.stream_id = stream_id;
+                self.model.client_ip = client_ip;
 
                 let field_descs: Vec<_> = self
                     .model
@@ -397,6 +415,9 @@ impl Widget for PostgresCommEntry {
             margin_start: 10,
             margin_end: 10,
             spacing: 10,
+            #[name="comm_info_header"]
+            CommInfoHeader(self.model.client_ip.clone(), self.model.stream_id) {
+            },
             #[style_class="http_first_line"]
             gtk::Label {
                 markup: &Self::highlight_sql(
