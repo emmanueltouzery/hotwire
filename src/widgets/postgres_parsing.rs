@@ -2,7 +2,6 @@
 use super::postgres_comm_entry::PostgresMessageData;
 use crate::widgets::comm_remote_server::{MessageData, StreamData};
 use crate::TSharkCommunication;
-use chrono::NaiveDateTime;
 use std::borrow::Cow;
 use std::collections::HashMap;
 
@@ -14,20 +13,16 @@ use chrono::NaiveDate;
 #[derive(Debug)]
 pub enum PostgresWireMessage {
     Startup {
-        timestamp: NaiveDateTime,
         username: Option<String>,
         database: Option<String>,
         application: Option<String>,
     },
-    CopyData {
-        timestamp: NaiveDateTime,
-    },
+    CopyData,
     Parse {
         query: Option<String>,
         statement: Option<String>,
     },
     Bind {
-        timestamp: NaiveDateTime,
         statement: Option<String>,
         parameter_values: Vec<String>,
     },
@@ -37,15 +32,13 @@ pub enum PostgresWireMessage {
     ResultSetRow {
         cols: Vec<String>,
     },
-    ReadyForQuery {
-        timestamp: NaiveDateTime,
-    },
+    ReadyForQuery,
 }
 
 pub fn parse_pg_stream(all_vals: Vec<(&TSharkCommunication, &serde_json::Value)>) -> StreamData {
     let decoded_messages = all_vals
         .into_iter()
-        .filter_map(|(p, v)| parse_pg_value(p, v))
+        .filter_map(|(p, v)| parse_pg_value(v).map(|pg| (p, pg)))
         .collect();
     merge_message_datas(decoded_messages)
 }
@@ -57,10 +50,7 @@ fn as_string_array(val: &serde_json::Value) -> Option<Vec<&str>> {
 
 // now postgres bound parameters.. $1, $2..
 // for instance in session 34
-fn parse_pg_value(
-    packet: &TSharkCommunication,
-    pgsql: &serde_json::Value,
-) -> Option<PostgresWireMessage> {
+fn parse_pg_value(pgsql: &serde_json::Value) -> Option<PostgresWireMessage> {
     let obj = pgsql.as_object();
     let typ = obj
         .and_then(|o| o.get("pgsql.type"))
@@ -76,7 +66,6 @@ fn parse_pg_value(
             ) {
                 let idx_to_key: HashMap<_, _> = names.into_iter().zip(vals.into_iter()).collect();
                 Some(PostgresWireMessage::Startup {
-                    timestamp: packet.source.layers.frame.frame_time,
                     username: idx_to_key.get("user").map(|x| x.to_string()),
                     database: idx_to_key.get("database").map(|x| x.to_string()),
                     application: idx_to_key.get("application_name").map(|x| x.to_string()),
@@ -85,9 +74,7 @@ fn parse_pg_value(
                 None
             }
         }
-        Some("Copy data") => Some(PostgresWireMessage::CopyData {
-            timestamp: packet.source.layers.frame.frame_time,
-        }),
+        Some("Copy data") => Some(PostgresWireMessage::CopyData),
         Some("Parse") => {
             Some(PostgresWireMessage::Parse {
                 // query: format!("{} -> {}", time_relative, q),
@@ -109,7 +96,6 @@ fn parse_pg_value(
             // we can then recover the query from the statement id in post-processing.
             Some(PostgresWireMessage::Bind {
                 // query: format!("{} -> {}", time_relative, q),
-                timestamp: packet.source.layers.frame.frame_time,
                 statement: obj
                     .and_then(|o| o.get("pgsql.statement"))
                     .and_then(|s| s.as_str())
@@ -134,9 +120,7 @@ fn parse_pg_value(
                     .unwrap_or_else(Vec::new),
             })
         }
-        Some("Ready for query") => Some(PostgresWireMessage::ReadyForQuery {
-            timestamp: packet.source.layers.frame.frame_time,
-        }),
+        Some("Ready for query") => Some(PostgresWireMessage::ReadyForQuery),
         Some("Row description") => {
             let tree = obj.unwrap().get("pgsql.field.count_tree").unwrap();
             let col_names = match tree.get("pgsql.col.name") {
@@ -229,7 +213,7 @@ fn hex_chars_to_string(hex_chars: &str) -> Option<String> {
     //     .join("")
 }
 
-fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> StreamData {
+fn merge_message_datas(mds: Vec<(&TSharkCommunication, PostgresWireMessage)>) -> StreamData {
     let mut messages = vec![];
     let mut cur_query = None;
     let mut cur_col_names = vec![];
@@ -240,10 +224,10 @@ fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> StreamData {
     let mut cur_parameter_values = vec![];
     let mut was_bind = false;
     let mut query_timestamp = None;
-    for md in mds {
+    for (comm, md) in mds {
+        let timestamp = comm.source.layers.frame.frame_time;
         match md {
             PostgresWireMessage::Startup {
-                timestamp,
                 username: Some(ref username),
                 database: Some(ref database),
                 application,
@@ -274,7 +258,6 @@ fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> StreamData {
                 cur_query = query.clone();
             }
             PostgresWireMessage::Bind {
-                timestamp,
                 statement,
                 parameter_values,
             } => {
@@ -299,7 +282,7 @@ fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> StreamData {
                 cur_rs_row_count += 1;
                 cur_rs_first_rows.push(cols);
             }
-            PostgresWireMessage::ReadyForQuery { timestamp } => {
+            PostgresWireMessage::ReadyForQuery => {
                 if was_bind {
                     messages.push(MessageData::Postgres(PostgresMessageData {
                         query: cur_query_with_fallback.map(Cow::Owned),
@@ -320,7 +303,7 @@ fn merge_message_datas(mds: Vec<PostgresWireMessage>) -> StreamData {
                 cur_rs_first_rows = vec![];
                 query_timestamp = None;
             }
-            PostgresWireMessage::CopyData { timestamp } => {
+            PostgresWireMessage::CopyData => {
                 messages.push(MessageData::Postgres(PostgresMessageData {
                     query: Some(Cow::Borrowed("COPY DATA")),
                     query_timestamp: timestamp,
