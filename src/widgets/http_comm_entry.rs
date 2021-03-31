@@ -1,8 +1,8 @@
 use super::comm_info_header;
 use super::comm_info_header::CommInfoHeader;
 use crate::colors;
+use crate::http::tshark_http::HttpType;
 use crate::icons::Icon;
-use crate::tshark_communication::HttpType;
 use crate::tshark_communication_raw::TSharkCommunicationRaw;
 use crate::widgets::comm_remote_server::{
     MessageData, MessageInfo, MessageParser, MessageParserDetailsMsg, StreamData,

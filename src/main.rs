@@ -4,6 +4,7 @@ use std::sync::mpsc;
 use std::thread;
 
 pub mod colors;
+pub mod http;
 pub mod icons;
 mod tshark_communication;
 mod tshark_communication_raw;
