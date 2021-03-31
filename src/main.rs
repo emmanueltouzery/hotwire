@@ -4,11 +4,13 @@ use std::sync::mpsc;
 use std::thread;
 
 pub mod colors;
-pub mod http;
 pub mod icons;
 mod tshark_communication;
 mod tshark_communication_raw;
 mod widgets;
+
+pub mod http;
+pub mod pgsql;
 
 // we do slow operations in a separate thread not to block the GUI thread.
 // i considered that spawning a new thread everytime the GUI wants slow operations

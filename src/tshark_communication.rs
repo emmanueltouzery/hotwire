@@ -1,4 +1,5 @@
 use crate::http::tshark_http;
+use crate::pgsql::tshark_pgsql;
 use chrono::NaiveDateTime;
 use serde::de;
 use serde::Deserialize;
@@ -24,8 +25,8 @@ pub struct TSharkLayers {
     pub ipv6: Option<TSharkIpV6Layer>,
     pub tcp: Option<TSharkTcpLayer>,
     pub http: Option<tshark_http::TSharkHttp>,
-    pub pgsql: Option<Value>, // TODO no more value
-    pub tls: Option<Value>,   // TODO no more value
+    pub pgsql: Option<tshark_pgsql::TSharkPgsql>,
+    pub tls: Option<Value>, // TODO no more value
 }
 
 impl TSharkLayers {

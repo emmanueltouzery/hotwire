@@ -1,8 +1,8 @@
 use super::comm_info_header;
 use super::comm_info_header::CommInfoHeader;
-use super::postgres_parsing;
 use crate::colors;
 use crate::icons::Icon;
+use crate::pgsql::tshark_pgsql::PostgresWireMessage;
 use crate::widgets::comm_remote_server::{
     MessageData, MessageInfo, MessageParser, MessageParserDetailsMsg, StreamData,
 };
@@ -15,7 +15,15 @@ use regex::Regex;
 use relm::{ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::sync::mpsc;
+
+#[cfg(test)]
+use crate::pgsql::tshark_pgsql::TSharkPgsql;
+#[cfg(test)]
+use crate::tshark_communication::{TSharkFrameLayer, TSharkLayers, TSharkSource};
+#[cfg(test)]
+use chrono::NaiveDate;
 
 pub struct Postgres;
 
@@ -28,19 +36,118 @@ impl MessageParser for Postgres {
         Icon::DATABASE
     }
 
-    fn parse_stream(&self, stream: Vec<TSharkCommunication>) -> StreamData {
-        let mut all_vals = vec![];
-        for msg in &stream {
-            let root = msg.source.layers.pgsql.as_ref();
-            match root {
-                Some(serde_json::Value::Object(_)) => all_vals.push((msg, root.unwrap())),
-                Some(serde_json::Value::Array(vals)) => {
-                    all_vals.extend(vals.iter().map(|v| (msg, v)))
+    fn parse_stream(&self, comms: Vec<TSharkCommunication>) -> StreamData {
+        let mut messages = vec![];
+        let mut cur_query = None;
+        let mut cur_col_names = vec![];
+        let mut cur_rs_row_count = 0;
+        let mut cur_rs_first_rows = vec![];
+        let mut known_statements = HashMap::new();
+        let mut cur_query_with_fallback = None;
+        let mut cur_parameter_values = vec![];
+        let mut was_bind = false;
+        let mut query_timestamp = None;
+        for comm in comms {
+            let timestamp = comm.source.layers.frame.frame_time;
+            if let Some(pgsql) = comm.source.layers.pgsql {
+                let mds = pgsql.messages;
+                for md in mds {
+                    match md {
+                        PostgresWireMessage::Startup {
+                            username: Some(ref username),
+                            database: Some(ref database),
+                            application,
+                        } => {
+                            messages.push(MessageData::Postgres(PostgresMessageData {
+                                query: Some(Cow::Owned(format!(
+                                    "LOGIN: user: {}, db: {}, app: {}",
+                                    username,
+                                    database,
+                                    application.as_deref().unwrap_or("-")
+                                ))),
+                                query_timestamp: timestamp,
+                                result_timestamp: timestamp,
+                                parameter_values: vec![],
+                                resultset_col_names: vec![],
+                                resultset_row_count: 0,
+                                resultset_first_rows: vec![],
+                            }));
+                        }
+                        PostgresWireMessage::Startup { .. } => {}
+                        PostgresWireMessage::Parse {
+                            ref query,
+                            ref statement,
+                        } => {
+                            if let (Some(st), Some(q)) = (statement, query) {
+                                known_statements.insert((*st).clone(), (*q).clone());
+                            }
+                            cur_query = query.clone();
+                        }
+                        PostgresWireMessage::Bind {
+                            statement,
+                            parameter_values,
+                        } => {
+                            was_bind = true;
+                            query_timestamp = Some(timestamp);
+                            cur_query_with_fallback = match (&cur_query, &statement) {
+                                (Some(_), _) => cur_query.clone(),
+                                (None, Some(s)) => Some(
+                                    known_statements
+                                        .get(s)
+                                        .cloned()
+                                        .unwrap_or(format!("Unknown statement: {}", s)),
+                                ),
+                                _ => None,
+                            };
+                            cur_parameter_values = parameter_values.to_vec();
+                        }
+                        PostgresWireMessage::RowDescription { col_names } => {
+                            cur_col_names = col_names;
+                        }
+                        PostgresWireMessage::ResultSetRow { cols } => {
+                            cur_rs_row_count += 1;
+                            cur_rs_first_rows.push(cols);
+                        }
+                        PostgresWireMessage::ReadyForQuery => {
+                            if was_bind {
+                                messages.push(MessageData::Postgres(PostgresMessageData {
+                                    query: cur_query_with_fallback.map(Cow::Owned),
+                                    query_timestamp: query_timestamp.unwrap(), // know it was populated since was_bind is true
+                                    result_timestamp: timestamp,
+                                    parameter_values: cur_parameter_values,
+                                    resultset_col_names: cur_col_names,
+                                    resultset_row_count: cur_rs_row_count,
+                                    resultset_first_rows: cur_rs_first_rows,
+                                }));
+                            }
+                            was_bind = false;
+                            cur_query_with_fallback = None;
+                            cur_query = None;
+                            cur_col_names = vec![];
+                            cur_parameter_values = vec![];
+                            cur_rs_row_count = 0;
+                            cur_rs_first_rows = vec![];
+                            query_timestamp = None;
+                        }
+                        PostgresWireMessage::CopyData => {
+                            messages.push(MessageData::Postgres(PostgresMessageData {
+                                query: Some(Cow::Borrowed("COPY DATA")),
+                                query_timestamp: timestamp,
+                                result_timestamp: timestamp,
+                                parameter_values: vec![],
+                                resultset_col_names: vec![],
+                                resultset_row_count: 0,
+                                resultset_first_rows: vec![],
+                            }));
+                        }
+                    }
                 }
-                _ => {}
             }
         }
-        postgres_parsing::parse_pg_stream(all_vals)
+        StreamData {
+            messages,
+            summary_details: None,
+        }
     }
 
     fn prepare_treeview(&self, tv: &gtk::TreeView) -> (gtk::TreeModelSort, gtk::ListStore) {
@@ -467,4 +574,327 @@ impl Widget for PostgresCommEntry {
             // },
         }
     }
+}
+
+#[cfg(test)]
+fn as_json_array(json: &str) -> Vec<TSharkCommunication> {
+    let items: Vec<TSharkPgsql> = serde_json::de::from_str(json).unwrap();
+    items
+        .into_iter()
+        .map(|p| TSharkCommunication {
+            source: TSharkSource {
+                layers: TSharkLayers {
+                    frame: TSharkFrameLayer {
+                        frame_time: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
+                    },
+                    ip: None,
+                    ipv6: None,
+                    tcp: None,
+                    http: None,
+                    pgsql: Some(p),
+                    tls: None,
+                },
+            },
+        })
+        .collect()
+}
+
+#[test]
+fn should_parse_simple_query() {
+    let parsed = Postgres {}
+        .parse_stream(as_json_array(
+            r#"
+        [
+          {
+             "pgsql.type": "Parse",
+             "pgsql.query": "select 1"
+          },
+          {
+             "pgsql.type": "Bind"
+          },
+          {
+             "pgsql.type": "Data row",
+             "pgsql.field.count": "1",
+             "pgsql.field.count_tree": {
+                 "pgsql.val.length": "10",
+                 "pgsql.val.data": "50:6f:73:74:67:72:65:53:51:4c"
+             }
+          },
+          {
+             "pgsql.type": "Data row",
+             "pgsql.field.count": "1",
+             "pgsql.field.count_tree": {
+                 "pgsql.val.length": "10",
+                 "pgsql.val.data": "39:2e:36:2e:31:32:20:6f:6e:20:78:38"
+             }
+          },
+          {
+             "pgsql.type": "Ready for query"
+          }
+        ]
+        "#,
+        ))
+        .messages;
+    let expected: Vec<MessageData> = vec![MessageData::Postgres(PostgresMessageData {
+        query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
+        result_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
+        query: Some(Cow::Borrowed("select 1")),
+        parameter_values: vec![],
+        resultset_col_names: vec![],
+        resultset_row_count: 2,
+        resultset_first_rows: vec![
+            vec!["PostgreSQL".to_string()],
+            vec!["9.6.12 on x8".to_string()],
+        ],
+    })];
+    assert_eq!(expected, parsed);
+}
+
+#[test]
+fn should_parse_prepared_statement() {
+    let parsed = Postgres {}
+        .parse_stream(as_json_array(
+            r#"
+        [
+          {
+             "pgsql.type": "Parse",
+             "pgsql.query": "select 1",
+             "pgsql.statement": "S_18"
+          },
+          {
+             "pgsql.type": "Bind",
+             "pgsql.statement": "S_18"
+          },
+          {
+             "pgsql.type": "Ready for query"
+          },
+          {
+             "pgsql.type": "Bind",
+             "pgsql.statement": "S_18"
+          },
+          {
+             "pgsql.type": "Data row",
+             "pgsql.field.count": "1",
+             "pgsql.field.count_tree": {
+                 "pgsql.val.length": "10",
+                 "pgsql.val.data": "50:6f:73:74:67:72:65:53:51:4c"
+             }
+          },
+          {
+             "pgsql.type": "Ready for query"
+          }
+        ]
+        "#,
+        ))
+        .messages;
+    let expected: Vec<MessageData> = vec![
+        MessageData::Postgres(PostgresMessageData {
+            query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
+            result_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
+            query: Some(Cow::Borrowed("select 1")),
+            parameter_values: vec![],
+            resultset_col_names: vec![],
+            resultset_row_count: 0,
+            resultset_first_rows: vec![],
+        }),
+        MessageData::Postgres(PostgresMessageData {
+            query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
+            result_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
+            query: Some(Cow::Borrowed("select 1")),
+            parameter_values: vec![],
+            resultset_col_names: vec![],
+            resultset_row_count: 1,
+            resultset_first_rows: vec![vec!["PostgreSQL".to_string()]],
+        }),
+    ];
+    assert_eq!(expected, parsed);
+}
+
+#[test]
+fn should_parse_prepared_statement_with_parameters() {
+    let parsed = Postgres {}
+        .parse_stream(as_json_array(
+            r#"
+        [
+          {
+             "pgsql.type": "Parse",
+             "pgsql.query": "select $1",
+             "pgsql.statement": "S_18"
+          },
+          {
+             "pgsql.type": "Bind",
+             "pgsql.statement": "S_18"
+          },
+          {
+             "pgsql.type": "Ready for query"
+          },
+          {
+             "pgsql.type": "Bind",
+             "pgsql.statement": "S_18",
+             "Parameter values: 1": {
+                  "pgsql.val.length": [
+                        "4",
+                        "-1",
+                        "5"
+                  ],
+                  "pgsql.val.data": [
+                        "54:52:55:45",
+                        "54:52:55:45:52"
+                  ]
+             }
+          },
+          {
+             "pgsql.type": "Data row",
+             "pgsql.field.count": "1",
+             "pgsql.field.count_tree": {
+                 "pgsql.val.length": "10",
+                 "pgsql.val.data": "50:6f:73:74:67:72:65:53:51:4c"
+             }
+          },
+          {
+             "pgsql.type": "Ready for query"
+          }
+        ]
+        "#,
+        ))
+        .messages;
+    let expected: Vec<MessageData> = vec![
+        MessageData::Postgres(PostgresMessageData {
+            query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
+            result_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
+            query: Some(Cow::Borrowed("select $1")),
+            parameter_values: vec![],
+            resultset_col_names: vec![],
+            resultset_row_count: 0,
+            resultset_first_rows: vec![],
+        }),
+        MessageData::Postgres(PostgresMessageData {
+            query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
+            result_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
+            query: Some(Cow::Borrowed("select $1")),
+            parameter_values: vec!["TRUE".to_string(), "null".to_string(), "TRUER".to_string()],
+            resultset_col_names: vec![],
+            resultset_row_count: 1,
+            resultset_first_rows: vec![vec!["PostgreSQL".to_string()]],
+        }),
+    ];
+    assert_eq!(expected, parsed);
+}
+
+#[test]
+fn should_not_generate_queries_for_just_a_ready_message() {
+    let parsed = Postgres {}
+        .parse_stream(as_json_array(
+            r#"
+        [
+          {
+             "pgsql.type": "Ready for query"
+          }
+        ]
+        "#,
+        ))
+        .messages;
+    let expected: Vec<MessageData> = vec![];
+    assert_eq!(expected, parsed);
+}
+
+#[test]
+fn should_parse_query_with_multiple_columns_and_nulls() {
+    let parsed = Postgres {}
+        .parse_stream(as_json_array(
+            r#"
+        [
+          {
+             "pgsql.type": "Parse",
+             "pgsql.query": "select 1"
+          },
+          {
+             "pgsql.type": "Bind"
+          },
+          {
+             "pgsql.type": "Row description",
+             "pgsql.field.count_tree": {
+                  "pgsql.col.name": "version"
+              }
+          },
+          {
+             "pgsql.type": "Data row",
+             "pgsql.field.count": "4",
+             "pgsql.field.count_tree": {
+                 "pgsql.val.length": ["5", "-1", "0", "5"],
+                 "pgsql.val.data": ["50:6f:73:74:67", "72:65:53:51:4c"]
+             }
+          },
+          {
+             "pgsql.type": "Ready for query"
+          }
+        ]
+        "#,
+        ))
+        .messages;
+    let expected: Vec<MessageData> = vec![MessageData::Postgres(PostgresMessageData {
+        query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
+        result_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
+        query: Some(Cow::Borrowed("select 1")),
+        parameter_values: vec![],
+        resultset_col_names: vec!["version".to_string()],
+        resultset_row_count: 1,
+        resultset_first_rows: vec![vec![
+            "Postg".to_string(),
+            "null".to_string(),
+            "".to_string(),
+            "reSQL".to_string(),
+        ]],
+    })];
+    assert_eq!(expected, parsed);
+}
+
+// this will happen if we don't catch the TCP stream at the beginning
+#[test]
+fn should_parse_query_with_no_parse_and_unknown_bind() {
+    let parsed = Postgres {}
+        .parse_stream(as_json_array(
+            r#"
+        [
+          {
+             "pgsql.type": "Parse",
+             "pgsql.query": "select 1"
+          },
+          {
+             "pgsql.type": "Ready for query"
+          },
+          {
+             "pgsql.type": "Bind",
+             "pgsql.statement": "S_18"
+          },
+          {
+             "pgsql.type": "Data row",
+             "pgsql.field.count": "4",
+             "pgsql.field.count_tree": {
+                 "pgsql.val.length": ["5", "-1", "0", "5"],
+                 "pgsql.val.data": ["50:6f:73:74:67", "72:65:53:51:4c"]
+             }
+          },
+          {
+             "pgsql.type": "Ready for query"
+          }
+        ]
+        "#,
+        ))
+        .messages;
+    let expected: Vec<MessageData> = vec![MessageData::Postgres(PostgresMessageData {
+        query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
+        result_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
+        query: Some(Cow::Borrowed("Unknown statement: S_18")),
+        parameter_values: vec![],
+        resultset_col_names: vec![],
+        resultset_row_count: 1,
+        resultset_first_rows: vec![vec![
+            "Postg".to_string(),
+            "null".to_string(),
+            "".to_string(),
+            "reSQL".to_string(),
+        ]],
+    })];
+    assert_eq!(expected, parsed);
 }
