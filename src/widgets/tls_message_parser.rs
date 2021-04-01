@@ -22,7 +22,30 @@ impl MessageParser for Tls {
     }
 
     fn parse_stream(&self, stream: Vec<TSharkCommunication>) -> StreamData {
+        let server_ip = stream
+            .first()
+            .as_ref()
+            .unwrap()
+            .source
+            .layers
+            .ip
+            .as_ref()
+            .unwrap()
+            .ip_dst
+            .clone();
+        let server_port = stream
+            .first()
+            .as_ref()
+            .unwrap()
+            .source
+            .layers
+            .tcp
+            .as_ref()
+            .unwrap()
+            .port_dst;
         StreamData {
+            server_ip,
+            server_port,
             messages: vec![MessageData::Tls(TlsMessageData {})],
             summary_details: None,
         }

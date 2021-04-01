@@ -586,10 +586,9 @@ impl Widget for Win {
                     .find_map(|c| message_parsers.iter().find(|p| p.is_my_message(c)));
 
                 parser.map(|p| {
-                    let layers = &comms.first().unwrap().source.layers;
-                    let card_key = (layers.ip_dst(), layers.tcp.as_ref().unwrap().port_dst);
-                    let ip_src = layers.ip_src();
-                    (p, id, ip_src, card_key, p.parse_stream(comms))
+                    let stream_data = p.parse_stream(comms);
+                    let card_key = (stream_data.server_ip.clone(), stream_data.server_port);
+                    (p, id, stream_data.server_ip.clone(), card_key, stream_data)
                 })
             })
             .collect();

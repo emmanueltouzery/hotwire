@@ -5,6 +5,7 @@ use super::message_parser::{MessageInfo, MessageParser, MessageParserDetailsMsg,
 use crate::colors;
 use crate::icons::Icon;
 use crate::pgsql::tshark_pgsql::PostgresWireMessage;
+use crate::tshark_communication::{TSharkIpLayer, TSharkIpV6Layer};
 use crate::BgFunc;
 use crate::TSharkCommunication;
 use chrono::{NaiveDateTime, Utc};
@@ -20,7 +21,7 @@ use std::sync::mpsc;
 #[cfg(test)]
 use crate::pgsql::tshark_pgsql::TSharkPgsql;
 #[cfg(test)]
-use crate::tshark_communication::{TSharkFrameLayer, TSharkLayers, TSharkSource};
+use crate::tshark_communication::{TSharkFrameLayer, TSharkLayers, TSharkSource, TSharkTcpLayer};
 #[cfg(test)]
 use chrono::NaiveDate;
 
@@ -36,6 +37,24 @@ impl MessageParser for Postgres {
     }
 
     fn parse_stream(&self, comms: Vec<TSharkCommunication>) -> StreamData {
+        let mut server_ip = comms
+            .first()
+            .as_ref()
+            .unwrap()
+            .source
+            .layers
+            .ip_dst()
+            .clone();
+        let mut server_port = comms
+            .first()
+            .as_ref()
+            .unwrap()
+            .source
+            .layers
+            .tcp
+            .as_ref()
+            .unwrap()
+            .port_dst;
         let mut messages = vec![];
         let mut cur_query = None;
         let mut cur_col_names = vec![];
@@ -46,6 +65,7 @@ impl MessageParser for Postgres {
         let mut cur_parameter_values = vec![];
         let mut was_bind = false;
         let mut query_timestamp = None;
+        let mut set_correct_server_info = false;
         for comm in comms {
             let timestamp = comm.source.layers.frame.frame_time;
             if let Some(pgsql) = comm.source.layers.pgsql {
@@ -57,6 +77,15 @@ impl MessageParser for Postgres {
                             database: Some(ref database),
                             application,
                         } => {
+                            if !set_correct_server_info {
+                                server_ip = dst_ip(
+                                    comm.source.layers.ip.as_ref(),
+                                    comm.source.layers.ipv6.as_ref(),
+                                )
+                                .to_string();
+                                server_port = comm.source.layers.tcp.as_ref().unwrap().port_dst;
+                                set_correct_server_info = true;
+                            }
                             messages.push(MessageData::Postgres(PostgresMessageData {
                                 query: Some(Cow::Owned(format!(
                                     "LOGIN: user: {}, db: {}, app: {}",
@@ -72,11 +101,30 @@ impl MessageParser for Postgres {
                                 resultset_first_rows: vec![],
                             }));
                         }
-                        PostgresWireMessage::Startup { .. } => {}
+                        PostgresWireMessage::Startup { .. } => {
+                            if !set_correct_server_info {
+                                server_ip = dst_ip(
+                                    comm.source.layers.ip.as_ref(),
+                                    comm.source.layers.ipv6.as_ref(),
+                                )
+                                .to_string();
+                                server_port = comm.source.layers.tcp.as_ref().unwrap().port_dst;
+                                set_correct_server_info = true;
+                            }
+                        }
                         PostgresWireMessage::Parse {
                             ref query,
                             ref statement,
                         } => {
+                            if !set_correct_server_info {
+                                server_ip = dst_ip(
+                                    comm.source.layers.ip.as_ref(),
+                                    comm.source.layers.ipv6.as_ref(),
+                                )
+                                .to_string();
+                                server_port = comm.source.layers.tcp.as_ref().unwrap().port_dst;
+                                set_correct_server_info = true;
+                            }
                             if let (Some(st), Some(q)) = (statement, query) {
                                 known_statements.insert((*st).clone(), (*q).clone());
                             }
@@ -86,6 +134,15 @@ impl MessageParser for Postgres {
                             statement,
                             parameter_values,
                         } => {
+                            if !set_correct_server_info {
+                                server_ip = dst_ip(
+                                    comm.source.layers.ip.as_ref(),
+                                    comm.source.layers.ipv6.as_ref(),
+                                )
+                                .to_string();
+                                server_port = comm.source.layers.tcp.as_ref().unwrap().port_dst;
+                                set_correct_server_info = true;
+                            }
                             was_bind = true;
                             query_timestamp = Some(timestamp);
                             cur_query_with_fallback = match (&cur_query, &statement) {
@@ -101,13 +158,40 @@ impl MessageParser for Postgres {
                             cur_parameter_values = parameter_values.to_vec();
                         }
                         PostgresWireMessage::RowDescription { col_names } => {
+                            if !set_correct_server_info {
+                                server_ip = src_ip(
+                                    comm.source.layers.ip.as_ref(),
+                                    comm.source.layers.ipv6.as_ref(),
+                                )
+                                .to_string();
+                                server_port = comm.source.layers.tcp.as_ref().unwrap().port_src;
+                                set_correct_server_info = true;
+                            }
                             cur_col_names = col_names;
                         }
                         PostgresWireMessage::ResultSetRow { cols } => {
+                            if !set_correct_server_info {
+                                server_ip = src_ip(
+                                    comm.source.layers.ip.as_ref(),
+                                    comm.source.layers.ipv6.as_ref(),
+                                )
+                                .to_string();
+                                server_port = comm.source.layers.tcp.as_ref().unwrap().port_src;
+                                set_correct_server_info = true;
+                            }
                             cur_rs_row_count += 1;
                             cur_rs_first_rows.push(cols);
                         }
                         PostgresWireMessage::ReadyForQuery => {
+                            if !set_correct_server_info {
+                                server_ip = src_ip(
+                                    comm.source.layers.ip.as_ref(),
+                                    comm.source.layers.ipv6.as_ref(),
+                                )
+                                .to_string();
+                                server_port = comm.source.layers.tcp.as_ref().unwrap().port_src;
+                                set_correct_server_info = true;
+                            }
                             if was_bind {
                                 messages.push(MessageData::Postgres(PostgresMessageData {
                                     query: cur_query_with_fallback.map(Cow::Owned),
@@ -129,6 +213,15 @@ impl MessageParser for Postgres {
                             query_timestamp = None;
                         }
                         PostgresWireMessage::CopyData => {
+                            if !set_correct_server_info {
+                                server_ip = src_ip(
+                                    comm.source.layers.ip.as_ref(),
+                                    comm.source.layers.ipv6.as_ref(),
+                                )
+                                .to_string();
+                                server_port = comm.source.layers.tcp.as_ref().unwrap().port_src;
+                                set_correct_server_info = true;
+                            }
                             messages.push(MessageData::Postgres(PostgresMessageData {
                                 query: Some(Cow::Borrowed("COPY DATA")),
                                 query_timestamp: timestamp,
@@ -144,6 +237,8 @@ impl MessageParser for Postgres {
             }
         }
         StreamData {
+            server_ip: server_ip.clone(),
+            server_port,
             messages,
             summary_details: None,
         }
@@ -296,6 +391,16 @@ impl MessageParser for Postgres {
         ))));
         component.stream()
     }
+}
+
+fn src_ip<'a>(ip: Option<&'a TSharkIpLayer>, ipv6: Option<&'a TSharkIpV6Layer>) -> &'a str {
+    ip.map(|i| &i.ip_src)
+        .unwrap_or_else(|| &ipv6.unwrap().ip_src)
+}
+
+fn dst_ip<'a>(ip: Option<&'a TSharkIpLayer>, ipv6: Option<&'a TSharkIpV6Layer>) -> &'a str {
+    ip.map(|i| &i.ip_dst)
+        .unwrap_or_else(|| &ipv6.unwrap().ip_dst)
 }
 
 fn get_query_type_desc(query: &Option<Cow<'static, str>>) -> &'static str {
@@ -586,9 +691,17 @@ fn as_json_array(json: &str) -> Vec<TSharkCommunication> {
                     frame: TSharkFrameLayer {
                         frame_time: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
                     },
-                    ip: None,
+                    ip: Some(TSharkIpLayer {
+                        ip_src: "127.0.0.1".to_string(),
+                        ip_dst: "127.0.0.1".to_string(),
+                    }),
                     ipv6: None,
-                    tcp: None,
+                    tcp: Some(TSharkTcpLayer {
+                        seq_number: 0,
+                        stream: 0,
+                        port_src: 0,
+                        port_dst: 0,
+                    }),
                     http: None,
                     pgsql: Some(p),
                     tls: None,

@@ -1,6 +1,6 @@
-use super::http_comm_entry::HttpMessageData;
-use super::postgres_comm_entry::PostgresMessageData;
-use super::tls_comm_entry::TlsMessageData;
+use super::http_message_parser::HttpMessageData;
+use super::postgres_message_parser::PostgresMessageData;
+use super::tls_message_parser::TlsMessageData;
 use gtk::prelude::*;
 use relm::Widget;
 use relm_derive::{widget, Msg};

@@ -7,6 +7,12 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 
 pub struct StreamData {
+    // need to say who is the server. i have 50:50 chance
+    // that the first message that was capture is from the
+    // client contacting the server, or the server responding
+    // to the client
+    pub server_ip: String,
+    pub server_port: u32,
     pub messages: Vec<MessageData>,
     pub summary_details: Option<String>,
 }

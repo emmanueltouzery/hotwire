@@ -32,6 +32,25 @@ impl MessageParser for Http {
     }
 
     fn parse_stream(&self, stream: Vec<TSharkCommunication>) -> StreamData {
+        let mut server_ip = stream
+            .first()
+            .unwrap()
+            .source
+            .layers
+            .ip
+            .as_ref()
+            .unwrap()
+            .ip_dst
+            .clone();
+        let mut server_port = stream
+            .first()
+            .unwrap()
+            .source
+            .layers
+            .tcp
+            .as_ref()
+            .unwrap()
+            .port_dst;
         let mut cur_request = None;
         let mut messages = vec![];
         let mut summary_details = None;
@@ -49,17 +68,21 @@ impl MessageParser for Http {
                 }
             }
             match parse_request_response(msg) {
-                RequestOrResponseOrOther::Request(r) => {
+                (RequestOrResponseOrOther::Request(r), srv_port, srv_ip) => {
+                    server_ip = srv_ip;
+                    server_port = srv_port;
                     cur_request = Some(r);
                 }
-                RequestOrResponseOrOther::Response(r) => {
+                (RequestOrResponseOrOther::Response(r), srv_port, srv_ip) => {
+                    server_ip = srv_ip;
+                    server_port = srv_port;
                     messages.push(MessageData::Http(HttpMessageData {
                         request: cur_request,
                         response: Some(r),
                     }));
                     cur_request = None;
                 }
-                RequestOrResponseOrOther::Other => {}
+                (RequestOrResponseOrOther::Other, _, _) => {}
             }
         }
         if let Some(r) = cur_request {
@@ -69,6 +92,8 @@ impl MessageParser for Http {
             }));
         }
         StreamData {
+            server_ip,
+            server_port,
             messages,
             summary_details,
         }
@@ -282,26 +307,48 @@ enum RequestOrResponseOrOther {
     Other,
 }
 
-fn parse_request_response(comm: TSharkCommunication) -> RequestOrResponseOrOther {
+fn parse_request_response(comm: TSharkCommunication) -> (RequestOrResponseOrOther, u32, String) {
     let http = comm.source.layers.http;
     match http.map(|h| (h.http_type, h)) {
-        Some((HttpType::Request, h)) => RequestOrResponseOrOther::Request(HttpRequestData {
-            tcp_seq_number: comm.source.layers.tcp.as_ref().unwrap().seq_number,
-            timestamp: comm.source.layers.frame.frame_time,
-            body: h.body,
-            first_line: h.first_line,
-            other_lines: h.other_lines,
-            content_type: h.content_type,
-        }),
-        Some((HttpType::Response, h)) => RequestOrResponseOrOther::Response(HttpResponseData {
-            tcp_seq_number: comm.source.layers.tcp.as_ref().unwrap().seq_number,
-            timestamp: comm.source.layers.frame.frame_time,
-            body: h.body,
-            first_line: h.first_line,
-            other_lines: h.other_lines,
-            content_type: h.content_type,
-        }),
-        _ => RequestOrResponseOrOther::Other,
+        Some((HttpType::Request, h)) => (
+            RequestOrResponseOrOther::Request(HttpRequestData {
+                tcp_seq_number: comm.source.layers.tcp.as_ref().unwrap().seq_number,
+                timestamp: comm.source.layers.frame.frame_time,
+                body: h.body,
+                first_line: h.first_line,
+                other_lines: h.other_lines,
+                content_type: h.content_type,
+            }),
+            comm.source.layers.tcp.as_ref().unwrap().port_dst,
+            comm.source
+                .layers
+                .ip
+                .map(|i| i.ip_dst)
+                .or(comm.source.layers.ipv6.map(|i| i.ip_dst))
+                .unwrap(),
+        ),
+        Some((HttpType::Response, h)) => (
+            RequestOrResponseOrOther::Response(HttpResponseData {
+                tcp_seq_number: comm.source.layers.tcp.as_ref().unwrap().seq_number,
+                timestamp: comm.source.layers.frame.frame_time,
+                body: h.body,
+                first_line: h.first_line,
+                other_lines: h.other_lines,
+                content_type: h.content_type,
+            }),
+            comm.source.layers.tcp.as_ref().unwrap().port_src,
+            comm.source
+                .layers
+                .ip
+                .map(|i| i.ip_src)
+                .or(comm.source.layers.ipv6.map(|i| i.ip_src))
+                .unwrap(),
+        ),
+        _ => (
+            RequestOrResponseOrOther::Other,
+            comm.source.layers.tcp.as_ref().unwrap().port_dst,
+            comm.source.layers.ip.unwrap().ip_dst,
+        ),
     }
 }
 
