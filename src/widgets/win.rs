@@ -1,11 +1,11 @@
 use super::comm_remote_server::MessageData;
 use super::comm_target_card::{CommTargetCard, CommTargetCardData};
 use crate::colors;
-use crate::widgets::comm_remote_server::{MessageInfo, MessageParser, MessageParserDetailsMsg};
 use crate::widgets::comm_target_card::SummaryDetails;
-use crate::widgets::http_comm_entry::Http;
-use crate::widgets::postgres_comm_entry::Postgres;
-use crate::widgets::tls_comm_entry::Tls;
+use crate::widgets::http_message_parser::Http;
+use crate::widgets::message_parser::{MessageInfo, MessageParser, MessageParserDetailsMsg};
+use crate::widgets::postgres_message_parser::Postgres;
+use crate::widgets::tls_message_parser::Tls;
 use crate::BgFunc;
 use crate::TSharkCommunication;
 use gdk::prelude::*;
@@ -585,14 +585,12 @@ impl Widget for Win {
                     .iter()
                     .find_map(|c| message_parsers.iter().find(|p| p.is_my_message(c)));
 
-                if let Some(p) = parser {
+                parser.map(|p| {
                     let layers = &comms.first().unwrap().source.layers;
                     let card_key = (layers.ip_dst(), layers.tcp.as_ref().unwrap().port_dst);
                     let ip_src = layers.ip_src();
-                    Some((p, id, ip_src, card_key, p.parse_stream(comms)))
-                } else {
-                    None
-                }
+                    (p, id, ip_src, card_key, p.parse_stream(comms))
+                })
             })
             .collect();
         parsed_streams.sort_by_key(|(_parser, id, _ip_src, _card_key, _pstream)| *id);

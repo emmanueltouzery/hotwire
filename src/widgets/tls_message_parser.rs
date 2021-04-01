@@ -1,8 +1,7 @@
 pub struct Tls;
+use super::message_parser::{MessageParser, MessageParserDetailsMsg, StreamData};
 use crate::icons::Icon;
-use crate::widgets::comm_remote_server::{
-    MessageData, MessageParser, MessageParserDetailsMsg, StreamData,
-};
+use crate::widgets::comm_remote_server::MessageData;
 use crate::BgFunc;
 use crate::TSharkCommunication;
 use gtk::prelude::*;

@@ -1,11 +1,10 @@
 use super::comm_info_header;
 use super::comm_info_header::CommInfoHeader;
+use super::comm_remote_server::MessageData;
+use super::message_parser::{MessageInfo, MessageParser, MessageParserDetailsMsg, StreamData};
 use crate::colors;
 use crate::icons::Icon;
 use crate::pgsql::tshark_pgsql::PostgresWireMessage;
-use crate::widgets::comm_remote_server::{
-    MessageData, MessageInfo, MessageParser, MessageParserDetailsMsg, StreamData,
-};
 use crate::BgFunc;
 use crate::TSharkCommunication;
 use chrono::{NaiveDateTime, Utc};

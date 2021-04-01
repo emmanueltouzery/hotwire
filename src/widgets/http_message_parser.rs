@@ -1,12 +1,11 @@
 use super::comm_info_header;
 use super::comm_info_header::CommInfoHeader;
+use super::message_parser::{MessageInfo, MessageParser, MessageParserDetailsMsg, StreamData};
 use crate::colors;
 use crate::http::tshark_http::HttpType;
 use crate::icons::Icon;
 use crate::tshark_communication_raw::TSharkCommunicationRaw;
-use crate::widgets::comm_remote_server::{
-    MessageData, MessageInfo, MessageParser, MessageParserDetailsMsg, StreamData,
-};
+use crate::widgets::comm_remote_server::MessageData;
 use crate::widgets::win;
 use crate::BgFunc;
 use crate::TSharkCommunication;
