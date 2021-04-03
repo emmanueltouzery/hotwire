@@ -161,15 +161,17 @@ impl Widget for Win {
             println!("Error loading the CSS: {}", err);
         }
 
-        let rstream0 = self.model.relm.stream().clone();
-        self.model.sidebar_selection_change_signal_id = Some(
-            self.widgets
-                .remote_ips_streams_treeview
-                .get_selection()
-                .connect_changed(move |selection| {
-                    rstream0.emit(Msg::SelectRemoteIpStream(selection.clone()));
-                }),
-        );
+        self.model.sidebar_selection_change_signal_id = {
+            let stream = self.model.relm.stream().clone();
+            Some(
+                self.widgets
+                    .remote_ips_streams_treeview
+                    .get_selection()
+                    .connect_changed(move |selection| {
+                        stream.emit(Msg::SelectRemoteIpStream(selection.clone()));
+                    }),
+            )
+        };
 
         self.widgets
             .remote_ips_streams_treeview
@@ -202,19 +204,21 @@ impl Widget for Win {
         let (modelsort, store) = message_parser.prepare_treeview(&tv);
         self.model.comm_remote_servers_stores.push(store.clone());
 
-        let rstream = self.model.relm.stream().clone();
-        let st = store.clone();
-        let ms = modelsort.clone();
-        let selection_change_signal_id = tv.get_selection().connect_changed(move |selection| {
-            if let Some((model, iter)) = selection.get_selected() {
-                if let Some(path) = model
-                    .get_path(&iter)
-                    .and_then(|p| ms.convert_path_to_child_path(&p))
-                {
-                    Self::row_selected(&st, &path, &rstream);
+        let selection_change_signal_id = {
+            let rstream = self.model.relm.stream().clone();
+            let st = store.clone();
+            let ms = modelsort.clone();
+            tv.get_selection().connect_changed(move |selection| {
+                if let Some((model, iter)) = selection.get_selected() {
+                    if let Some(path) = model
+                        .get_path(&iter)
+                        .and_then(|p| ms.convert_path_to_child_path(&p))
+                    {
+                        Self::row_selected(&st, &path, &rstream);
+                    }
                 }
-            }
-        });
+            })
+        };
         // let rstream2 = self.model.relm.stream().clone();
         // let st2 = store.clone();
         // let ms2 = modelsort.clone();
@@ -350,16 +354,19 @@ impl Widget for Win {
             u32::static_type(),
         ]);
 
-        let stream = relm.stream().clone();
-        let (_loaded_data_channel, loaded_data_sender) =
+        let (_loaded_data_channel, loaded_data_sender) = {
+            let stream = relm.stream().clone();
             relm::Channel::new(move |ch_data: LoadedDataParams| {
                 stream.emit(Msg::LoadedData(ch_data));
-            });
+            })
+        };
 
-        let stream2 = relm.stream().clone();
-        let (_finished_tshark_channel, finished_tshark_sender) = relm::Channel::new(move |_| {
-            stream2.emit(Msg::FinishedTShark);
-        });
+        let (_finished_tshark_channel, finished_tshark_sender) = {
+            let stream = relm.stream().clone();
+            relm::Channel::new(move |_| {
+                stream.emit(Msg::FinishedTShark);
+            })
+        };
 
         Model {
             relm: relm.clone(),
@@ -567,32 +574,38 @@ impl Widget for Win {
         packets: Vec<TSharkCommunication>,
         sender: relm::Sender<LoadedDataParams>,
     ) {
-        let mut by_stream: Vec<_> = packets
-            .into_iter()
-            // .filter(|p| p.source.layers.http.is_some())
-            .map(|p| (p.source.layers.tcp.as_ref().map(|t| t.stream), p))
-            .into_group_map()
-            .into_iter()
-            .collect();
-        by_stream.sort_by_key(|p| Reverse(p.1.len()));
+        let by_stream = {
+            let mut by_stream: Vec<_> = packets
+                .into_iter()
+                // .filter(|p| p.source.layers.http.is_some())
+                .map(|p| (p.source.layers.tcp.as_ref().map(|t| t.stream), p))
+                .into_group_map()
+                .into_iter()
+                .collect();
+            by_stream.sort_by_key(|p| Reverse(p.1.len()));
+            by_stream
+        };
 
         let message_parsers = get_message_parsers();
 
-        let mut parsed_streams: Vec<_> = by_stream
-            .into_iter()
-            .filter_map(|(id, comms)| {
-                let parser = comms
-                    .iter()
-                    .find_map(|c| message_parsers.iter().find(|p| p.is_my_message(c)));
+        let parsed_streams = {
+            let mut parsed_streams: Vec<_> = by_stream
+                .into_iter()
+                .filter_map(|(id, comms)| {
+                    let parser = comms
+                        .iter()
+                        .find_map(|c| message_parsers.iter().find(|p| p.is_my_message(c)));
 
-                parser.map(|p| {
-                    let stream_data = p.parse_stream(comms);
-                    let card_key = (stream_data.server_ip.clone(), stream_data.server_port);
-                    (p, id, stream_data.server_ip.clone(), card_key, stream_data)
+                    parser.map(|p| {
+                        let stream_data = p.parse_stream(comms);
+                        let card_key = (stream_data.server_ip.clone(), stream_data.server_port);
+                        (p, id, stream_data.server_ip.clone(), card_key, stream_data)
+                    })
                 })
-            })
-            .collect();
-        parsed_streams.sort_by_key(|(_parser, id, _ip_src, _card_key, _pstream)| *id);
+                .collect();
+            parsed_streams.sort_by_key(|(_parser, id, _ip_src, _card_key, _pstream)| *id);
+            parsed_streams
+        };
 
         let comm_target_cards = parsed_streams
             .iter()
