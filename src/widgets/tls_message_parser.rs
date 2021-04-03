@@ -1,4 +1,3 @@
-pub struct Tls;
 use super::message_parser::{MessageParser, MessageParserDetailsMsg, StreamData};
 use crate::icons::Icon;
 use crate::widgets::comm_remote_server::MessageData;
@@ -10,7 +9,9 @@ use relm_derive::widget;
 use std::sync::mpsc;
 
 #[derive(PartialEq, Eq, Debug, Clone)]
-pub struct TlsMessageData {}
+pub struct TlsMessageData;
+
+pub struct Tls;
 
 impl MessageParser for Tls {
     fn is_my_message(&self, msg: &TSharkCommunication) -> bool {
@@ -51,14 +52,7 @@ impl MessageParser for Tls {
         }
     }
 
-    fn prepare_treeview(&self, tv: &gtk::TreeView) -> (gtk::TreeModelSort, gtk::ListStore) {
-        let liststore = gtk::ListStore::new(&[
-            String::static_type(), // description
-            i32::static_type(), // dummy (win has list store columns 2 & 3 hardcoded for stream & row idx)
-            u32::static_type(), // stream_id
-            u32::static_type(), // index of the comm in the model vector
-        ]);
-
+    fn prepare_treeview(&self, tv: &gtk::TreeView) {
         let data_col = gtk::TreeViewColumnBuilder::new()
             .title("TLS")
             .expand(true)
@@ -70,11 +64,15 @@ impl MessageParser for Tls {
         data_col.pack_start(&cell_r_txt, true);
         data_col.add_attribute(&cell_r_txt, "text", 0);
         tv.append_column(&data_col);
+    }
 
-        let model_sort = gtk::TreeModelSort::new(&liststore);
-        tv.set_model(Some(&model_sort));
-
-        (model_sort, liststore)
+    fn get_empty_liststore(&self) -> gtk::ListStore {
+        gtk::ListStore::new(&[
+            String::static_type(), // description
+            i32::static_type(), // dummy (win has list store columns 2 & 3 hardcoded for stream & row idx)
+            u32::static_type(), // stream_id
+            u32::static_type(), // index of the comm in the model vector
+        ])
     }
 
     fn populate_treeview(
@@ -93,6 +91,11 @@ impl MessageParser for Tls {
                 &0.to_value(),
             ],
         );
+    }
+
+    fn end_populate_treeview(&self, tv: &gtk::TreeView, ls: &gtk::ListStore) {
+        let model_sort = gtk::TreeModelSort::new(ls);
+        tv.set_model(Some(&model_sort));
     }
 
     fn add_details_to_scroll(

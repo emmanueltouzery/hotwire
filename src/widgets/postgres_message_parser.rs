@@ -244,21 +244,7 @@ impl MessageParser for Postgres {
         }
     }
 
-    fn prepare_treeview(&self, tv: &gtk::TreeView) -> (gtk::TreeModelSort, gtk::ListStore) {
-        let liststore = gtk::ListStore::new(&[
-            String::static_type(), // query first line
-            String::static_type(), // response info (number of rows..)
-            u32::static_type(),    // stream_id
-            u32::static_type(),    // index of the comm in the model vector
-            String::static_type(), // query start timestamp (string)
-            i64::static_type(),    // query start timestamp (integer, for sorting)
-            i32::static_type(),    // query duration (nanos, for sorting)
-            String::static_type(), // query duration display
-            i64::static_type(),    // number of rows, for sorting
-            String::static_type(), // query type: update, insert..
-            String::static_type(), // stream color
-        ]);
-
+    fn prepare_treeview(&self, tv: &gtk::TreeView) {
         let streamcolor_col = gtk::TreeViewColumnBuilder::new()
             .title("S")
             .fixed_width(10)
@@ -321,12 +307,22 @@ impl MessageParser for Postgres {
         duration_col.pack_start(&cell_d_txt, true);
         duration_col.add_attribute(&cell_d_txt, "text", 7);
         tv.append_column(&duration_col);
+    }
 
-        let model_sort = gtk::TreeModelSort::new(&liststore);
-        model_sort.set_sort_column_id(gtk::SortColumn::Index(5), gtk::SortType::Ascending);
-        tv.set_model(Some(&model_sort));
-
-        (model_sort, liststore)
+    fn get_empty_liststore(&self) -> gtk::ListStore {
+        gtk::ListStore::new(&[
+            String::static_type(), // query first line
+            String::static_type(), // response info (number of rows..)
+            u32::static_type(),    // stream_id
+            u32::static_type(),    // index of the comm in the model vector
+            String::static_type(), // query start timestamp (string)
+            i64::static_type(),    // query start timestamp (integer, for sorting)
+            i32::static_type(),    // query duration (nanos, for sorting)
+            String::static_type(), // query duration display
+            i64::static_type(),    // number of rows, for sorting
+            String::static_type(), // query type: update, insert..
+            String::static_type(), // stream color
+        ])
     }
 
     fn populate_treeview(
@@ -336,6 +332,7 @@ impl MessageParser for Postgres {
         messages: &[MessageData],
         start_idx: i32,
     ) {
+        // println!("adding {} rows", messages.len());
         for (idx, message) in messages.iter().enumerate() {
             let postgres = message.as_postgres().unwrap();
             ls.insert_with_values(
@@ -369,6 +366,12 @@ impl MessageParser for Postgres {
                 ],
             );
         }
+    }
+
+    fn end_populate_treeview(&self, tv: &gtk::TreeView, ls: &gtk::ListStore) {
+        let model_sort = gtk::TreeModelSort::new(ls);
+        model_sort.set_sort_column_id(gtk::SortColumn::Index(5), gtk::SortType::Ascending);
+        tv.set_model(Some(&model_sort));
     }
 
     fn add_details_to_scroll(

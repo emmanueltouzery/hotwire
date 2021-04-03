@@ -94,7 +94,6 @@ pub struct Model {
     selected_card: Option<CommTargetCardData>,
 
     remote_ips_streams_tree_store: gtk::TreeStore,
-    comm_remote_servers_stores: Vec<gtk::ListStore>,
     comm_remote_servers_treeviews: Vec<(gtk::TreeView, TreeViewSignals)>,
 
     _finished_tshark_channel: relm::Channel<()>,
@@ -201,20 +200,23 @@ impl Widget for Win {
         let tv = gtk::TreeViewBuilder::new()
             .activate_on_single_click(true)
             .build();
-        let (modelsort, store) = message_parser.prepare_treeview(&tv);
-        self.model.comm_remote_servers_stores.push(store.clone());
+        message_parser.prepare_treeview(&tv);
 
         let selection_change_signal_id = {
             let rstream = self.model.relm.stream().clone();
-            let st = store.clone();
-            let ms = modelsort.clone();
+            let tv = tv.clone();
             tv.get_selection().connect_changed(move |selection| {
                 if let Some((model, iter)) = selection.get_selected() {
-                    if let Some(path) = model
+                    let modelsort = model.dynamic_cast::<gtk::TreeModelSort>().unwrap();
+                    let model = modelsort
+                        .get_model()
+                        .dynamic_cast::<gtk::ListStore>()
+                        .unwrap();
+                    if let Some(path) = modelsort
                         .get_path(&iter)
-                        .and_then(|p| ms.convert_path_to_child_path(&p))
+                        .and_then(|p| modelsort.convert_path_to_child_path(&p))
                     {
-                        Self::row_selected(&st, &path, &rstream);
+                        Self::row_selected(&model, &path, &rstream);
                     }
                 }
             })
@@ -374,7 +376,6 @@ impl Widget for Win {
             _comm_targets_components: vec![],
             selected_card: None,
             remote_ips_streams_tree_store,
-            comm_remote_servers_stores: vec![],
             comm_remote_servers_treeviews: vec![],
             details_component_streams: vec![],
             loaded_data_sender,
@@ -758,9 +759,6 @@ impl Widget for Win {
         constrain_stream_ids: &[u32],
     ) {
         self.setup_selection_signals(RefreshOngoing::Yes);
-        for store in &self.model.comm_remote_servers_stores {
-            store.clear();
-        }
         if let Some(card) = self.model.selected_card.as_ref().cloned() {
             let target_ip = card.ip.clone();
             let target_port = card.port;
@@ -789,16 +787,17 @@ impl Widget for Win {
             self.widgets
                 .comm_remote_servers_stack
                 .set_visible_child_name(&card.protocol_index.to_string());
-            let store = &self
+            let (ref tv, ref _signals) = &self
                 .model
-                .comm_remote_servers_stores
+                .comm_remote_servers_treeviews
                 .get(card.protocol_index)
                 .unwrap();
+            let ls = mp.get_empty_liststore();
             for (remote_ip, tcp_sessions) in &by_remote_ip {
                 for (session_id, session) in tcp_sessions {
                     let mut idx = 0;
                     for chunk in session.chunks(100) {
-                        mp.populate_treeview(&store, *session_id, chunk, idx);
+                        mp.populate_treeview(&ls, *session_id, chunk, idx);
                         idx += 100;
                         // https://developer.gnome.org/gtk3/stable/gtk3-General.html#gtk-events-pending
                         while gtk::events_pending() {
@@ -807,6 +806,7 @@ impl Widget for Win {
                     }
                 }
             }
+            mp.end_populate_treeview(tv, &ls);
             if refresh_remote_ips_and_streams == RefreshRemoteIpsAndStreams::Yes {
                 let ip_hash = by_remote_ip
                     .keys()

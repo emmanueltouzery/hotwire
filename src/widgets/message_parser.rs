@@ -21,7 +21,8 @@ pub trait MessageParser {
     fn is_my_message(&self, msg: &TSharkCommunication) -> bool;
     fn protocol_icon(&self) -> Icon;
     fn parse_stream(&self, stream: Vec<TSharkCommunication>) -> StreamData;
-    fn prepare_treeview(&self, tv: &gtk::TreeView) -> (gtk::TreeModelSort, gtk::ListStore);
+    fn prepare_treeview(&self, tv: &gtk::TreeView);
+    fn get_empty_liststore(&self) -> gtk::ListStore;
     fn populate_treeview(
         &self,
         ls: &gtk::ListStore,
@@ -29,6 +30,7 @@ pub trait MessageParser {
         messages: &[MessageData],
         start_idx: i32,
     );
+    fn end_populate_treeview(&self, tv: &gtk::TreeView, ls: &gtk::ListStore);
     fn add_details_to_scroll(
         &self,
         paned: &gtk::ScrolledWindow,

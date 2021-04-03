@@ -99,8 +99,8 @@ impl MessageParser for Http {
         }
     }
 
-    fn prepare_treeview(&self, tv: &gtk::TreeView) -> (gtk::TreeModelSort, gtk::ListStore) {
-        let liststore = gtk::ListStore::new(&[
+    fn get_empty_liststore(&self) -> gtk::ListStore {
+        gtk::ListStore::new(&[
             // TODO add: body size...
             String::static_type(), // request first line
             String::static_type(), // response first line
@@ -114,8 +114,10 @@ impl MessageParser for Http {
             String::static_type(), // response content type
             u32::static_type(),    // tcp sequence number
             String::static_type(), // stream color
-        ]);
+        ])
+    }
 
+    fn prepare_treeview(&self, tv: &gtk::TreeView) {
         let streamcolor_col = gtk::TreeViewColumnBuilder::new()
             .title("S")
             .fixed_width(10)
@@ -177,12 +179,6 @@ impl MessageParser for Http {
         response_ct_col.pack_start(&cell_resp_ct_txt, true);
         response_ct_col.add_attribute(&cell_resp_ct_txt, "text", 9);
         tv.append_column(&response_ct_col);
-
-        let model_sort = gtk::TreeModelSort::new(&liststore);
-        model_sort.set_sort_column_id(gtk::SortColumn::Index(5), gtk::SortType::Ascending);
-        tv.set_model(Some(&model_sort));
-
-        (model_sort, liststore)
     }
 
     fn populate_treeview(
@@ -244,6 +240,12 @@ impl MessageParser for Http {
                 }
             }
         }
+    }
+
+    fn end_populate_treeview(&self, tv: &gtk::TreeView, ls: &gtk::ListStore) {
+        let model_sort = gtk::TreeModelSort::new(ls);
+        model_sort.set_sort_column_id(gtk::SortColumn::Index(5), gtk::SortType::Ascending);
+        tv.set_model(Some(&model_sort));
     }
 
     fn add_details_to_scroll(
