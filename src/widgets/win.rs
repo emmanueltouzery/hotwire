@@ -24,6 +24,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::process::Stdio;
 use std::sync::mpsc;
+use std::time::Instant;
 
 const CSS_DATA: &[u8] = include_bytes!("../../resources/style.css");
 
@@ -93,7 +94,6 @@ pub struct Model {
     comm_target_cards: Vec<CommTargetCardData>,
     selected_card: Option<CommTargetCardData>,
 
-    remote_ips_streams_tree_store: gtk::TreeStore,
     comm_remote_servers_treeviews: Vec<(gtk::TreeView, TreeViewSignals)>,
 
     _finished_tshark_channel: relm::Channel<()>,
@@ -350,11 +350,6 @@ impl Widget for Win {
         gtk::IconTheme::get_default()
             .unwrap()
             .add_resource_path("/icons");
-        let remote_ips_streams_tree_store = gtk::TreeStore::new(&[
-            String::static_type(),
-            pango::Weight::static_type(),
-            u32::static_type(),
-        ]);
 
         let (_loaded_data_channel, loaded_data_sender) = {
             let stream = relm.stream().clone();
@@ -375,7 +370,6 @@ impl Widget for Win {
             bg_sender,
             _comm_targets_components: vec![],
             selected_card: None,
-            remote_ips_streams_tree_store,
             comm_remote_servers_treeviews: vec![],
             details_component_streams: vec![],
             loaded_data_sender,
@@ -488,6 +482,11 @@ impl Widget for Win {
     fn refresh_remote_ip_stream(&mut self, paths: &mut [gtk::TreePath]) {
         let mut allowed_ips = vec![];
         let mut allowed_stream_ids = vec![];
+        let remote_ips_streams_tree_store = self
+            .widgets
+            .remote_ips_streams_treeview
+            .get_model()
+            .unwrap();
         for path in paths {
             match path.get_indices_with_depth().as_slice() {
                 &[0] => {
@@ -498,23 +497,15 @@ impl Widget for Win {
                 }
                 x if x.len() == 1 => {
                     // remote ip
-                    if let Some(iter) = self.model.remote_ips_streams_tree_store.get_iter(&path) {
-                        let remote_ip =
-                            self.model.remote_ips_streams_tree_store.get_value(&iter, 0);
+                    if let Some(iter) = remote_ips_streams_tree_store.get_iter(&path) {
+                        let remote_ip = remote_ips_streams_tree_store.get_value(&iter, 0);
                         allowed_ips.push(remote_ip.get().unwrap().unwrap());
                     }
                 }
                 x if x.len() == 2 => {
                     // stream
-                    let stream_iter = self
-                        .model
-                        .remote_ips_streams_tree_store
-                        .get_iter(&path)
-                        .unwrap();
-                    let stream_id = self
-                        .model
-                        .remote_ips_streams_tree_store
-                        .get_value(&stream_iter, 2);
+                    let stream_iter = remote_ips_streams_tree_store.get_iter(&path).unwrap();
+                    let stream_id = remote_ips_streams_tree_store.get_value(&stream_iter, 2);
                     allowed_stream_ids.push(stream_id.get().unwrap().unwrap());
                 }
                 _ => panic!(path.get_depth()),
@@ -698,8 +689,12 @@ impl Widget for Win {
         card: &CommTargetCardData,
         remote_ips: &HashSet<String>,
     ) {
-        self.model.remote_ips_streams_tree_store.clear();
-        self.model.remote_ips_streams_tree_store.insert_with_values(
+        let remote_ips_streams_tree_store = gtk::TreeStore::new(&[
+            String::static_type(),
+            pango::Weight::static_type(),
+            u32::static_type(),
+        ]);
+        remote_ips_streams_tree_store.insert_with_values(
             None,
             None,
             &[0, 1],
@@ -714,7 +709,7 @@ impl Widget for Win {
         let target_port = card.port;
 
         for remote_ip in remote_ips {
-            let remote_ip_iter = self.model.remote_ips_streams_tree_store.insert_with_values(
+            let remote_ip_iter = remote_ips_streams_tree_store.insert_with_values(
                 None,
                 None,
                 &[0, 1],
@@ -730,7 +725,7 @@ impl Widget for Win {
                 {
                     continue;
                 }
-                self.model.remote_ips_streams_tree_store.insert_with_values(
+                remote_ips_streams_tree_store.insert_with_values(
                     Some(&remote_ip_iter),
                     None,
                     &[0, 1, 2],
@@ -749,6 +744,9 @@ impl Widget for Win {
             }
         }
 
+        self.widgets
+            .remote_ips_streams_treeview
+            .set_model(Some(&remote_ips_streams_tree_store));
         self.widgets.remote_ips_streams_treeview.expand_all();
     }
 
@@ -800,8 +798,13 @@ impl Widget for Win {
                         mp.populate_treeview(&ls, *session_id, chunk, idx);
                         idx += 100;
                         // https://developer.gnome.org/gtk3/stable/gtk3-General.html#gtk-events-pending
+                        // I've had this loop last almost 3 seconds!!
+                        let start = Instant::now();
                         while gtk::events_pending() {
                             gtk::main_iteration();
+                            if start.elapsed().as_millis() >= 70 {
+                                break;
+                            }
                         }
                     }
                 }
@@ -920,7 +923,6 @@ impl Widget for Win {
                         #[name="remote_ips_streams_treeview"]
                         gtk::TreeView {
                             activate_on_single_click: true,
-                            model: Some(&self.model.remote_ips_streams_tree_store),
                             // connecting manually to collect the signal id for blocking
                             // selection.changed(selection) => Msg::SelectRemoteIpStream(selection.clone()),
                         },
