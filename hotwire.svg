@@ -23,15 +23,15 @@
      borderopacity="1.0"
      inkscape:pageopacity="0.0"
      inkscape:pageshadow="2"
-     inkscape:zoom="5.6568544"
-     inkscape:cx="96.818063"
-     inkscape:cy="68.758589"
+     inkscape:zoom="4.0000001"
+     inkscape:cx="129.95768"
+     inkscape:cy="55.674004"
      inkscape:document-units="px"
      inkscape:current-layer="layer1"
      inkscape:document-rotation="0"
      showgrid="true"
      inkscape:window-width="1920"
-     inkscape:window-height="1056"
+     inkscape:window-height="1037"
      inkscape:window-x="0"
      inkscape:window-y="0"
      inkscape:window-maximized="1">
@@ -58,7 +58,7 @@
     <path
        id="rect850"
        style="fill:#4b6983;fill-opacity:1;stroke:#000000;stroke-width:1.51559;stroke-linecap:round;stroke-linejoin:round"
-       d="m 101.66511,63.461336 2.44458,11.748362 C 100,90 75.361901,100.80107 65,105 57,101 51.666667,81.666667 45,70 58.144986,68.92546 92.902058,56.00968 101.66511,63.461336 Z"
+       d="m 101.66511,63.461336 2.44458,11.748362 C 100,90 75.361901,100.80107 65,105 52,107 51.666667,81.666667 45,70 58.144986,68.92546 92.902058,56.00968 101.66511,63.461336 Z"
        sodipodi:nodetypes="ccccc" />
     <path
        id="rect840"
