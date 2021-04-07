@@ -1,11 +1,13 @@
-use super::message_parser::{MessageParser, MessageParserDetailsMsg, StreamData};
+use super::message_parser::{MessageParser, StreamData};
 use crate::icons::Icon;
 use crate::widgets::comm_remote_server::MessageData;
+use crate::widgets::message_parser::MessageInfo;
 use crate::BgFunc;
 use crate::TSharkCommunication;
 use gtk::prelude::*;
 use relm::{ContainerWidget, Widget};
-use relm_derive::widget;
+use relm_derive::{widget, Msg};
+use std::path::PathBuf;
 use std::sync::mpsc;
 
 #[derive(PartialEq, Eq, Debug, Clone)]
@@ -102,15 +104,24 @@ impl MessageParser for Tls {
         &self,
         parent: &gtk::ScrolledWindow,
         bg_sender: mpsc::Sender<BgFunc>,
-    ) -> relm::StreamHandle<MessageParserDetailsMsg> {
+    ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, MessageInfo)> {
         let component = Box::leak(Box::new(
             parent.add_widget::<TlsCommEntry>(TlsMessageData {}),
         ));
-        component.stream()
+        Box::new(move |bg_sender, path, message_info| {
+            component
+                .stream()
+                .emit(Msg::DisplayDetails(bg_sender, path, message_info))
+        })
     }
 }
 
 pub struct Model {}
+
+#[derive(Msg, Debug)]
+pub enum Msg {
+    DisplayDetails(mpsc::Sender<BgFunc>, PathBuf, MessageInfo),
+}
 
 #[widget]
 impl Widget for TlsCommEntry {
@@ -118,7 +129,7 @@ impl Widget for TlsCommEntry {
         Model {}
     }
 
-    fn update(&mut self, event: MessageParserDetailsMsg) {}
+    fn update(&mut self, event: Msg) {}
 
     view! {
         gtk::Box {

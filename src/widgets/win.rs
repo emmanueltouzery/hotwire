@@ -3,7 +3,7 @@ use super::comm_target_card::{CommTargetCard, CommTargetCardData};
 use crate::colors;
 use crate::widgets::comm_target_card::SummaryDetails;
 use crate::widgets::http_message_parser::Http;
-use crate::widgets::message_parser::{MessageInfo, MessageParser, MessageParserDetailsMsg};
+use crate::widgets::message_parser::{MessageInfo, MessageParser};
 use crate::widgets::postgres_message_parser::Postgres;
 use crate::widgets::tls_message_parser::Tls;
 use crate::BgFunc;
@@ -104,7 +104,7 @@ pub struct Model {
 
     _comm_targets_components: Vec<Component<CommTargetCard>>,
 
-    details_component_streams: Vec<relm::StreamHandle<MessageParserDetailsMsg>>,
+    details_component_emitters: Vec<Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, MessageInfo)>>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -250,7 +250,7 @@ impl Widget for Win {
 
         let scroll2 = gtk::ScrolledWindowBuilder::new().build();
         self.model
-            .details_component_streams
+            .details_component_emitters
             .push(message_parser.add_details_to_scroll(&scroll2, self.model.bg_sender.clone()));
         scroll2.set_property_height_request(200);
         paned.pack2(&scroll2, false, true);
@@ -371,7 +371,7 @@ impl Widget for Win {
             _comm_targets_components: vec![],
             selected_card: None,
             comm_remote_servers_treeviews: vec![],
-            details_component_streams: vec![],
+            details_component_emitters: vec![],
             loaded_data_sender,
             _loaded_data_channel,
             finished_tshark_sender,
@@ -462,8 +462,8 @@ impl Widget for Win {
                     .find(|(stream_info, items)| stream_info.stream_id == stream_id)
                     .and_then(|s| s.1.get(idx as usize).map(|f| (&s.0, f)))
                 {
-                    for component_stream in &self.model.details_component_streams {
-                        component_stream.emit(MessageParserDetailsMsg::DisplayDetails(
+                    for component_stream in &self.model.details_component_emitters {
+                        component_stream(
                             self.model.bg_sender.clone(),
                             self.model.current_file_path.as_ref().unwrap().clone(),
                             MessageInfo {
@@ -471,7 +471,7 @@ impl Widget for Win {
                                 client_ip: stream_info.source_ip.clone(),
                                 message_data: msg_data.clone(),
                             },
-                        ));
+                        );
                     }
                 }
             }

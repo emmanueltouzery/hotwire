@@ -1,11 +1,15 @@
 use super::comm_info_header;
 use super::comm_info_header::CommInfoHeader;
 use super::comm_remote_server::MessageData;
-use super::message_parser::{MessageInfo, MessageParser, MessageParserDetailsMsg, StreamData};
+use super::message_parser::{MessageInfo, MessageParser, StreamData};
 use crate::colors;
 use crate::icons::Icon;
+use crate::pgsql::tshark_pgsql;
+use crate::pgsql::tshark_pgsql::HasPostgresWireMessages;
 use crate::pgsql::tshark_pgsql::PostgresWireMessage;
+use crate::tshark_communication::TSharkCommunicationGeneric;
 use crate::tshark_communication::{TSharkIpLayer, TSharkIpV6Layer};
+use crate::widgets::win;
 use crate::BgFunc;
 use crate::TSharkCommunication;
 use chrono::{NaiveDateTime, Utc};
@@ -16,6 +20,8 @@ use relm::{ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::mpsc;
 
 #[cfg(test)]
@@ -24,6 +30,11 @@ use crate::pgsql::tshark_pgsql::TSharkPgsql;
 use crate::tshark_communication::{TSharkFrameLayer, TSharkLayers, TSharkSource, TSharkTcpLayer};
 #[cfg(test)]
 use chrono::NaiveDate;
+
+const RESULTSET_SPINNER: &str = "spinner";
+const RESULTSET_DATA: &str = "data";
+
+pub type TSharkCommunicationWithPgResultSet = TSharkCommunicationGeneric<tshark_pgsql::TSharkPgsql>;
 
 pub struct Postgres;
 
@@ -37,211 +48,7 @@ impl MessageParser for Postgres {
     }
 
     fn parse_stream(&self, comms: Vec<TSharkCommunication>) -> StreamData {
-        let mut server_ip = comms
-            .first()
-            .as_ref()
-            .unwrap()
-            .source
-            .layers
-            .ip_dst()
-            .clone();
-        let mut server_port = comms
-            .first()
-            .as_ref()
-            .unwrap()
-            .source
-            .layers
-            .tcp
-            .as_ref()
-            .unwrap()
-            .port_dst;
-        let mut messages = vec![];
-        let mut cur_query = None;
-        let mut cur_col_names = vec![];
-        let mut cur_rs_row_count = 0;
-        let mut cur_rs_first_rows = vec![];
-        let mut known_statements = HashMap::new();
-        let mut cur_query_with_fallback = None;
-        let mut cur_parameter_values = vec![];
-        let mut was_bind = false;
-        let mut query_timestamp = None;
-        let mut set_correct_server_info = false;
-        for comm in comms {
-            let timestamp = comm.source.layers.frame.frame_time;
-            if let Some(pgsql) = comm.source.layers.pgsql {
-                let mds = pgsql.messages;
-                for md in mds {
-                    match md {
-                        PostgresWireMessage::Startup {
-                            username: Some(ref username),
-                            database: Some(ref database),
-                            application,
-                        } => {
-                            if !set_correct_server_info {
-                                server_ip = dst_ip(
-                                    comm.source.layers.ip.as_ref(),
-                                    comm.source.layers.ipv6.as_ref(),
-                                )
-                                .to_string();
-                                server_port = comm.source.layers.tcp.as_ref().unwrap().port_dst;
-                                set_correct_server_info = true;
-                            }
-                            messages.push(MessageData::Postgres(PostgresMessageData {
-                                query: Some(Cow::Owned(format!(
-                                    "LOGIN: user: {}, db: {}, app: {}",
-                                    username,
-                                    database,
-                                    application.as_deref().unwrap_or("-")
-                                ))),
-                                query_timestamp: timestamp,
-                                result_timestamp: timestamp,
-                                parameter_values: vec![],
-                                resultset_col_names: vec![],
-                                resultset_row_count: 0,
-                                resultset_first_rows: vec![],
-                            }));
-                        }
-                        PostgresWireMessage::Startup { .. } => {
-                            if !set_correct_server_info {
-                                server_ip = dst_ip(
-                                    comm.source.layers.ip.as_ref(),
-                                    comm.source.layers.ipv6.as_ref(),
-                                )
-                                .to_string();
-                                server_port = comm.source.layers.tcp.as_ref().unwrap().port_dst;
-                                set_correct_server_info = true;
-                            }
-                        }
-                        PostgresWireMessage::Parse {
-                            ref query,
-                            ref statement,
-                        } => {
-                            if !set_correct_server_info {
-                                server_ip = dst_ip(
-                                    comm.source.layers.ip.as_ref(),
-                                    comm.source.layers.ipv6.as_ref(),
-                                )
-                                .to_string();
-                                server_port = comm.source.layers.tcp.as_ref().unwrap().port_dst;
-                                set_correct_server_info = true;
-                            }
-                            if let (Some(st), Some(q)) = (statement, query) {
-                                known_statements.insert((*st).clone(), (*q).clone());
-                            }
-                            cur_query = query.clone();
-                        }
-                        PostgresWireMessage::Bind {
-                            statement,
-                            parameter_values,
-                        } => {
-                            if !set_correct_server_info {
-                                server_ip = dst_ip(
-                                    comm.source.layers.ip.as_ref(),
-                                    comm.source.layers.ipv6.as_ref(),
-                                )
-                                .to_string();
-                                server_port = comm.source.layers.tcp.as_ref().unwrap().port_dst;
-                                set_correct_server_info = true;
-                            }
-                            was_bind = true;
-                            query_timestamp = Some(timestamp);
-                            cur_query_with_fallback = match (&cur_query, &statement) {
-                                (Some(_), _) => cur_query.clone(),
-                                (None, Some(s)) => Some(
-                                    known_statements
-                                        .get(s)
-                                        .cloned()
-                                        .unwrap_or(format!("Unknown statement: {}", s)),
-                                ),
-                                _ => None,
-                            };
-                            cur_parameter_values = parameter_values.to_vec();
-                        }
-                        PostgresWireMessage::RowDescription { col_names } => {
-                            if !set_correct_server_info {
-                                server_ip = src_ip(
-                                    comm.source.layers.ip.as_ref(),
-                                    comm.source.layers.ipv6.as_ref(),
-                                )
-                                .to_string();
-                                server_port = comm.source.layers.tcp.as_ref().unwrap().port_src;
-                                set_correct_server_info = true;
-                            }
-                            cur_col_names = col_names;
-                        }
-                        PostgresWireMessage::ResultSetRow { cols } => {
-                            if !set_correct_server_info {
-                                server_ip = src_ip(
-                                    comm.source.layers.ip.as_ref(),
-                                    comm.source.layers.ipv6.as_ref(),
-                                )
-                                .to_string();
-                                server_port = comm.source.layers.tcp.as_ref().unwrap().port_src;
-                                set_correct_server_info = true;
-                            }
-                            cur_rs_row_count += 1;
-                            cur_rs_first_rows.push(cols);
-                        }
-                        PostgresWireMessage::ReadyForQuery => {
-                            if !set_correct_server_info {
-                                server_ip = src_ip(
-                                    comm.source.layers.ip.as_ref(),
-                                    comm.source.layers.ipv6.as_ref(),
-                                )
-                                .to_string();
-                                server_port = comm.source.layers.tcp.as_ref().unwrap().port_src;
-                                set_correct_server_info = true;
-                            }
-                            if was_bind {
-                                messages.push(MessageData::Postgres(PostgresMessageData {
-                                    query: cur_query_with_fallback.map(Cow::Owned),
-                                    query_timestamp: query_timestamp.unwrap(), // know it was populated since was_bind is true
-                                    result_timestamp: timestamp,
-                                    parameter_values: cur_parameter_values,
-                                    resultset_col_names: cur_col_names,
-                                    resultset_row_count: cur_rs_row_count,
-                                    resultset_first_rows: cur_rs_first_rows,
-                                }));
-                            }
-                            was_bind = false;
-                            cur_query_with_fallback = None;
-                            cur_query = None;
-                            cur_col_names = vec![];
-                            cur_parameter_values = vec![];
-                            cur_rs_row_count = 0;
-                            cur_rs_first_rows = vec![];
-                            query_timestamp = None;
-                        }
-                        PostgresWireMessage::CopyData => {
-                            if !set_correct_server_info {
-                                server_ip = src_ip(
-                                    comm.source.layers.ip.as_ref(),
-                                    comm.source.layers.ipv6.as_ref(),
-                                )
-                                .to_string();
-                                server_port = comm.source.layers.tcp.as_ref().unwrap().port_src;
-                                set_correct_server_info = true;
-                            }
-                            messages.push(MessageData::Postgres(PostgresMessageData {
-                                query: Some(Cow::Borrowed("COPY DATA")),
-                                query_timestamp: timestamp,
-                                result_timestamp: timestamp,
-                                parameter_values: vec![],
-                                resultset_col_names: vec![],
-                                resultset_row_count: 0,
-                                resultset_first_rows: vec![],
-                            }));
-                        }
-                    }
-                }
-            }
-        }
-        StreamData {
-            server_ip: server_ip.clone(),
-            server_port,
-            messages,
-            summary_details: None,
-        }
+        parse_generic_stream(comms)
     }
 
     fn prepare_treeview(&self, tv: &gtk::TreeView) {
@@ -378,7 +185,7 @@ impl MessageParser for Postgres {
         &self,
         parent: &gtk::ScrolledWindow,
         _bg_sender: mpsc::Sender<BgFunc>,
-    ) -> relm::StreamHandle<MessageParserDetailsMsg> {
+    ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, MessageInfo)> {
         let component = Box::leak(Box::new(parent.add_widget::<PostgresCommEntry>((
             0,
             "".to_string(),
@@ -390,9 +197,242 @@ impl MessageParser for Postgres {
                 resultset_col_names: vec![],
                 resultset_row_count: 0,
                 resultset_first_rows: vec![],
+                resultset_rows_tcp_seqno_start: None,
+                resultset_rows_tcp_seqno_end: None,
             },
         ))));
-        component.stream()
+        Box::new(move |bg_sender, path, message_info| {
+            component
+                .stream()
+                .emit(Msg::DisplayDetails(bg_sender, path, message_info))
+        })
+    }
+}
+
+fn parse_generic_stream<P>(comms: Vec<TSharkCommunicationGeneric<P>>) -> StreamData
+where
+    P: HasPostgresWireMessages,
+{
+    let mut server_ip = comms
+        .first()
+        .as_ref()
+        .unwrap()
+        .source
+        .layers
+        .ip_dst()
+        .clone();
+    let mut server_port = comms
+        .first()
+        .as_ref()
+        .unwrap()
+        .source
+        .layers
+        .tcp
+        .as_ref()
+        .unwrap()
+        .port_dst;
+    let mut messages = vec![];
+    let mut cur_query = None;
+    let mut cur_col_names = vec![];
+    let mut cur_rs_rows_tcp_seqno_start = None;
+    let mut cur_rs_row_count = 0;
+    let mut cur_rs_first_rows = vec![];
+    let mut known_statements = HashMap::new();
+    let mut cur_query_with_fallback = None;
+    let mut cur_parameter_values = vec![];
+    let mut was_bind = false;
+    let mut query_timestamp = None;
+    let mut set_correct_server_info = false;
+    for comm in comms {
+        let timestamp = comm.source.layers.frame.frame_time;
+        if let Some(pgsql) = comm.source.layers.pgsql {
+            let mds = pgsql.messages();
+            for md in mds {
+                match md {
+                    PostgresWireMessage::Startup {
+                        username: Some(ref username),
+                        database: Some(ref database),
+                        application,
+                    } => {
+                        if !set_correct_server_info {
+                            server_ip = dst_ip(
+                                comm.source.layers.ip.as_ref(),
+                                comm.source.layers.ipv6.as_ref(),
+                            )
+                            .to_string();
+                            server_port = comm.source.layers.tcp.as_ref().unwrap().port_dst;
+                            set_correct_server_info = true;
+                        }
+                        messages.push(MessageData::Postgres(PostgresMessageData {
+                            query: Some(Cow::Owned(format!(
+                                "LOGIN: user: {}, db: {}, app: {}",
+                                username,
+                                database,
+                                application.as_deref().unwrap_or("-")
+                            ))),
+                            query_timestamp: timestamp,
+                            result_timestamp: timestamp,
+                            parameter_values: vec![],
+                            resultset_col_names: vec![],
+                            resultset_row_count: 0,
+                            resultset_first_rows: vec![],
+                            resultset_rows_tcp_seqno_start: None,
+                            resultset_rows_tcp_seqno_end: None,
+                        }));
+                    }
+                    PostgresWireMessage::Startup { .. } => {
+                        if !set_correct_server_info {
+                            server_ip = dst_ip(
+                                comm.source.layers.ip.as_ref(),
+                                comm.source.layers.ipv6.as_ref(),
+                            )
+                            .to_string();
+                            server_port = comm.source.layers.tcp.as_ref().unwrap().port_dst;
+                            set_correct_server_info = true;
+                        }
+                    }
+                    PostgresWireMessage::Parse {
+                        ref query,
+                        ref statement,
+                    } => {
+                        if !set_correct_server_info {
+                            server_ip = dst_ip(
+                                comm.source.layers.ip.as_ref(),
+                                comm.source.layers.ipv6.as_ref(),
+                            )
+                            .to_string();
+                            server_port = comm.source.layers.tcp.as_ref().unwrap().port_dst;
+                            set_correct_server_info = true;
+                        }
+                        if let (Some(st), Some(q)) = (statement, query) {
+                            known_statements.insert((*st).clone(), (*q).clone());
+                        }
+                        cur_query = query.clone();
+                    }
+                    PostgresWireMessage::Bind {
+                        statement,
+                        parameter_values,
+                    } => {
+                        if !set_correct_server_info {
+                            server_ip = dst_ip(
+                                comm.source.layers.ip.as_ref(),
+                                comm.source.layers.ipv6.as_ref(),
+                            )
+                            .to_string();
+                            server_port = comm.source.layers.tcp.as_ref().unwrap().port_dst;
+                            set_correct_server_info = true;
+                        }
+                        was_bind = true;
+                        query_timestamp = Some(timestamp);
+                        cur_query_with_fallback = match (&cur_query, &statement) {
+                            (Some(_), _) => cur_query.clone(),
+                            (None, Some(s)) => Some(
+                                known_statements
+                                    .get(s)
+                                    .cloned()
+                                    .unwrap_or(format!("Unknown statement: {}", s)),
+                            ),
+                            _ => None,
+                        };
+                        cur_parameter_values = parameter_values.to_vec();
+                    }
+                    PostgresWireMessage::RowDescription { col_names } => {
+                        if !set_correct_server_info {
+                            server_ip = src_ip(
+                                comm.source.layers.ip.as_ref(),
+                                comm.source.layers.ipv6.as_ref(),
+                            )
+                            .to_string();
+                            server_port = comm.source.layers.tcp.as_ref().unwrap().port_src;
+                            set_correct_server_info = true;
+                        }
+                        cur_col_names = col_names;
+                        cur_rs_rows_tcp_seqno_start =
+                            Some(comm.source.layers.tcp.as_ref().unwrap().seq_number);
+                    }
+                    PostgresWireMessage::ResultSetRow { cols } => {
+                        if !set_correct_server_info {
+                            server_ip = src_ip(
+                                comm.source.layers.ip.as_ref(),
+                                comm.source.layers.ipv6.as_ref(),
+                            )
+                            .to_string();
+                            server_port = comm.source.layers.tcp.as_ref().unwrap().port_src;
+                            set_correct_server_info = true;
+                        }
+                        if cur_rs_rows_tcp_seqno_start.is_none() {
+                            cur_rs_rows_tcp_seqno_start =
+                                Some(comm.source.layers.tcp.as_ref().unwrap().seq_number);
+                        }
+                        cur_rs_row_count += 1;
+                        cur_rs_first_rows.push(cols);
+                    }
+                    PostgresWireMessage::ReadyForQuery => {
+                        if !set_correct_server_info {
+                            server_ip = src_ip(
+                                comm.source.layers.ip.as_ref(),
+                                comm.source.layers.ipv6.as_ref(),
+                            )
+                            .to_string();
+                            server_port = comm.source.layers.tcp.as_ref().unwrap().port_src;
+                            set_correct_server_info = true;
+                        }
+                        if was_bind {
+                            messages.push(MessageData::Postgres(PostgresMessageData {
+                                query: cur_query_with_fallback.map(Cow::Owned),
+                                query_timestamp: query_timestamp.unwrap(), // know it was populated since was_bind is true
+                                result_timestamp: timestamp,
+                                parameter_values: cur_parameter_values,
+                                resultset_col_names: cur_col_names,
+                                resultset_rows_tcp_seqno_start: cur_rs_rows_tcp_seqno_start,
+                                resultset_rows_tcp_seqno_end: Some(
+                                    comm.source.layers.tcp.as_ref().unwrap().seq_number,
+                                ),
+                                resultset_row_count: cur_rs_row_count,
+                                resultset_first_rows: cur_rs_first_rows,
+                            }));
+                        }
+                        was_bind = false;
+                        cur_query_with_fallback = None;
+                        cur_query = None;
+                        cur_col_names = vec![];
+                        cur_parameter_values = vec![];
+                        cur_rs_row_count = 0;
+                        cur_rs_first_rows = vec![];
+                        query_timestamp = None;
+                        cur_rs_rows_tcp_seqno_start = None;
+                    }
+                    PostgresWireMessage::CopyData => {
+                        if !set_correct_server_info {
+                            server_ip = src_ip(
+                                comm.source.layers.ip.as_ref(),
+                                comm.source.layers.ipv6.as_ref(),
+                            )
+                            .to_string();
+                            server_port = comm.source.layers.tcp.as_ref().unwrap().port_src;
+                            set_correct_server_info = true;
+                        }
+                        messages.push(MessageData::Postgres(PostgresMessageData {
+                            query: Some(Cow::Borrowed("COPY DATA")),
+                            query_timestamp: timestamp,
+                            result_timestamp: timestamp,
+                            parameter_values: vec![],
+                            resultset_col_names: vec![],
+                            resultset_row_count: 0,
+                            resultset_first_rows: vec![],
+                            resultset_rows_tcp_seqno_start: None,
+                            resultset_rows_tcp_seqno_end: None,
+                        }));
+                    }
+                }
+            }
+        }
+    }
+    StreamData {
+        server_ip: server_ip.clone(),
+        server_port,
+        messages,
+        summary_details: None,
     }
 }
 
@@ -457,15 +497,27 @@ pub struct PostgresMessageData {
     pub parameter_values: Vec<String>,
     pub resultset_col_names: Vec<String>,
     pub resultset_row_count: usize,
-    pub resultset_first_rows: Vec<Vec<String>>,
+    pub resultset_rows_tcp_seqno_start: Option<u32>,
+    pub resultset_rows_tcp_seqno_end: Option<u32>,
+    pub resultset_first_rows: Vec<Vec<String>>, // wrong name at the very least, if not useless
 }
+
+pub type ResultSetInfo = Vec<Vec<String>>;
 
 pub struct Model {
     stream_id: u32,
     client_ip: String,
     data: PostgresMessageData,
-    list_store: Option<gtk::ListStore>,
     syntax_highlight: Vec<(Regex, String)>,
+
+    _got_resultset_info_channel: relm::Channel<ResultSetInfo>,
+    got_resultset_info_sender: relm::Sender<ResultSetInfo>,
+}
+
+#[derive(Msg, Debug)]
+pub enum Msg {
+    DisplayDetails(mpsc::Sender<BgFunc>, PathBuf, MessageInfo),
+    GotResultSetInfo(ResultSetInfo),
 }
 
 #[widget]
@@ -474,20 +526,18 @@ impl Widget for PostgresCommEntry {
 
     fn model(relm: &relm::Relm<Self>, params: (u32, String, PostgresMessageData)) -> Model {
         let (stream_id, client_ip, data) = params;
-        let field_descs: Vec<_> = data
-            .resultset_first_rows
-            .first()
-            .filter(|r| !r.is_empty()) // list store can't have 0 columns
-            .map(|r| vec![String::static_type(); r.len()])
-            // the list store can't have 0 columns, put one String by default
-            .unwrap_or_else(|| vec![String::static_type()]);
+        let (_got_resultset_info_channel, got_resultset_info_sender) = {
+            let stream = relm.stream().clone();
+            relm::Channel::new(move |r: ResultSetInfo| stream.emit(Msg::GotResultSetInfo(r)))
+        };
 
         Model {
             data,
             stream_id,
             client_ip,
-            list_store: None,
             syntax_highlight: Self::prepare_syntax_highlight(),
+            _got_resultset_info_channel,
+            got_resultset_info_sender,
         }
     }
 
@@ -548,41 +598,60 @@ impl Widget for PostgresCommEntry {
         .collect()
     }
 
-    fn update(&mut self, event: MessageParserDetailsMsg) {
+    fn update(&mut self, event: Msg) {
         match event {
-            MessageParserDetailsMsg::DisplayDetails(
-                _bg_sender,
-                _path,
+            Msg::DisplayDetails(
+                bg_sender,
+                file_path,
                 MessageInfo {
                     stream_id,
                     client_ip,
                     message_data: MessageData::Postgres(msg),
                 },
             ) => {
-                self.model.data = msg;
                 self.streams
                     .comm_info_header
                     .emit(comm_info_header::Msg::Update(client_ip.clone(), stream_id));
                 self.model.stream_id = stream_id;
                 self.model.client_ip = client_ip;
 
-                let field_descs: Vec<_> = self
-                    .model
-                    .data
-                    .resultset_first_rows
-                    .first()
-                    .filter(|r| !r.is_empty()) // list store can't have 0 columns
-                    .map(|r| vec![String::static_type(); r.len()])
-                    // the list store can't have 0 columns, put one String by default
-                    .unwrap_or_else(|| vec![String::static_type()]);
+                if msg.resultset_row_count > 0 && msg.resultset_rows_tcp_seqno_start.is_some() {
+                    let seq_no_start = msg.resultset_rows_tcp_seqno_start.unwrap();
+                    let seq_no_end = msg.resultset_rows_tcp_seqno_end.unwrap();
+                    let s = self.model.got_resultset_info_sender.clone();
+                    self.widgets
+                        .resultset_stack
+                        .set_visible_child_name(RESULTSET_SPINNER);
+                    self.widgets.resultset_spinner.start();
+                    bg_sender
+                        .send(BgFunc::new(move || {
+                            s.send(Self::load_resultset_info(
+                                &file_path,
+                                stream_id,
+                                seq_no_start,
+                                seq_no_end,
+                                s.clone(),
+                            ))
+                            .unwrap();
+                        }))
+                        .unwrap();
+                } else {
+                    self.widgets
+                        .resultset_stack
+                        .set_visible_child_name(RESULTSET_DATA);
+                    self.widgets.resultset_spinner.stop();
+                }
 
-                let list_store = gtk::ListStore::new(&field_descs);
+                self.model.data = msg;
+
                 // println!("{:?}", self.model.data.query);
                 // println!("{:?}", self.model.data.resultset_first_rows);
+            }
+            Msg::GotResultSetInfo(resultset) => {
                 for col in &self.widgets.resultset.get_columns() {
                     self.widgets.resultset.remove_column(col);
                 }
-                if let Some(first) = self.model.data.resultset_first_rows.first() {
+                if let Some(first) = resultset.first() {
                     // println!("first len {}", first.len());
                     for i in 0..first.len() {
                         let col1 = gtk::TreeViewColumnBuilder::new()
@@ -601,17 +670,61 @@ impl Widget for PostgresCommEntry {
                         self.widgets.resultset.append_column(&col1);
                     }
                 }
-                for row in &self.model.data.resultset_first_rows {
+                let field_descs: Vec<_> = resultset
+                    .first()
+                    .filter(|r| !r.is_empty()) // list store can't have 0 columns
+                    .map(|r| vec![String::static_type(); r.len()])
+                    // the list store can't have 0 columns, put one String by default
+                    .unwrap_or_else(|| vec![String::static_type()]);
+
+                let list_store = gtk::ListStore::new(&field_descs);
+                for row in resultset {
                     let iter = list_store.append();
                     for (col_idx, col) in row.iter().enumerate() {
                         list_store.set_value(&iter, col_idx as u32, &col.to_value());
                     }
                 }
                 self.widgets.resultset.set_model(Some(&list_store));
-                self.model.list_store = Some(list_store);
+                self.widgets
+                    .resultset_stack
+                    .set_visible_child_name(RESULTSET_DATA);
+                self.widgets.resultset_spinner.stop();
             }
             _ => {}
         }
+    }
+
+    fn load_resultset_info(
+        file_path: &Path,
+        tcp_stream_id: u32,
+        tcp_seq_number_start: u32,
+        tcp_seq_number_end: u32,
+        s: relm::Sender<ResultSetInfo>,
+    ) -> Vec<Vec<String>> {
+        let tshark_filter = format!(
+            "tcp.stream eq {} && tcp.seq >= {} && tcp.seq <= {} && pgsql",
+            tcp_stream_id, tcp_seq_number_start, tcp_seq_number_end
+        );
+        dbg!(&tshark_filter);
+        let packets = win::invoke_tshark::<TSharkCommunicationWithPgResultSet>(
+            file_path,
+            win::TSharkMode::Json,
+            &tshark_filter,
+        )
+        .expect("tshark error");
+        let mut result = vec![];
+        for packet in packets {
+            for message in packet.source.layers.pgsql.unwrap().messages {
+                dbg!(&message);
+                match message {
+                    PostgresWireMessage::ResultSetRow { cols } => result.push(cols),
+                    PostgresWireMessage::ReadyForQuery => break,
+                    _ => {}
+                }
+            }
+        }
+        dbg!(&result);
+        result
     }
 
     fn highlight_sql(highlight: &[(Regex, String)], query: &str) -> String {
@@ -663,13 +776,25 @@ impl Widget for PostgresCommEntry {
                     visible: !self.model.data.resultset_first_rows.is_empty()
                 },
             },
-            gtk::ScrolledWindow {
-                #[name="resultset"]
-                gtk::TreeView {
-                    hexpand: true,
-                    vexpand: true,
-                    visible: !self.model.data.resultset_first_rows.is_empty()
+            #[name="resultset_stack"]
+            gtk::Stack {
+                #[name="resultset_spinner"]
+                gtk::Spinner {
+                    child: {
+                        name: Some(RESULTSET_SPINNER)
+                    },
                 },
+                gtk::ScrolledWindow {
+                    child: {
+                        name: Some(RESULTSET_DATA)
+                    },
+                    #[name="resultset"]
+                    gtk::TreeView {
+                        hexpand: true,
+                        vexpand: true,
+                        visible: !self.model.data.resultset_first_rows.is_empty()
+                    },
+                }
             }
             // gtk::Label {
             //     label: &self.model.data.resultset_first_rows
@@ -684,11 +809,11 @@ impl Widget for PostgresCommEntry {
 }
 
 #[cfg(test)]
-fn as_json_array(json: &str) -> Vec<TSharkCommunication> {
+fn as_json_array(json: &str) -> Vec<TSharkCommunicationWithPgResultSet> {
     let items: Vec<TSharkPgsql> = serde_json::de::from_str(json).unwrap();
     items
         .into_iter()
-        .map(|p| TSharkCommunication {
+        .map(|p| TSharkCommunicationGeneric {
             source: TSharkSource {
                 layers: TSharkLayers {
                     frame: TSharkFrameLayer {
@@ -716,9 +841,8 @@ fn as_json_array(json: &str) -> Vec<TSharkCommunication> {
 
 #[test]
 fn should_parse_simple_query() {
-    let parsed = Postgres {}
-        .parse_stream(as_json_array(
-            r#"
+    let parsed = parse_generic_stream(as_json_array(
+        r#"
         [
           {
              "pgsql.type": "Parse",
@@ -748,8 +872,8 @@ fn should_parse_simple_query() {
           }
         ]
         "#,
-        ))
-        .messages;
+    ))
+    .messages;
     let expected: Vec<MessageData> = vec![MessageData::Postgres(PostgresMessageData {
         query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
         result_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
@@ -761,15 +885,16 @@ fn should_parse_simple_query() {
             vec!["PostgreSQL".to_string()],
             vec!["9.6.12 on x8".to_string()],
         ],
+        resultset_rows_tcp_seqno_start: Some(0),
+        resultset_rows_tcp_seqno_end: Some(0),
     })];
     assert_eq!(expected, parsed);
 }
 
 #[test]
 fn should_parse_prepared_statement() {
-    let parsed = Postgres {}
-        .parse_stream(as_json_array(
-            r#"
+    let parsed = parse_generic_stream(as_json_array(
+        r#"
         [
           {
              "pgsql.type": "Parse",
@@ -800,8 +925,8 @@ fn should_parse_prepared_statement() {
           }
         ]
         "#,
-        ))
-        .messages;
+    ))
+    .messages;
     let expected: Vec<MessageData> = vec![
         MessageData::Postgres(PostgresMessageData {
             query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
@@ -811,6 +936,8 @@ fn should_parse_prepared_statement() {
             resultset_col_names: vec![],
             resultset_row_count: 0,
             resultset_first_rows: vec![],
+            resultset_rows_tcp_seqno_start: None,
+            resultset_rows_tcp_seqno_end: Some(0),
         }),
         MessageData::Postgres(PostgresMessageData {
             query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
@@ -820,6 +947,8 @@ fn should_parse_prepared_statement() {
             resultset_col_names: vec![],
             resultset_row_count: 1,
             resultset_first_rows: vec![vec!["PostgreSQL".to_string()]],
+            resultset_rows_tcp_seqno_start: Some(0),
+            resultset_rows_tcp_seqno_end: Some(0),
         }),
     ];
     assert_eq!(expected, parsed);
@@ -827,9 +956,8 @@ fn should_parse_prepared_statement() {
 
 #[test]
 fn should_parse_prepared_statement_with_parameters() {
-    let parsed = Postgres {}
-        .parse_stream(as_json_array(
-            r#"
+    let parsed = parse_generic_stream(as_json_array(
+        r#"
         [
           {
              "pgsql.type": "Parse",
@@ -871,8 +999,8 @@ fn should_parse_prepared_statement_with_parameters() {
           }
         ]
         "#,
-        ))
-        .messages;
+    ))
+    .messages;
     let expected: Vec<MessageData> = vec![
         MessageData::Postgres(PostgresMessageData {
             query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
@@ -882,6 +1010,8 @@ fn should_parse_prepared_statement_with_parameters() {
             resultset_col_names: vec![],
             resultset_row_count: 0,
             resultset_first_rows: vec![],
+            resultset_rows_tcp_seqno_start: None,
+            resultset_rows_tcp_seqno_end: Some(0),
         }),
         MessageData::Postgres(PostgresMessageData {
             query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
@@ -891,6 +1021,8 @@ fn should_parse_prepared_statement_with_parameters() {
             resultset_col_names: vec![],
             resultset_row_count: 1,
             resultset_first_rows: vec![vec!["PostgreSQL".to_string()]],
+            resultset_rows_tcp_seqno_start: Some(0),
+            resultset_rows_tcp_seqno_end: Some(0),
         }),
     ];
     assert_eq!(expected, parsed);
@@ -898,26 +1030,24 @@ fn should_parse_prepared_statement_with_parameters() {
 
 #[test]
 fn should_not_generate_queries_for_just_a_ready_message() {
-    let parsed = Postgres {}
-        .parse_stream(as_json_array(
-            r#"
+    let parsed = parse_generic_stream(as_json_array(
+        r#"
         [
           {
              "pgsql.type": "Ready for query"
           }
         ]
         "#,
-        ))
-        .messages;
+    ))
+    .messages;
     let expected: Vec<MessageData> = vec![];
     assert_eq!(expected, parsed);
 }
 
 #[test]
 fn should_parse_query_with_multiple_columns_and_nulls() {
-    let parsed = Postgres {}
-        .parse_stream(as_json_array(
-            r#"
+    let parsed = parse_generic_stream(as_json_array(
+        r#"
         [
           {
              "pgsql.type": "Parse",
@@ -945,8 +1075,8 @@ fn should_parse_query_with_multiple_columns_and_nulls() {
           }
         ]
         "#,
-        ))
-        .messages;
+    ))
+    .messages;
     let expected: Vec<MessageData> = vec![MessageData::Postgres(PostgresMessageData {
         query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
         result_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
@@ -960,6 +1090,8 @@ fn should_parse_query_with_multiple_columns_and_nulls() {
             "".to_string(),
             "reSQL".to_string(),
         ]],
+        resultset_rows_tcp_seqno_start: Some(0),
+        resultset_rows_tcp_seqno_end: Some(0),
     })];
     assert_eq!(expected, parsed);
 }
@@ -967,9 +1099,8 @@ fn should_parse_query_with_multiple_columns_and_nulls() {
 // this will happen if we don't catch the TCP stream at the beginning
 #[test]
 fn should_parse_query_with_no_parse_and_unknown_bind() {
-    let parsed = Postgres {}
-        .parse_stream(as_json_array(
-            r#"
+    let parsed = parse_generic_stream(as_json_array(
+        r#"
         [
           {
              "pgsql.type": "Parse",
@@ -995,8 +1126,8 @@ fn should_parse_query_with_no_parse_and_unknown_bind() {
           }
         ]
         "#,
-        ))
-        .messages;
+    ))
+    .messages;
     let expected: Vec<MessageData> = vec![MessageData::Postgres(PostgresMessageData {
         query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
         result_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
@@ -1010,6 +1141,8 @@ fn should_parse_query_with_no_parse_and_unknown_bind() {
             "".to_string(),
             "reSQL".to_string(),
         ]],
+        resultset_rows_tcp_seqno_start: Some(0),
+        resultset_rows_tcp_seqno_end: Some(0),
     })];
     assert_eq!(expected, parsed);
 }

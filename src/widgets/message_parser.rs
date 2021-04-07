@@ -35,7 +35,7 @@ pub trait MessageParser {
         &self,
         paned: &gtk::ScrolledWindow,
         bg_sender: mpsc::Sender<BgFunc>,
-    ) -> relm::StreamHandle<MessageParserDetailsMsg>;
+    ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, MessageInfo)>;
 }
 
 #[derive(Debug)]
@@ -45,9 +45,8 @@ pub struct MessageInfo {
     pub message_data: MessageData,
 }
 
-#[derive(Msg, Debug)]
-pub enum MessageParserDetailsMsg {
-    DisplayDetails(mpsc::Sender<BgFunc>, PathBuf, MessageInfo),
-
-    GotImage(Vec<u8>), // TODO this http-specific...
+pub struct DisplayDetailsParams {
+    pub bg_func: mpsc::Sender<BgFunc>,
+    pub fname: PathBuf,
+    pub message_info: MessageInfo,
 }

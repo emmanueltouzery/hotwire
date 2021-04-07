@@ -7,29 +7,31 @@ use serde::Deserializer;
 use serde_aux::prelude::*;
 use serde_json::Value;
 
+pub type TSharkCommunication = TSharkCommunicationGeneric<tshark_pgsql::TSharkPgsqlNoResultSets>;
+
 #[derive(Deserialize)]
-pub struct TSharkCommunication {
+pub struct TSharkCommunicationGeneric<P> {
     #[serde(rename = "_source")]
-    pub source: TSharkSource,
+    pub source: TSharkSource<P>,
 }
 
 #[derive(Deserialize)]
-pub struct TSharkSource {
-    pub layers: TSharkLayers,
+pub struct TSharkSource<P> {
+    pub layers: TSharkLayers<P>,
 }
 
 #[derive(Deserialize, Debug)]
-pub struct TSharkLayers {
+pub struct TSharkLayers<P> {
     pub frame: TSharkFrameLayer,
     pub ip: Option<TSharkIpLayer>,
     pub ipv6: Option<TSharkIpV6Layer>,
     pub tcp: Option<TSharkTcpLayer>,
     pub http: Option<tshark_http::TSharkHttp>,
-    pub pgsql: Option<tshark_pgsql::TSharkPgsql>,
+    pub pgsql: Option<P>,
     pub tls: Option<Value>, // TODO no more value
 }
 
-impl TSharkLayers {
+impl<P> TSharkLayers<P> {
     pub fn ip_src(&self) -> String {
         self.ip
             .as_ref()

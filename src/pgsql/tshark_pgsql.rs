@@ -10,26 +10,67 @@ pub struct TSharkPgsql {
     pub messages: Vec<PostgresWireMessage>,
 }
 
+impl HasPostgresWireMessages for TSharkPgsql {
+    fn messages(self) -> Vec<PostgresWireMessage> {
+        self.messages
+    }
+}
+
 impl<'de> Deserialize<'de> for TSharkPgsql {
     fn deserialize<D>(deserializer: D) -> Result<TSharkPgsql, D::Error>
     where
         D: Deserializer<'de>,
     {
         let s: Value = de::Deserialize::deserialize(deserializer)?;
-        let mut messages = vec![];
-        match s {
-            serde_json::Value::Object(_) => {
-                if let Some(p) = parse_pg_value(&s) {
-                    messages.push(p);
-                }
-            }
-            serde_json::Value::Array(vals) => {
-                messages.extend(vals.iter().filter_map(|v| parse_pg_value(&v)))
-            }
-            _ => {}
-        }
+        let messages = deserialize_val(&s, CollectResultSets::Yes);
         Ok(TSharkPgsql { messages })
     }
+}
+
+pub trait HasPostgresWireMessages {
+    fn messages(self) -> Vec<PostgresWireMessage>;
+}
+
+#[derive(Debug)]
+pub struct TSharkPgsqlNoResultSets {
+    pub messages: Vec<PostgresWireMessage>,
+}
+
+impl HasPostgresWireMessages for TSharkPgsqlNoResultSets {
+    fn messages(self) -> Vec<PostgresWireMessage> {
+        self.messages
+    }
+}
+
+impl<'de> Deserialize<'de> for TSharkPgsqlNoResultSets {
+    fn deserialize<D>(deserializer: D) -> Result<TSharkPgsqlNoResultSets, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s: Value = de::Deserialize::deserialize(deserializer)?;
+        let messages = deserialize_val(&s, CollectResultSets::No);
+        Ok(TSharkPgsqlNoResultSets { messages })
+    }
+}
+
+fn deserialize_val(
+    s: &serde_json::Value,
+    collect_resultset: CollectResultSets,
+) -> Vec<PostgresWireMessage> {
+    let mut messages = vec![];
+    match s {
+        serde_json::Value::Object(_) => {
+            if let Some(p) = parse_pg_value(&s, collect_resultset) {
+                messages.push(p);
+            }
+        }
+        serde_json::Value::Array(vals) => messages.extend(
+            vals.iter()
+                .filter_map(|v| parse_pg_value(&v, collect_resultset)),
+        ),
+        _ => {}
+    }
+    messages
 }
 
 #[derive(Debug)]
@@ -57,7 +98,16 @@ pub enum PostgresWireMessage {
     ReadyForQuery,
 }
 
-fn parse_pg_value(pgsql: &serde_json::Value) -> Option<PostgresWireMessage> {
+#[derive(PartialEq, Eq, Copy, Clone)]
+enum CollectResultSets {
+    Yes,
+    No,
+}
+
+fn parse_pg_value(
+    pgsql: &serde_json::Value,
+    collect_resultsets: CollectResultSets,
+) -> Option<PostgresWireMessage> {
     let obj = pgsql.as_object();
     let typ = obj
         .and_then(|o| o.get("pgsql.type"))
@@ -142,30 +192,34 @@ fn parse_pg_value(pgsql: &serde_json::Value) -> Option<PostgresWireMessage> {
             Some(PostgresWireMessage::RowDescription { col_names })
         }
         Some("Data row") => {
-            let col_count = obj
-                .unwrap()
-                .get("pgsql.field.count")
-                .unwrap()
-                .as_str()
-                .unwrap()
-                .parse::<usize>()
-                .unwrap();
-            let tree = obj.unwrap().get("pgsql.field.count_tree").unwrap();
-            let col_lengths: Vec<i32> =
-                parse_str_or_array(tree.get("pgsql.val.length").unwrap(), |s| {
-                    s.parse().unwrap_or(0) // TODO the _or(0) is a workaround because we didn't code everything yet
-                });
+            if collect_resultsets == CollectResultSets::Yes {
+                let col_count = obj
+                    .unwrap()
+                    .get("pgsql.field.count")
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .parse::<usize>()
+                    .unwrap();
+                let tree = obj.unwrap().get("pgsql.field.count_tree").unwrap();
+                let col_lengths: Vec<i32> =
+                    parse_str_or_array(tree.get("pgsql.val.length").unwrap(), |s| {
+                        s.parse().unwrap_or(0) // TODO the _or(0) is a workaround because we didn't code everything yet
+                    });
 
-            let raw_cols = tree
-                .get("pgsql.val.data")
-                // TODO the or_default is a workaround because we didn't code everything yet
-                .map(|t| parse_str_or_array(t, |s| hex_chars_to_string(s).unwrap_or_default()))
-                .unwrap_or_else(Vec::new);
-            let cols = add_cols(raw_cols, col_lengths);
-            if col_count != cols.len() {
-                panic!("{} != {}", col_count, cols.len());
+                let raw_cols = tree
+                    .get("pgsql.val.data")
+                    // TODO the or_default is a workaround because we didn't code everything yet
+                    .map(|t| parse_str_or_array(t, |s| hex_chars_to_string(s).unwrap_or_default()))
+                    .unwrap_or_else(Vec::new);
+                let cols = add_cols(raw_cols, col_lengths);
+                if col_count != cols.len() {
+                    panic!("{} != {}", col_count, cols.len());
+                }
+                Some(PostgresWireMessage::ResultSetRow { cols })
+            } else {
+                Some(PostgresWireMessage::ResultSetRow { cols: vec![] })
             }
-            Some(PostgresWireMessage::ResultSetRow { cols })
         }
         _ => None,
     }
