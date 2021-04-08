@@ -32,6 +32,21 @@ impl<'de> Deserialize<'de> for TSharkPgsql {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum PostgresColType {
+    Bool,
+    Name,
+    Char,
+    Text,
+    Oid,
+    Varchar,
+    Int2,
+    Int4,
+    Int8,
+    Timestamp,
+    Other,
+}
+
 #[derive(Debug)]
 pub enum PostgresWireMessage {
     Startup {
@@ -50,6 +65,7 @@ pub enum PostgresWireMessage {
     },
     RowDescription {
         col_names: Vec<String>,
+        col_types: Vec<PostgresColType>,
     },
     ResultSetRow {
         cols: Vec<String>,
@@ -139,7 +155,30 @@ fn parse_pg_value(pgsql: &serde_json::Value) -> Option<PostgresWireMessage> {
                 }
                 _ => vec![],
             };
-            Some(PostgresWireMessage::RowDescription { col_names })
+            let col_types = match tree.get("pgsql.col.name_tree") {
+                Some(serde_json::Value::Object(o)) => {
+                    vec![o
+                        .get("pgsql.oid.type")
+                        .and_then(|t| t.as_str())
+                        .map(parse_pg_oid_type)
+                        .unwrap_or(PostgresColType::Other)]
+                }
+                Some(serde_json::Value::Array(ar)) => ar
+                    .iter()
+                    .map(|v| {
+                        v.as_object()
+                            .and_then(|o| o.get("pgsql.oid.type"))
+                            .and_then(|t| t.as_str())
+                            .map(parse_pg_oid_type)
+                            .unwrap_or(PostgresColType::Other)
+                    })
+                    .collect(),
+                _ => vec![],
+            };
+            Some(PostgresWireMessage::RowDescription {
+                col_names,
+                col_types,
+            })
         }
         Some("Data row") => {
             let col_count = obj
@@ -168,6 +207,26 @@ fn parse_pg_value(pgsql: &serde_json::Value) -> Option<PostgresWireMessage> {
             Some(PostgresWireMessage::ResultSetRow { cols })
         }
         _ => None,
+    }
+}
+
+/// select * from postgres.pg_catalog.pg_type
+fn parse_pg_oid_type(typ: &str) -> PostgresColType {
+    match typ.parse() {
+        Ok(16) => PostgresColType::Bool,
+        Ok(18) => PostgresColType::Char,
+        Ok(19) => PostgresColType::Name,
+        Ok(20) => PostgresColType::Int8,
+        Ok(21) => PostgresColType::Int2,
+        Ok(23) => PostgresColType::Int4,
+        Ok(25) => PostgresColType::Text,
+        Ok(26) => PostgresColType::Oid,
+        Ok(1043) => PostgresColType::Varchar,
+        Ok(1114) => PostgresColType::Timestamp,
+        _ => {
+            eprintln!("Unhandled postgres type: {:?}", typ);
+            PostgresColType::Other
+        }
     }
 }
 
