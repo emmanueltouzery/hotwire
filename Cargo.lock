@@ -617,6 +617,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "tar",
+ "xmlparser",
 ]
 
 [[package]]
@@ -1821,3 +1822,9 @@ checksum = "244c3741f4240ef46274860397c7c74e50eb23624996930e484c16679633a54c"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "xmlparser"
+version = "0.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "114ba2b24d2167ef6d67d7d04c8cc86522b87f490025f39f0303b7db5bf5e3d8"
