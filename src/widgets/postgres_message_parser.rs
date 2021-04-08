@@ -797,53 +797,56 @@ impl Widget for PostgresCommEntry {
             #[name="comm_info_header"]
             CommInfoHeader(self.model.client_ip.clone(), self.model.stream_id) {
             },
-            #[style_class="http_first_line"]
-            gtk::Label {
-                markup: &Self::highlight_sql(
-                    &self.model.syntax_highlight,
-                    self.model.data.query.as_deref().unwrap_or("Failed retrieving the query string")),
-                line_wrap: true,
-                xalign: 0.0
-            },
-            gtk::Label {
-                markup: &self.model.data.parameter_values
-                                       .iter()
-                                       .cloned()
-                                       .enumerate()
-                                       .map(|(i, p)| format!("<b>${}</b>: {}", i+1, p))
-                                       .intersperse("\n".to_string()).collect::<String>(),
-                visible: !self.model.data.parameter_values.is_empty(),
-                xalign: 0.0,
-            },
-            gtk::Box {
-                orientation: gtk::Orientation::Horizontal,
-                gtk::Label {
-                    label: &self.model.data.resultset_row_count.to_string(),
-                    xalign: 0.0,
-                    visible: self.model.data.resultset_row_count > 0
+            gtk::Paned {
+                orientation: gtk::Orientation::Vertical,
+                gtk::ScrolledWindow {
+                    gtk::Box {
+                        orientation: gtk::Orientation::Vertical,
+                        gtk::Label {
+                            markup: &Self::highlight_sql(
+                                &self.model.syntax_highlight,
+                                self.model.data.query.as_deref().unwrap_or("Failed retrieving the query string")),
+                            line_wrap: true,
+                            xalign: 0.0,
+                            selectable: true,
+                        },
+                        gtk::Label {
+                            markup: &self.model.data.parameter_values
+                                                    .iter()
+                                                    .cloned()
+                                                    .enumerate()
+                                                    .map(|(i, p)| format!("<b>${}</b>: {}", i+1, p))
+                                                    .intersperse("\n".to_string()).collect::<String>(),
+                            visible: !self.model.data.parameter_values.is_empty(),
+                            xalign: 0.0,
+                        },
+                    }
                 },
-                gtk::Label {
-                    label: " row(s)",
-                    xalign: 0.0,
-                    visible: !self.model.data.resultset_row_count > 0
-                },
-            },
-            gtk::ScrolledWindow {
-                #[name="resultset"]
-                gtk::TreeView {
-                    hexpand: true,
-                    vexpand: true,
-                    visible: !self.model.data.resultset_row_count > 0
-                },
+                gtk::Box {
+                    orientation: gtk::Orientation::Vertical,
+                    gtk::Box {
+                        orientation: gtk::Orientation::Horizontal,
+                        gtk::Label {
+                            label: &self.model.data.resultset_row_count.to_string(),
+                            xalign: 0.0,
+                            visible: self.model.data.resultset_row_count > 0
+                        },
+                        gtk::Label {
+                            label: " row(s)",
+                            xalign: 0.0,
+                            visible: !self.model.data.resultset_row_count > 0
+                        },
+                    },
+                    gtk::ScrolledWindow {
+                        #[name="resultset"]
+                        gtk::TreeView {
+                            hexpand: true,
+                            vexpand: true,
+                            visible: !self.model.data.resultset_row_count > 0
+                        },
+                    }
+                }
             }
-            // gtk::Label {
-            //     label: &self.model.data.resultset_first_rows
-            //             .iter()
-            //             .map(|r| r.join(", "))
-            //             .collect::<Vec<_>>()
-            //             .join("\n"),
-            //     xalign: 0.0,
-            // },
         }
     }
 }

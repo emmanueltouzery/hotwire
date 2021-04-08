@@ -480,26 +480,31 @@ impl Widget for HttpCommEntry {
             #[style_class="http_first_line"]
             gtk::Label {
                 label: &self.model.data.request.as_ref().map(|r| r.first_line.as_str()).unwrap_or("Missing request info"),
-                xalign: 0.0
+                xalign: 0.0,
+                selectable: true,
             },
             gtk::Label {
                 label: &self.model.data.request.as_ref().map(|r| r.other_lines.as_str()).unwrap_or(""),
-                xalign: 0.0
+                xalign: 0.0,
+                selectable: true,
             },
             gtk::Label {
                 label: self.model.data.request.as_ref().and_then(|r| r.body.as_ref()).map(|b| b.as_str()).unwrap_or(""),
                 xalign: 0.0,
-                visible: self.model.data.request.as_ref().and_then(|r| r.body.as_ref()).is_some()
+                visible: self.model.data.request.as_ref().and_then(|r| r.body.as_ref()).is_some(),
+                selectable: true,
             },
             gtk::Separator {},
             #[style_class="http_first_line"]
             gtk::Label {
                 label: &self.model.data.response.as_ref().map(|r| r.first_line.as_str()).unwrap_or("Missing response info"),
-                xalign: 0.0
+                xalign: 0.0,
+                selectable: true,
             },
             gtk::Label {
                 label: &self.model.data.response.as_ref().map(|r| r.other_lines.as_str()).unwrap_or(""),
-                xalign: 0.0
+                xalign: 0.0,
+                selectable: true,
             },
             #[name="contents_stack"]
             gtk::Stack {
@@ -509,7 +514,8 @@ impl Widget for HttpCommEntry {
                     },
                     label: self.model.data.response.as_ref().and_then(|r| r.body.as_ref()).map(|b| b.as_str()).unwrap_or(""),
                     xalign: 0.0,
-                    visible: self.model.data.response.as_ref().and_then(|r| r.body.as_ref()).is_some()
+                    visible: self.model.data.response.as_ref().and_then(|r| r.body.as_ref()).is_some(),
+                    selectable: true,
                 },
                 #[name="body_image"]
                 gtk::Image {
