@@ -126,11 +126,10 @@ impl Widget for HttpCommEntry {
     }
 
     fn highlight_indent<'a>(body: &str, content_type: &str) -> String {
-        let formatted = match content_type {
-            "application/xml" | "text/xml" => Cow::Owned(Self::highlight_indent_xml(body)),
-            _ => Cow::Borrowed(body),
-        };
-        glib::markup_escape_text(&formatted).to_string()
+        match content_type {
+            "application/xml" | "text/xml" => Self::highlight_indent_xml(body),
+            _ => glib::markup_escape_text(body).to_string(),
+        }
     }
 
     fn highlight_indent_xml(xml: &str) -> String {
@@ -154,7 +153,10 @@ impl Widget for HttpCommEntry {
                     has_attributes = false;
                 }
                 Ok(xmlparser::Token::Attribute { span, .. }) => {
-                    result.push_str("</b> ");
+                    if !has_attributes {
+                        result.push_str("</b>");
+                    }
+                    result.push_str(" ");
                     result.push_str(&span);
                     has_attributes = true;
                 }
@@ -265,7 +267,9 @@ impl Widget for HttpCommEntry {
                 selectable: true,
             },
             gtk::Label {
-                label: &self.model.data.response.as_ref().map(|r| r.other_lines.as_str()).unwrap_or(""),
+                markup: &Self::highlight_indent(
+                    &self.model.data.response.as_ref().map(|r| r.other_lines.as_str()).unwrap_or(""),
+                    "application/xml"),
                 xalign: 0.0,
                 selectable: true,
             },
@@ -275,7 +279,9 @@ impl Widget for HttpCommEntry {
                     child: {
                         name: Some(TEXT_CONTENTS_STACK_NAME)
                     },
-                    label: self.model.data.response.as_ref().and_then(|r| r.body.as_ref()).map(|b| b.as_str()).unwrap_or(""),
+                    markup: &Self::highlight_indent(
+                        self.model.data.response.as_ref().and_then(|r| r.body.as_ref()).map(|b| b.as_str()).unwrap_or(""),
+                        "application/xml"),
                     xalign: 0.0,
                     visible: self.model.data.response.as_ref().and_then(|r| r.body.as_ref()).is_some(),
                     selectable: true,
