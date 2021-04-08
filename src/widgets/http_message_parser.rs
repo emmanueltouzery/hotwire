@@ -1,6 +1,6 @@
 use super::comm_info_header;
 use super::comm_info_header::CommInfoHeader;
-use super::message_parser::{MessageInfo, MessageParser, MessageParserDetailsMsg, StreamData};
+use super::message_parser::{MessageInfo, MessageParser, StreamData};
 use crate::colors;
 use crate::http::tshark_http::HttpType;
 use crate::icons::Icon;
@@ -13,8 +13,9 @@ use chrono::NaiveDateTime;
 use gdk_pixbuf::prelude::*;
 use gtk::prelude::*;
 use relm::{ContainerWidget, Widget};
-use relm_derive::widget;
+use relm_derive::{widget, Msg};
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::mpsc;
 
 pub struct Http;
@@ -252,7 +253,7 @@ impl MessageParser for Http {
         &self,
         parent: &gtk::ScrolledWindow,
         bg_sender: mpsc::Sender<BgFunc>,
-    ) -> relm::StreamHandle<MessageParserDetailsMsg> {
+    ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, MessageInfo)> {
         let component = Box::leak(Box::new(parent.add_widget::<HttpCommEntry>((
             0,
             "".to_string(),
@@ -261,7 +262,11 @@ impl MessageParser for Http {
                 response: None,
             },
         ))));
-        component.stream()
+        Box::new(move |bg_sender, path, message_info| {
+            component
+                .stream()
+                .emit(Msg::DisplayDetails(bg_sender, path, message_info))
+        })
     }
 }
 
@@ -354,6 +359,12 @@ fn parse_request_response(comm: TSharkCommunication) -> (RequestOrResponseOrOthe
     }
 }
 
+#[derive(Msg, Debug)]
+pub enum Msg {
+    DisplayDetails(mpsc::Sender<BgFunc>, PathBuf, MessageInfo),
+    GotImage(Vec<u8>),
+}
+
 pub struct Model {
     stream_id: u32,
     client_ip: String,
@@ -369,7 +380,7 @@ impl Widget for HttpCommEntry {
         let (stream_id, client_ip, data) = params;
         let stream = relm.stream().clone();
         let (_got_image_channel, got_image_sender) =
-            relm::Channel::new(move |r: Vec<u8>| stream.emit(MessageParserDetailsMsg::GotImage(r)));
+            relm::Channel::new(move |r: Vec<u8>| stream.emit(Msg::GotImage(r)));
         Model {
             data,
             stream_id,
@@ -379,9 +390,9 @@ impl Widget for HttpCommEntry {
         }
     }
 
-    fn update(&mut self, event: MessageParserDetailsMsg) {
+    fn update(&mut self, event: Msg) {
         match event {
-            MessageParserDetailsMsg::DisplayDetails(
+            Msg::DisplayDetails(
                 bg_sender,
                 file_path,
                 MessageInfo {
@@ -422,7 +433,7 @@ impl Widget for HttpCommEntry {
                 self.model.stream_id = stream_id;
                 self.model.client_ip = client_ip;
             }
-            MessageParserDetailsMsg::GotImage(bytes) => {
+            Msg::GotImage(bytes) => {
                 let loader = gdk_pixbuf::PixbufLoader::new();
                 loader.write(&bytes).unwrap();
                 loader.close().unwrap();

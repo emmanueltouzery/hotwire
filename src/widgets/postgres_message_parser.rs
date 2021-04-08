@@ -1,7 +1,7 @@
 use super::comm_info_header;
 use super::comm_info_header::CommInfoHeader;
 use super::comm_remote_server::MessageData;
-use super::message_parser::{MessageInfo, MessageParser, MessageParserDetailsMsg, StreamData};
+use super::message_parser::{MessageInfo, MessageParser, StreamData};
 use crate::colors;
 use crate::icons::Icon;
 use crate::pgsql::tshark_pgsql::{PostgresColType, PostgresWireMessage};
@@ -16,6 +16,7 @@ use relm::{ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::mpsc;
 
 #[cfg(test)]
@@ -477,7 +478,7 @@ impl MessageParser for Postgres {
         &self,
         parent: &gtk::ScrolledWindow,
         _bg_sender: mpsc::Sender<BgFunc>,
-    ) -> relm::StreamHandle<MessageParserDetailsMsg> {
+    ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, MessageInfo)> {
         let component = Box::leak(Box::new(parent.add_widget::<PostgresCommEntry>((
             0,
             "".to_string(),
@@ -495,7 +496,11 @@ impl MessageParser for Postgres {
                 resultset_col_types: vec![],
             },
         ))));
-        component.stream()
+        Box::new(move |bg_sender, path, message_info| {
+            component
+                .stream()
+                .emit(Msg::DisplayDetails(bg_sender, path, message_info))
+        })
     }
 }
 
@@ -575,6 +580,11 @@ pub struct Model {
     syntax_highlight: Vec<(Regex, String)>,
 }
 
+#[derive(Msg, Debug)]
+pub enum Msg {
+    DisplayDetails(mpsc::Sender<BgFunc>, PathBuf, MessageInfo),
+}
+
 #[widget]
 impl Widget for PostgresCommEntry {
     fn init_view(&mut self) {}
@@ -647,9 +657,9 @@ impl Widget for PostgresCommEntry {
         .collect()
     }
 
-    fn update(&mut self, event: MessageParserDetailsMsg) {
+    fn update(&mut self, event: Msg) {
         match event {
-            MessageParserDetailsMsg::DisplayDetails(
+            Msg::DisplayDetails(
                 _bg_sender,
                 _path,
                 MessageInfo {
