@@ -2,7 +2,6 @@ use super::comm_remote_server::MessageData;
 use crate::icons::Icon;
 use crate::BgFunc;
 use crate::TSharkCommunication;
-use relm_derive::Msg;
 use std::path::PathBuf;
 use std::sync::mpsc;
 

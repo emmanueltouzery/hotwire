@@ -1,27 +1,19 @@
-use super::comm_info_header;
-use super::comm_info_header::CommInfoHeader;
+use super::http_details_widget;
+use super::http_details_widget::HttpCommEntry;
 use super::message_parser::{MessageInfo, MessageParser, StreamData};
 use crate::colors;
 use crate::http::tshark_http::HttpType;
 use crate::icons::Icon;
-use crate::tshark_communication_raw::TSharkCommunicationRaw;
 use crate::widgets::comm_remote_server::MessageData;
-use crate::widgets::win;
 use crate::BgFunc;
 use crate::TSharkCommunication;
 use chrono::NaiveDateTime;
-use gdk_pixbuf::prelude::*;
 use gtk::prelude::*;
-use relm::{ContainerWidget, Widget};
-use relm_derive::{widget, Msg};
-use std::path::Path;
+use relm::ContainerWidget;
 use std::path::PathBuf;
 use std::sync::mpsc;
 
 pub struct Http;
-
-const TEXT_CONTENTS_STACK_NAME: &str = "text";
-const IMAGE_CONTENTS_STACK_NAME: &str = "image";
 
 impl MessageParser for Http {
     fn is_my_message(&self, msg: &TSharkCommunication) -> bool {
@@ -265,7 +257,11 @@ impl MessageParser for Http {
         Box::new(move |bg_sender, path, message_info| {
             component
                 .stream()
-                .emit(Msg::DisplayDetails(bg_sender, path, message_info))
+                .emit(http_details_widget::Msg::DisplayDetails(
+                    bg_sender,
+                    path,
+                    message_info,
+                ))
         })
     }
 }
@@ -356,174 +352,5 @@ fn parse_request_response(comm: TSharkCommunication) -> (RequestOrResponseOrOthe
             comm.source.layers.tcp.as_ref().unwrap().port_dst,
             comm.source.layers.ip.unwrap().ip_dst,
         ),
-    }
-}
-
-#[derive(Msg, Debug)]
-pub enum Msg {
-    DisplayDetails(mpsc::Sender<BgFunc>, PathBuf, MessageInfo),
-    GotImage(Vec<u8>),
-}
-
-pub struct Model {
-    stream_id: u32,
-    client_ip: String,
-    data: HttpMessageData,
-
-    _got_image_channel: relm::Channel<Vec<u8>>,
-    got_image_sender: relm::Sender<Vec<u8>>,
-}
-
-#[widget]
-impl Widget for HttpCommEntry {
-    fn model(relm: &relm::Relm<Self>, params: (u32, String, HttpMessageData)) -> Model {
-        let (stream_id, client_ip, data) = params;
-        let stream = relm.stream().clone();
-        let (_got_image_channel, got_image_sender) =
-            relm::Channel::new(move |r: Vec<u8>| stream.emit(Msg::GotImage(r)));
-        Model {
-            data,
-            stream_id,
-            client_ip,
-            _got_image_channel,
-            got_image_sender,
-        }
-    }
-
-    fn update(&mut self, event: Msg) {
-        match event {
-            Msg::DisplayDetails(
-                bg_sender,
-                file_path,
-                MessageInfo {
-                    client_ip,
-                    stream_id,
-                    message_data: MessageData::Http(msg),
-                },
-            ) => {
-                match (
-                    &msg.response.as_ref().and_then(|r| r.content_type.as_ref()),
-                    self.model
-                        .data
-                        .response
-                        .as_ref()
-                        .and_then(|r| r.body.as_ref()),
-                ) {
-                    (Some(content_type), Some(body))
-                        if content_type.starts_with("image/") && msg.response.is_some() =>
-                    {
-                        let seq_no = msg.response.as_ref().unwrap().tcp_seq_number;
-                        let s = self.model.got_image_sender.clone();
-                        bg_sender
-                            .send(BgFunc::new(move || {
-                                Self::load_image(&file_path, seq_no, s.clone())
-                            }))
-                            .unwrap();
-                    }
-                    _ => {
-                        self.widgets
-                            .contents_stack
-                            .set_visible_child_name(TEXT_CONTENTS_STACK_NAME);
-                    }
-                }
-                self.model.data = msg;
-                self.streams
-                    .comm_info_header
-                    .emit(comm_info_header::Msg::Update(client_ip.clone(), stream_id));
-                self.model.stream_id = stream_id;
-                self.model.client_ip = client_ip;
-            }
-            Msg::GotImage(bytes) => {
-                let loader = gdk_pixbuf::PixbufLoader::new();
-                loader.write(&bytes).unwrap();
-                loader.close().unwrap();
-                self.widgets
-                    .body_image
-                    .set_from_pixbuf(loader.get_pixbuf().as_ref());
-                self.widgets
-                    .contents_stack
-                    .set_visible_child_name(IMAGE_CONTENTS_STACK_NAME);
-            }
-            _ => {}
-        }
-    }
-
-    fn load_image(file_path: &Path, tcp_seq_number: u32, s: relm::Sender<Vec<u8>>) {
-        let mut packets = win::invoke_tshark::<TSharkCommunicationRaw>(
-            file_path,
-            win::TSharkMode::JsonRaw,
-            &format!("tcp.seq eq {}", tcp_seq_number),
-        )
-        .expect("tshark error");
-        if packets.len() == 1 {
-            let bytes = packets.pop().unwrap().source.layers.http.unwrap().file_data;
-            s.send(bytes).unwrap();
-        } else {
-            panic!(format!(
-                "unexpected json from tshark, tcp stream {}",
-                tcp_seq_number
-            ));
-        }
-    }
-
-    view! {
-        gtk::Box {
-            orientation: gtk::Orientation::Vertical,
-            margin_top: 10,
-            margin_bottom: 10,
-            margin_start: 10,
-            margin_end: 10,
-            spacing: 10,
-            #[name="comm_info_header"]
-            CommInfoHeader(self.model.client_ip.clone(), self.model.stream_id) {
-            },
-            #[style_class="http_first_line"]
-            gtk::Label {
-                label: &self.model.data.request.as_ref().map(|r| r.first_line.as_str()).unwrap_or("Missing request info"),
-                xalign: 0.0,
-                selectable: true,
-            },
-            gtk::Label {
-                label: &self.model.data.request.as_ref().map(|r| r.other_lines.as_str()).unwrap_or(""),
-                xalign: 0.0,
-                selectable: true,
-            },
-            gtk::Label {
-                label: self.model.data.request.as_ref().and_then(|r| r.body.as_ref()).map(|b| b.as_str()).unwrap_or(""),
-                xalign: 0.0,
-                visible: self.model.data.request.as_ref().and_then(|r| r.body.as_ref()).is_some(),
-                selectable: true,
-            },
-            gtk::Separator {},
-            #[style_class="http_first_line"]
-            gtk::Label {
-                label: &self.model.data.response.as_ref().map(|r| r.first_line.as_str()).unwrap_or("Missing response info"),
-                xalign: 0.0,
-                selectable: true,
-            },
-            gtk::Label {
-                label: &self.model.data.response.as_ref().map(|r| r.other_lines.as_str()).unwrap_or(""),
-                xalign: 0.0,
-                selectable: true,
-            },
-            #[name="contents_stack"]
-            gtk::Stack {
-                gtk::Label {
-                    child: {
-                        name: Some(TEXT_CONTENTS_STACK_NAME)
-                    },
-                    label: self.model.data.response.as_ref().and_then(|r| r.body.as_ref()).map(|b| b.as_str()).unwrap_or(""),
-                    xalign: 0.0,
-                    visible: self.model.data.response.as_ref().and_then(|r| r.body.as_ref()).is_some(),
-                    selectable: true,
-                },
-                #[name="body_image"]
-                gtk::Image {
-                    child: {
-                        name: Some(IMAGE_CONTENTS_STACK_NAME)
-                    },
-                }
-            }
-        }
     }
 }
