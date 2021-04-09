@@ -124,9 +124,9 @@ impl Widget for HttpCommEntry {
         }
     }
 
-    fn highlight_indent<'a>(body: &str, content_type: &str) -> String {
+    fn highlight_indent<'a>(body: &str, content_type: Option<&str>) -> String {
         match content_type {
-            "application/xml" | "text/xml" => Self::highlight_indent_xml(body),
+            Some("application/xml") | Some("text/xml") => Self::highlight_indent_xml(body),
             _ => glib::markup_escape_text(body).to_string(),
         }
     }
@@ -274,7 +274,7 @@ impl Widget for HttpCommEntry {
             gtk::Label {
                 markup: &Self::highlight_indent(
                     self.model.data.request.as_ref().and_then(|r| r.body.as_ref()).map(|b| b.as_str()).unwrap_or(""),
-                    "application/xml"),
+                    self.model.data.request.as_ref().and_then(|r| r.content_type.as_deref())),
                 xalign: 0.0,
                 visible: self.model.data.request.as_ref().and_then(|r| r.body.as_ref()).is_some(),
                 selectable: true,
@@ -287,9 +287,7 @@ impl Widget for HttpCommEntry {
                 selectable: true,
             },
             gtk::Label {
-                markup: &Self::highlight_indent(
-                    &self.model.data.response.as_ref().map(|r| r.other_lines.as_str()).unwrap_or(""),
-                    "application/xml"),
+                label: &self.model.data.response.as_ref().map(|r| r.other_lines.as_str()).unwrap_or(""),
                 xalign: 0.0,
                 selectable: true,
             },
@@ -301,7 +299,7 @@ impl Widget for HttpCommEntry {
                     },
                     markup: &Self::highlight_indent(
                         self.model.data.response.as_ref().and_then(|r| r.body.as_ref()).map(|b| b.as_str()).unwrap_or(""),
-                        "application/xml"),
+                        self.model.data.response.as_ref().and_then(|r| r.content_type.as_deref())),
                     xalign: 0.0,
                     visible: self.model.data.response.as_ref().and_then(|r| r.body.as_ref()).is_some(),
                     selectable: true,
