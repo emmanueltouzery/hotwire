@@ -10,7 +10,6 @@ use gdk_pixbuf::prelude::*;
 use gtk::prelude::*;
 use relm::Widget;
 use relm_derive::{widget, Msg};
-use std::borrow::Cow;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -137,6 +136,7 @@ impl Widget for HttpCommEntry {
         let mut result = "".to_string();
         let mut has_attributes = false;
         let mut has_text = false;
+        let mut attrs_on_line = 0;
         for token in xmlparser::Tokenizer::from(xml) {
             dbg!(indent);
             dbg!(token);
@@ -151,10 +151,20 @@ impl Widget for HttpCommEntry {
                     result.push_str("&lt;<b>");
                     result.push_str(&local);
                     has_attributes = false;
+                    has_text = false;
+                    attrs_on_line = 0;
                 }
                 Ok(xmlparser::Token::Attribute { span, .. }) => {
                     if !has_attributes {
                         result.push_str("</b>");
+                    }
+                    attrs_on_line += 1;
+                    if attrs_on_line > 3 {
+                        result.push_str("\n");
+                        for _ in 0..(indent + 1) {
+                            result.push_str("  ");
+                        }
+                        attrs_on_line = 0;
                     }
                     result.push_str(" ");
                     result.push_str(&span);
@@ -179,7 +189,11 @@ impl Widget for HttpCommEntry {
                 }) =>
                 // "/>"
                 {
-                    result.push_str("</b>/&gt;");
+                    if has_attributes {
+                        result.push_str("/&gt;");
+                    } else {
+                        result.push_str("</b>/&gt;");
+                    }
                 }
                 Ok(xmlparser::Token::ElementEnd {
                     end: xmlparser::ElementEnd::Close(_, name),
@@ -188,6 +202,7 @@ impl Widget for HttpCommEntry {
                     // </name>
                     indent -= 1;
                     if !has_text {
+                        result.push_str("\n");
                         for _ in 0..indent {
                             result.push_str("  ");
                         }
@@ -195,7 +210,7 @@ impl Widget for HttpCommEntry {
                     result.push_str("&lt;/<b>");
                     result.push_str(&name);
                     result.push_str("</b>&gt;");
-                    result.push_str("\n");
+                    has_text = false;
                 }
                 Ok(xmlparser::Token::Text { text, .. }) => {
                     result.push_str(&text);
@@ -254,7 +269,9 @@ impl Widget for HttpCommEntry {
                 selectable: true,
             },
             gtk::Label {
-                label: self.model.data.request.as_ref().and_then(|r| r.body.as_ref()).map(|b| b.as_str()).unwrap_or(""),
+                markup: &Self::highlight_indent(
+                    self.model.data.request.as_ref().and_then(|r| r.body.as_ref()).map(|b| b.as_str()).unwrap_or(""),
+                    "application/xml"),
                 xalign: 0.0,
                 visible: self.model.data.request.as_ref().and_then(|r| r.body.as_ref()).is_some(),
                 selectable: true,
@@ -300,7 +317,22 @@ impl Widget for HttpCommEntry {
 #[test]
 fn simple_xml_indent() {
     assert_eq!(
-        "<?xml?>\n&lt;<b>body</b>&gt;\n  &lt;<b>tag1</b>/&gt;\n  &lt;<b>tag2</b> attr=\"val\"&gt;contents&lt;/<b>tag2</b>&gt;\n&lt;/<b>body</b>&gt;\n",
+        "<?xml?>\n&lt;<b>body</b>&gt;\n  &lt;<b>tag1</b>/&gt;\n  &lt;<b>tag2</b> attr=\"val\"&gt;contents&lt;/<b>tag2</b>&gt;\n&lt;/<b>body</b>&gt;",
         HttpCommEntry::highlight_indent_xml("<?xml?><body><tag1/><tag2 attr=\"val\">contents</tag2></body>")
     );
+}
+
+#[test]
+fn xml_highlight_attrs_no_children() {
+    assert_eq!(
+        "&lt;<b>mytag</b> attr1=\"a\" attr2=\"b\"/&gt;",
+        HttpCommEntry::highlight_indent_xml("<mytag attr1=\"a\" attr2=\"b\" />")
+    );
+}
+
+#[test]
+fn xml_indent_long_lines() {
+    assert_eq!(
+        "&lt;<b>mytag</b> firstattr=\"first value\" secondattr=\"second value\" thirdattr=\"third value\"\n   fourthattr=\"fourth value\" fifthattr=\"fifth value\"/&gt;",
+        HttpCommEntry::highlight_indent_xml("<mytag firstattr=\"first value\" secondattr=\"second value\" thirdattr=\"third value\" fourthattr=\"fourth value\" fifthattr=\"fifth value\"/>"))
 }
