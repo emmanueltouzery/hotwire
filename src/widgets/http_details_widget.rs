@@ -213,7 +213,7 @@ impl Widget for HttpCommEntry {
                     has_text = false;
                 }
                 Ok(xmlparser::Token::Text { text, .. }) => {
-                    result.push_str(&text);
+                    result.push_str(&text.replace("\n", "").trim());
                     has_text = true;
                 }
                 Ok(xmlparser::Token::Declaration { span, .. }) => {
@@ -319,6 +319,14 @@ fn simple_xml_indent() {
     assert_eq!(
         "<?xml?>\n&lt;<b>body</b>&gt;\n  &lt;<b>tag1</b>/&gt;\n  &lt;<b>tag2</b> attr=\"val\"&gt;contents&lt;/<b>tag2</b>&gt;\n&lt;/<b>body</b>&gt;",
         HttpCommEntry::highlight_indent_xml("<?xml?><body><tag1/><tag2 attr=\"val\">contents</tag2></body>")
+    );
+}
+
+#[test]
+fn simple_xml_indent_already_indented() {
+    assert_eq!(
+        "<?xml?>\n&lt;<b>body</b>&gt;\n  &lt;<b>tag1</b>/&gt;\n  &lt;<b>tag2</b> attr=\"val\"&gt;contents&lt;/<b>tag2</b>&gt;\n&lt;/<b>body</b>&gt;",
+        HttpCommEntry::highlight_indent_xml("<?xml?>\n<body>\n\n\n      <tag1/>\n\n\n<tag2 attr=\"val\">contents</tag2></body>")
     );
 }
 
