@@ -125,7 +125,15 @@ impl Widget for HttpCommEntry {
     }
 
     fn highlight_indent<'a>(body: &str, content_type: Option<&str>) -> String {
-        match content_type {
+        // support eg "application/xml;charset=UTF8"
+        let content_type_first_part = content_type.map(|c| {
+            if let Some(semicolon_index) = c.find(';') {
+                &c[0..semicolon_index]
+            } else {
+                c
+            }
+        });
+        match content_type_first_part {
             Some("application/xml") | Some("text/xml") => Self::highlight_indent_xml(body),
             _ => glib::markup_escape_text(body).to_string(),
         }
@@ -249,6 +257,59 @@ impl Widget for HttpCommEntry {
         result
     }
 
+    fn highlight_indent_json(json: &str) -> String {
+        if let Ok(val) = serde_json::from_str(json) {
+            Self::highlight_indent_json_value(&val, 0)
+        } else {
+            json.to_string()
+        }
+    }
+
+    fn highlight_indent_json_value(v: &serde_json::Value, indent_depth: usize) -> String {
+        let next_indent = " ".repeat((indent_depth + 1) * 2);
+        let cur_indent = &next_indent[0..(next_indent.len() - 2)];
+        match v {
+            serde_json::Value::Object(fields) => {
+                cur_indent.to_string()
+                    + "{"
+                    + &fields
+                        .iter()
+                        .map(|(k, v)| {
+                            format!(
+                                "\n{}\"<b>{}</b>\": {}",
+                                next_indent,
+                                k,
+                                Self::highlight_indent_json_value(v, indent_depth + 1)
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join(",")
+                    + "\n"
+                    + cur_indent
+                    + "}"
+            }
+            serde_json::Value::Array(entries) => {
+                cur_indent.to_string()
+                    + "["
+                    + &entries
+                        .iter()
+                        .map(|e| {
+                            format!(
+                                "\n{}{}",
+                                &next_indent,
+                                Self::highlight_indent_json_value(e, indent_depth + 1)
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join(",")
+                    + "\n"
+                    + cur_indent
+                    + "]"
+            }
+            _ => v.to_string(),
+        }
+    }
+
     view! {
         gtk::Box {
             orientation: gtk::Orientation::Vertical,
@@ -344,4 +405,12 @@ fn xml_indent_long_lines() {
     assert_eq!(
         "&lt;<b>mytag</b> firstattr=\"first value\" secondattr=\"second value\" thirdattr=\"third value\"\n   fourthattr=\"fourth value\" fifthattr=\"fifth value\"/&gt;",
         HttpCommEntry::highlight_indent_xml("<mytag firstattr=\"first value\" secondattr=\"second value\" thirdattr=\"third value\" fourthattr=\"fourth value\" fifthattr=\"fifth value\"/>"))
+}
+
+#[test]
+fn simple_json_indent() {
+    assert_eq!(
+        "{\n  \"<b>field1</b>\": 12,\n  \"<b>field2</b>\": [\n    \"hi\"\n,    \"array\",  ]\n}",
+        HttpCommEntry::highlight_indent_json(r#"{"field1": 12, "field2": ["hi", "array"]}"#)
+    );
 }
