@@ -135,6 +135,7 @@ impl Widget for HttpCommEntry {
         });
         match content_type_first_part {
             Some("application/xml") | Some("text/xml") => Self::highlight_indent_xml(body),
+            Some("application/json") | Some("text/json") => Self::highlight_indent_json(body),
             _ => glib::markup_escape_text(body).to_string(),
         }
     }
@@ -270,8 +271,7 @@ impl Widget for HttpCommEntry {
         let cur_indent = &next_indent[0..(next_indent.len() - 2)];
         match v {
             serde_json::Value::Object(fields) => {
-                cur_indent.to_string()
-                    + "{"
+                "{".to_string()
                     + &fields
                         .iter()
                         .map(|(k, v)| {
@@ -288,9 +288,9 @@ impl Widget for HttpCommEntry {
                     + cur_indent
                     + "}"
             }
+            serde_json::Value::Array(entries) if entries.is_empty() => "[]".to_string(),
             serde_json::Value::Array(entries) => {
-                cur_indent.to_string()
-                    + "["
+                "[".to_string()
                     + &entries
                         .iter()
                         .map(|e| {
@@ -410,7 +410,7 @@ fn xml_indent_long_lines() {
 #[test]
 fn simple_json_indent() {
     assert_eq!(
-        "{\n  \"<b>field1</b>\": 12,\n  \"<b>field2</b>\": [\n    \"hi\"\n,    \"array\",  ]\n}",
+        "{\n  \"<b>field1</b>\": 12,\n  \"<b>field2</b>\": [\n    \"hi\",\n    \"array\"\n  ]\n}",
         HttpCommEntry::highlight_indent_json(r#"{"field1": 12, "field2": ["hi", "array"]}"#)
     );
 }
