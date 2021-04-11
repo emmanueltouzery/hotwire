@@ -30,6 +30,8 @@ pub struct Model {
     client_ip: String,
     data: HttpMessageData,
 
+    format_request_response: bool,
+
     _got_image_channel: relm::Channel<Vec<u8>>,
     got_image_sender: relm::Sender<Vec<u8>>,
 }
@@ -70,6 +72,7 @@ impl Widget for HttpCommEntry {
             client_ip,
             _got_image_channel,
             got_image_sender,
+            format_request_response: true,
         }
     }
 
@@ -128,7 +131,7 @@ impl Widget for HttpCommEntry {
                     .set_visible_child_name(IMAGE_CONTENTS_STACK_NAME);
             }
             Msg::RemoveFormatToggled => {
-                println!("remove format toggled!");
+                self.model.format_request_response = !self.model.format_request_response;
             }
             _ => {}
         }
@@ -152,7 +155,7 @@ impl Widget for HttpCommEntry {
         }
     }
 
-    fn highlight_indent<'a>(body: &str, content_type: Option<&str>) -> String {
+    fn highlight_indent<'a>(do_format: bool, body: &str, content_type: Option<&str>) -> String {
         // support eg "application/xml;charset=UTF8"
         let content_type_first_part = content_type.map(|c| {
             if let Some(semicolon_index) = c.find(';') {
@@ -162,8 +165,12 @@ impl Widget for HttpCommEntry {
             }
         });
         match content_type_first_part {
-            Some("application/xml") | Some("text/xml") => Self::highlight_indent_xml(body),
-            Some("application/json") | Some("text/json") => Self::highlight_indent_json(body),
+            Some("application/xml") | Some("text/xml") if do_format => {
+                Self::highlight_indent_xml(body)
+            }
+            Some("application/json") | Some("text/json") if do_format => {
+                Self::highlight_indent_json(body)
+            }
             _ => glib::markup_escape_text(body).to_string(),
         }
     }
@@ -362,6 +369,7 @@ impl Widget for HttpCommEntry {
             },
             gtk::Label {
                 markup: &Self::highlight_indent(
+                    self.model.format_request_response,
                     self.model.data.request.as_ref().and_then(|r| r.body.as_ref()).map(|b| b.as_str()).unwrap_or(""),
                     self.model.data.request.as_ref().and_then(|r| r.content_type.as_deref())),
                 xalign: 0.0,
@@ -387,6 +395,7 @@ impl Widget for HttpCommEntry {
                         name: Some(TEXT_CONTENTS_STACK_NAME)
                     },
                     markup: &Self::highlight_indent(
+                    self.model.format_request_response,
                         self.model.data.response.as_ref().and_then(|r| r.body.as_ref()).map(|b| b.as_str()).unwrap_or(""),
                         self.model.data.response.as_ref().and_then(|r| r.content_type.as_deref())),
                     xalign: 0.0,
