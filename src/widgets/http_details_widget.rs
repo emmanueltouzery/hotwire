@@ -165,7 +165,7 @@ impl Widget for HttpCommEntry {
             }
         });
         match content_type_first_part {
-            Some("application/xml") | Some("text/xml") if do_format => {
+            Some("application/xml") | Some("text/xml") | Some("text/html") if do_format => {
                 Self::highlight_indent_xml(body)
             }
             Some("application/json") | Some("text/json") if do_format => {
@@ -269,8 +269,10 @@ impl Widget for HttpCommEntry {
                 Ok(xmlparser::Token::ProcessingInstruction { span, .. }) => {
                     result.push_str(&span);
                 }
-                Ok(xmlparser::Token::Comment { span, .. }) => {
-                    result.push_str(&span);
+                Ok(xmlparser::Token::Comment { text, .. }) => {
+                    result.push_str(" <i>&lt;!-- ");
+                    result.push_str(&text);
+                    result.push_str(" --&gt;</i>");
                 }
                 Ok(xmlparser::Token::DtdStart { span, .. }) => {
                     result.push_str(&span);
