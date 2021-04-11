@@ -5,6 +5,7 @@ use std::thread;
 
 pub mod colors;
 pub mod icons;
+pub mod message_parser;
 mod tshark_communication;
 mod tshark_communication_raw;
 mod widgets;

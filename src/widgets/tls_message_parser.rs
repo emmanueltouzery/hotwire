@@ -1,7 +1,6 @@
-use super::message_parser::{MessageParser, StreamData};
 use crate::icons::Icon;
+use crate::message_parser::{MessageInfo, MessageParser, StreamData};
 use crate::widgets::comm_remote_server::MessageData;
-use crate::widgets::message_parser::MessageInfo;
 use crate::BgFunc;
 use crate::TSharkCommunication;
 use gtk::prelude::*;

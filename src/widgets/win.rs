@@ -1,10 +1,10 @@
 use super::comm_remote_server::MessageData;
 use super::comm_target_card::{CommTargetCard, CommTargetCardData};
 use crate::colors;
+use crate::http::http_message_parser::Http;
+use crate::message_parser::{MessageInfo, MessageParser};
+use crate::pgsql::postgres_message_parser::Postgres;
 use crate::widgets::comm_target_card::SummaryDetails;
-use crate::widgets::http_message_parser::Http;
-use crate::widgets::message_parser::{MessageInfo, MessageParser};
-use crate::widgets::postgres_message_parser::Postgres;
 use crate::widgets::tls_message_parser::Tls;
 use crate::BgFunc;
 use crate::TSharkCommunication;

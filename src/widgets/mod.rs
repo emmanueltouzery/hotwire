@@ -1,10 +1,5 @@
-mod comm_info_header;
-mod comm_remote_server;
+pub mod comm_info_header;
+pub mod comm_remote_server;
 mod comm_target_card;
-mod http_details_widget;
-mod http_message_parser;
-mod message_parser;
-mod postgres_details_widget;
-mod postgres_message_parser;
 mod tls_message_parser;
 pub mod win;

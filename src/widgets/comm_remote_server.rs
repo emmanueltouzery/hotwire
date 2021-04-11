@@ -1,6 +1,6 @@
-use super::http_message_parser::HttpMessageData;
-use super::postgres_message_parser::PostgresMessageData;
 use super::tls_message_parser::TlsMessageData;
+use crate::http::http_message_parser::HttpMessageData;
+use crate::pgsql::postgres_message_parser::PostgresMessageData;
 use gtk::prelude::*;
 use relm::Widget;
 use relm_derive::{widget, Msg};
@@ -8,6 +8,8 @@ use relm_derive::{widget, Msg};
 #[derive(Msg)]
 pub enum Msg {}
 
+// circular dependencies, message parsers depend on this
+// which depends on them...
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MessageData {
     Http(HttpMessageData),
