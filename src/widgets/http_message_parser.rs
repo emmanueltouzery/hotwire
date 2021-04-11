@@ -241,9 +241,14 @@ impl MessageParser for Http {
         tv.set_model(Some(&model_sort));
     }
 
+    fn requests_details_overlay(&self) -> bool {
+        true
+    }
+
     fn add_details_to_scroll(
         &self,
         parent: &gtk::ScrolledWindow,
+        overlay: Option<&gtk::Overlay>,
         bg_sender: mpsc::Sender<BgFunc>,
     ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, MessageInfo)> {
         let component = Box::leak(Box::new(parent.add_widget::<HttpCommEntry>((
@@ -253,6 +258,7 @@ impl MessageParser for Http {
                 request: None,
                 response: None,
             },
+            overlay.unwrap().clone(),
         ))));
         Box::new(move |bg_sender, path, message_info| {
             component

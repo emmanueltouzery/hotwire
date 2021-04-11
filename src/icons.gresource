@@ -19,5 +19,6 @@
     <file alias="copy-symbolic.svg">fontawesome-5.13.0/svgs/solid/truck-loading.svg</file>
     <file alias="other-symbolic.svg">fontawesome-5.13.0/svgs/solid/question-circle.svg</file>
     <file alias="bookmark-symbolic.svg">fontawesome-5.13.0/svgs/solid/bookmark.svg</file>
+    <file alias="remove-format-symbolic.svg">fontawesome-5.13.0/svgs/solid/remove-format.svg</file>
   </gresource>
 </gresources>

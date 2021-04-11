@@ -23,5 +23,6 @@ impl Icon {
     pub const LOGIN: Icon = Icon("login");
     pub const COPY: Icon = Icon("copy");
     pub const BOOKMARK: Icon = Icon("bookmark");
+    pub const REMOVE_FORMAT: Icon = Icon("remove-format");
     pub const OTHER: Icon = Icon("other");
 }

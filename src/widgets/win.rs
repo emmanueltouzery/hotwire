@@ -248,12 +248,27 @@ impl Widget for Win {
             .build();
         paned.pack1(&scroll, true, true);
 
-        let scroll2 = gtk::ScrolledWindowBuilder::new().build();
+        let scroll2 = gtk::ScrolledWindowBuilder::new().margin_start(3).build();
+        scroll2.set_property_height_request(200);
+
+        let (child, overlay) = if message_parser.requests_details_overlay() {
+            let overlay = gtk::OverlayBuilder::new().child(&scroll2).build();
+            (
+                overlay.clone().dynamic_cast::<gtk::Widget>().unwrap(),
+                Some(overlay),
+            )
+        } else {
+            (scroll2.clone().dynamic_cast::<gtk::Widget>().unwrap(), None)
+        };
+        paned.pack2(&child, false, true);
         self.model
             .details_component_emitters
-            .push(message_parser.add_details_to_scroll(&scroll2, self.model.bg_sender.clone()));
-        scroll2.set_property_height_request(200);
-        paned.pack2(&scroll2, false, true);
+            .push(message_parser.add_details_to_scroll(
+                &scroll2,
+                overlay.as_ref(),
+                self.model.bg_sender.clone(),
+            ));
+
         self.widgets
             .comm_remote_servers_stack
             .add_named(&paned, &idx.to_string());

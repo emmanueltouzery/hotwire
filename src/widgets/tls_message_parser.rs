@@ -100,9 +100,14 @@ impl MessageParser for Tls {
         tv.set_model(Some(&model_sort));
     }
 
+    fn requests_details_overlay(&self) -> bool {
+        false
+    }
+
     fn add_details_to_scroll(
         &self,
         parent: &gtk::ScrolledWindow,
+        overlay: Option<&gtk::Overlay>,
         bg_sender: mpsc::Sender<BgFunc>,
     ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, MessageInfo)> {
         let component = Box::leak(Box::new(

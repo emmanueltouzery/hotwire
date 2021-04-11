@@ -30,9 +30,11 @@ pub trait MessageParser {
         start_idx: i32,
     );
     fn end_populate_treeview(&self, tv: &gtk::TreeView, ls: &gtk::ListStore);
+    fn requests_details_overlay(&self) -> bool;
     fn add_details_to_scroll(
         &self,
-        paned: &gtk::ScrolledWindow,
+        parent: &gtk::ScrolledWindow,
+        overlay: Option<&gtk::Overlay>,
         bg_sender: mpsc::Sender<BgFunc>,
     ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, MessageInfo)>;
 }

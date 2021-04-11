@@ -2,6 +2,7 @@ use super::comm_info_header;
 use super::comm_info_header::CommInfoHeader;
 use super::http_message_parser::HttpMessageData;
 use super::message_parser::MessageInfo;
+use crate::icons::Icon;
 use crate::tshark_communication_raw::TSharkCommunicationRaw;
 use crate::widgets::comm_remote_server::MessageData;
 use crate::widgets::win;
@@ -21,6 +22,7 @@ const IMAGE_CONTENTS_STACK_NAME: &str = "image";
 pub enum Msg {
     DisplayDetails(mpsc::Sender<BgFunc>, PathBuf, MessageInfo),
     GotImage(Vec<u8>),
+    RemoveFormatToggled,
 }
 
 pub struct Model {
@@ -34,11 +36,34 @@ pub struct Model {
 
 #[widget]
 impl Widget for HttpCommEntry {
-    fn model(relm: &relm::Relm<Self>, params: (u32, String, HttpMessageData)) -> Model {
-        let (stream_id, client_ip, data) = params;
+    fn model(
+        relm: &relm::Relm<Self>,
+        params: (u32, String, HttpMessageData, gtk::Overlay),
+    ) -> Model {
+        let (stream_id, client_ip, data, overlay) = params;
         let stream = relm.stream().clone();
         let (_got_image_channel, got_image_sender) =
             relm::Channel::new(move |r: Vec<u8>| stream.emit(Msg::GotImage(r)));
+
+        let disable_formatting_btn = gtk::ToggleButtonBuilder::new()
+            .label("Disable formatting")
+            .always_show_image(true)
+            .image(&gtk::Image::from_icon_name(
+                Some(Icon::REMOVE_FORMAT.name()),
+                gtk::IconSize::Menu,
+            ))
+            .valign(gtk::Align::Start)
+            .halign(gtk::Align::End)
+            .margin_top(10)
+            .margin_end(10)
+            .build();
+        overlay.add_overlay(&disable_formatting_btn);
+        relm::connect!(
+            relm,
+            disable_formatting_btn,
+            connect_clicked(_),
+            Msg::RemoveFormatToggled
+        );
         Model {
             data,
             stream_id,
@@ -101,6 +126,9 @@ impl Widget for HttpCommEntry {
                 self.widgets
                     .contents_stack
                     .set_visible_child_name(IMAGE_CONTENTS_STACK_NAME);
+            }
+            Msg::RemoveFormatToggled => {
+                println!("remove format toggled!");
             }
             _ => {}
         }
