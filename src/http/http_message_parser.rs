@@ -296,18 +296,8 @@ pub fn get_http_header_value(other_lines: &str, header_name: &str) -> Option<Str
     })
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HttpRequestData {
-    pub tcp_seq_number: u32,
-    pub timestamp: NaiveDateTime,
-    pub first_line: String,
-    pub other_lines: String,
-    pub body: Option<String>,
-    pub content_type: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HttpResponseData {
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct HttpRequestResponseData {
     pub tcp_seq_number: u32,
     pub timestamp: NaiveDateTime,
     pub first_line: String,
@@ -318,13 +308,13 @@ pub struct HttpResponseData {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HttpMessageData {
-    pub request: Option<HttpRequestData>,
-    pub response: Option<HttpResponseData>,
+    pub request: Option<HttpRequestResponseData>,
+    pub response: Option<HttpRequestResponseData>,
 }
 
 enum RequestOrResponseOrOther {
-    Request(HttpRequestData),
-    Response(HttpResponseData),
+    Request(HttpRequestResponseData),
+    Response(HttpRequestResponseData),
     Other,
 }
 
@@ -332,7 +322,7 @@ fn parse_request_response(comm: TSharkCommunication) -> (RequestOrResponseOrOthe
     let http = comm.source.layers.http;
     match http.map(|h| (h.http_type, h)) {
         Some((HttpType::Request, h)) => (
-            RequestOrResponseOrOther::Request(HttpRequestData {
+            RequestOrResponseOrOther::Request(HttpRequestResponseData {
                 tcp_seq_number: comm.source.layers.tcp.as_ref().unwrap().seq_number,
                 timestamp: comm.source.layers.frame.frame_time,
                 body: h.body,
@@ -349,7 +339,7 @@ fn parse_request_response(comm: TSharkCommunication) -> (RequestOrResponseOrOthe
                 .unwrap(),
         ),
         Some((HttpType::Response, h)) => (
-            RequestOrResponseOrOther::Response(HttpResponseData {
+            RequestOrResponseOrOther::Response(HttpRequestResponseData {
                 tcp_seq_number: comm.source.layers.tcp.as_ref().unwrap().seq_number,
                 timestamp: comm.source.layers.frame.frame_time,
                 body: h.body,
