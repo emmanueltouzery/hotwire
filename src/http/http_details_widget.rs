@@ -1,3 +1,4 @@
+use super::http_body_widget;
 use super::http_body_widget::HttpBodyWidget;
 use super::http_message_parser::HttpMessageData;
 use crate::icons::Icon;
@@ -19,6 +20,7 @@ pub enum Msg {
 }
 
 pub struct Model {
+    bg_sender: mpsc::Sender<BgFunc>,
     stream_id: u32,
     client_ip: String,
     data: HttpMessageData,
@@ -30,9 +32,15 @@ pub struct Model {
 impl Widget for HttpCommEntry {
     fn model(
         relm: &relm::Relm<Self>,
-        params: (u32, String, HttpMessageData, gtk::Overlay),
+        params: (
+            u32,
+            String,
+            HttpMessageData,
+            gtk::Overlay,
+            mpsc::Sender<BgFunc>,
+        ),
     ) -> Model {
-        let (stream_id, client_ip, data, overlay) = params;
+        let (stream_id, client_ip, data, overlay, bg_sender) = params;
 
         let disable_formatting_btn = gtk::ToggleButtonBuilder::new()
             .label("Disable formatting")
@@ -54,6 +62,7 @@ impl Widget for HttpCommEntry {
             Msg::RemoveFormatToggled
         );
         Model {
+            bg_sender,
             data,
             stream_id,
             client_ip,
@@ -62,6 +71,7 @@ impl Widget for HttpCommEntry {
     }
 
     fn update(&mut self, event: Msg) {
+        dbg!(&event);
         match event {
             Msg::DisplayDetails(
                 bg_sender,
@@ -78,9 +88,31 @@ impl Widget for HttpCommEntry {
                     .emit(comm_info_header::Msg::Update(client_ip.clone(), stream_id));
                 self.model.stream_id = stream_id;
                 self.model.client_ip = client_ip;
+                self.streams
+                    .request_body
+                    .emit(http_body_widget::Msg::RequestResponseChanged(
+                        self.model.data.request.clone(),
+                        file_path.clone(),
+                    ));
+                self.streams
+                    .response_body
+                    .emit(http_body_widget::Msg::RequestResponseChanged(
+                        self.model.data.response.clone(),
+                        file_path,
+                    ));
             }
             Msg::RemoveFormatToggled => {
                 self.model.format_request_response = !self.model.format_request_response;
+                self.streams
+                    .request_body
+                    .emit(http_body_widget::Msg::FormatCodeChanged(
+                        self.model.format_request_response,
+                    ));
+                self.streams
+                    .response_body
+                    .emit(http_body_widget::Msg::FormatCodeChanged(
+                        self.model.format_request_response,
+                    ));
             }
             _ => {}
         }
@@ -108,7 +140,8 @@ impl Widget for HttpCommEntry {
                 xalign: 0.0,
                 selectable: true,
             },
-            HttpBodyWidget(),
+            #[name="request_body"]
+            HttpBodyWidget(self.model.bg_sender.clone()),
             gtk::Separator {},
             #[style_class="http_first_line"]
             gtk::Label {
@@ -121,7 +154,8 @@ impl Widget for HttpCommEntry {
                 xalign: 0.0,
                 selectable: true,
             },
-            HttpBodyWidget(),
+            #[name="response_body"]
+            HttpBodyWidget(self.model.bg_sender.clone()),
         }
     }
 }

@@ -259,6 +259,7 @@ impl MessageParser for Http {
                 response: None,
             },
             overlay.unwrap().clone(),
+            bg_sender.clone(),
         ))));
         Box::new(move |bg_sender, path, message_info| {
             component
@@ -296,7 +297,7 @@ pub fn get_http_header_value(other_lines: &str, header_name: &str) -> Option<Str
     })
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HttpRequestResponseData {
     pub tcp_seq_number: u32,
     pub timestamp: NaiveDateTime,

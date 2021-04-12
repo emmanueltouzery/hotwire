@@ -1,4 +1,4 @@
-fn highlight_indent<'a>(do_format: bool, body: &str, content_type: Option<&str>) -> String {
+pub fn highlight_indent<'a>(do_format: bool, body: &str, content_type: Option<&str>) -> String {
     // support eg "application/xml;charset=UTF8"
     let content_type_first_part = content_type.map(|c| {
         if let Some(semicolon_index) = c.find(';') {
@@ -174,7 +174,7 @@ fn highlight_indent_json_value(v: &serde_json::Value, indent_depth: usize) -> St
                         format!(
                             "\n{}{}",
                             &next_indent,
-                            Self::highlight_indent_json_value(e, indent_depth + 1)
+                            highlight_indent_json_value(e, indent_depth + 1)
                         )
                     })
                     .collect::<Vec<_>>()
