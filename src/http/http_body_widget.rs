@@ -14,12 +14,14 @@ use std::sync::mpsc;
 
 const TEXT_CONTENTS_STACK_NAME: &str = "text";
 const IMAGE_CONTENTS_STACK_NAME: &str = "image";
+const BINARY_CONTENTS_STACK_NAME: &str = "binary";
 
 #[derive(Msg, Debug)]
 pub enum Msg {
     FormatCodeChanged(bool),
     GotImage(Vec<u8>, u32),
     RequestResponseChanged(Option<HttpRequestResponseData>, PathBuf),
+    SaveBinaryContents,
 }
 
 pub struct Model {
@@ -65,7 +67,7 @@ impl Widget for HttpBodyWidget {
                     .and_then(|d| d.body.as_ref())
                     .map(|b| b.len());
                 let heuristic_is_binary_body = matches!((content_length, body_length),
-                    (Some(l1), Some(l2)) if l1 != l2);
+                    (Some(l1), Some(l2)) if l1 != l2 && l1 != l2+1); // I've seen content-length==body-length+1 for non-binary
                 println!(
                     "CL H: {:?} A: {:?}, binary: {}",
                     content_length, body_length, heuristic_is_binary_body
@@ -89,8 +91,12 @@ impl Widget for HttpBodyWidget {
                             }))
                             .unwrap();
                     }
+                    _ if heuristic_is_binary_body => {
+                        self.widgets
+                            .contents_stack
+                            .set_visible_child_name(BINARY_CONTENTS_STACK_NAME);
+                    }
                     _ => {
-                        println!("activate text stack");
                         self.widgets
                             .contents_stack
                             .set_visible_child_name(TEXT_CONTENTS_STACK_NAME);
@@ -110,6 +116,9 @@ impl Widget for HttpBodyWidget {
                         .contents_stack
                         .set_visible_child_name(IMAGE_CONTENTS_STACK_NAME);
                 }
+            }
+            Msg::SaveBinaryContents => {
+                println!("save binary contents");
             }
         }
     }
@@ -152,6 +161,21 @@ impl Widget for HttpBodyWidget {
                child: {
                    name: Some(IMAGE_CONTENTS_STACK_NAME)
                },
+           },
+           gtk::Box {
+               child: {
+                   name: Some(BINARY_CONTENTS_STACK_NAME)
+               },
+               gtk::Label {
+                   text: "Body contents are binary data"
+               },
+               gtk::Button {
+                   always_show_image: true,
+                   image: Some(&gtk::Image::from_icon_name(
+                        Some("document-save-symbolic"), gtk::IconSize::Menu)),
+                    button_press_event(_, _) => (Msg::SaveBinaryContents, Inhibit(false)),
+                   label: "Save body contents"
+               }
            }
        }
     }
