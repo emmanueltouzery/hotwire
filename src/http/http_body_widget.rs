@@ -127,50 +127,63 @@ impl Widget for HttpBodyWidget {
             }
             Msg::SaveBinaryContents => {
                 println!("save binary contents");
-                let attachment_name = self
-                    .model
-                    .data
-                    .as_ref()
-                    .and_then(|d| {
-                        http_message_parser::get_http_header_value(
-                            &d.other_lines,
-                            "Content-Disposition",
-                        )
-                    })
-                    .and_then(|d| {
-                        d.strip_prefix("attachment: filename=\"")
-                            .and_then(|f| f.strip_suffix("\""))
-                            .map(|f| f.to_string())
-                    });
                 let dialog = gtk::FileChooserNativeBuilder::new()
                     .action(gtk::FileChooserAction::Save)
                     .title("Export to...")
                     .modal(true)
                     .build();
+                dialog.set_current_name(&self.body_save_filename());
+                if dialog.run() == gtk::ResponseType::Accept {
+                    println!("save {:?}", dialog.get_filename());
+                }
             }
         }
     }
 
-    fn filename_from_binary_content_type(content_type: &str) -> Cow<'static, str> {
+    fn body_save_filename(&self) -> String {
+        let attachment_name = self
+            .model
+            .data
+            .as_ref()
+            .and_then(|d| {
+                http_message_parser::get_http_header_value(&d.other_lines, "Content-Disposition")
+            })
+            .and_then(|d| {
+                d.strip_prefix("attachment: filename=\"")
+                    .and_then(|f| f.strip_suffix("\""))
+                    .map(|f| f.to_string())
+            });
+        attachment_name
+            .or_else(|| {
+                self.model
+                    .data
+                    .as_ref()
+                    .and_then(|d| d.content_type.as_ref())
+                    .and_then(|ct| Self::filename_from_binary_content_type(ct))
+            })
+            .unwrap_or_else(|| "data.bin".to_string())
+    }
+
+    fn filename_from_binary_content_type(content_type: &str) -> Option<String> {
         match content_type {
             "image/jpeg" => {
-                return Cow::Borrowed("image.jpg");
+                return Some("image.jpg".to_string());
             }
             "application/msword" => {
-                return Cow::Borrowed("document.docx");
+                return Some("document.docx".to_string());
             }
             _ => {}
         }
         for (prefix, fname) in KNOWN_CONTENT_TYPE_PREFIXES {
             if let Some(ext) = content_type.strip_prefix(prefix) {
-                return Cow::Owned(format!(
+                return Some(format!(
                     "{}.{}",
                     fname,
                     Self::content_type_extension_cleanup(ext)
                 ));
             }
         }
-        Cow::Borrowed("data.bin")
+        None
     }
 
     fn content_type_extension_cleanup(extension: &str) -> &str {
@@ -251,8 +264,8 @@ pub fn content_type_to_filename_tests() {
         ("application/msword", "document.docx"),
     ] {
         assert_eq!(
-            fname,
-            &HttpBodyWidget::filename_from_binary_content_type(ct)
+            Some(*fname),
+            HttpBodyWidget::filename_from_binary_content_type(ct).as_deref()
         );
     }
 }
