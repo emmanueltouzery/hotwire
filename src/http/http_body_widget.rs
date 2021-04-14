@@ -8,7 +8,6 @@ use gdk_pixbuf::prelude::*;
 use gtk::prelude::*;
 use relm::Widget;
 use relm_derive::{widget, Msg};
-use std::borrow::Cow;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -24,10 +23,16 @@ const KNOWN_CONTENT_TYPE_PREFIXES: &[(&str, &str)] = &[
     ("application/", "contents"),
 ];
 
+#[derive(Debug)]
+pub struct SavedBodyData {
+    error_msg: Option<String>,
+}
+
 #[derive(Msg, Debug)]
 pub enum Msg {
     FormatCodeChanged(bool),
     GotImage(Vec<u8>, u32),
+    SavedBody(SavedBodyData),
     RequestResponseChanged(Option<HttpRequestResponseData>, PathBuf),
     SaveBinaryContents,
 }
@@ -35,10 +40,14 @@ pub enum Msg {
 pub struct Model {
     format_code: bool,
     data: Option<HttpRequestResponseData>,
+    file_path: Option<PathBuf>,
     bg_sender: mpsc::Sender<BgFunc>,
 
     _got_image_channel: relm::Channel<(Vec<u8>, u32)>,
     got_image_sender: relm::Sender<(Vec<u8>, u32)>,
+
+    _saved_body_channel: relm::Channel<SavedBodyData>,
+    saved_body_sender: relm::Sender<SavedBodyData>,
 }
 
 #[widget]
@@ -48,12 +57,19 @@ impl Widget for HttpBodyWidget {
             let stream = relm.stream().clone();
             relm::Channel::new(move |d: (Vec<u8>, u32)| stream.emit(Msg::GotImage(d.0, d.1)))
         };
+        let (_saved_body_channel, saved_body_sender) = {
+            let stream = relm.stream().clone();
+            relm::Channel::new(move |d: SavedBodyData| stream.emit(Msg::SavedBody(d)))
+        };
         Model {
             format_code: true,
             bg_sender,
             data: None,
+            file_path: None,
             _got_image_channel,
             got_image_sender,
+            _saved_body_channel,
+            saved_body_sender,
         }
     }
 
@@ -85,17 +101,19 @@ impl Widget for HttpBodyWidget {
                 // => need to reset the stack to display the "text"
                 // child after that, if needed.
                 self.model.data = http_data.clone();
+                self.model.file_path = Some(file_path.clone());
                 match (
                     &http_data.as_ref().and_then(|d| d.content_type.as_deref()),
                     &http_data.as_ref().and_then(|d| d.body.as_ref()),
                 ) {
                     (Some(content_type), Some(body)) if content_type.starts_with("image/") => {
+                        let stream_no = http_data.as_ref().unwrap().tcp_stream_no;
                         let seq_no = http_data.as_ref().unwrap().tcp_seq_number;
                         let s = self.model.got_image_sender.clone();
                         self.model
                             .bg_sender
                             .send(BgFunc::new(move || {
-                                Self::load_image(&file_path, seq_no, s.clone())
+                                Self::load_body_bytes(&file_path, stream_no, seq_no, s.clone())
                             }))
                             .unwrap();
                     }
@@ -119,14 +137,12 @@ impl Widget for HttpBodyWidget {
                     self.widgets
                         .body_image
                         .set_from_pixbuf(loader.get_pixbuf().as_ref());
-                    println!("activate image stack");
                     self.widgets
                         .contents_stack
                         .set_visible_child_name(IMAGE_CONTENTS_STACK_NAME);
                 }
             }
             Msg::SaveBinaryContents => {
-                println!("save binary contents");
                 let dialog = gtk::FileChooserNativeBuilder::new()
                     .action(gtk::FileChooserAction::Save)
                     .title("Export to...")
@@ -135,8 +151,31 @@ impl Widget for HttpBodyWidget {
                 dialog.set_current_name(&self.body_save_filename());
                 if dialog.run() == gtk::ResponseType::Accept {
                     println!("save {:?}", dialog.get_filename());
+                    let stream_no = self.model.data.as_ref().unwrap().tcp_stream_no;
+                    let seq_no = self.model.data.as_ref().unwrap().tcp_seq_number;
+                    let s = self.model.saved_body_sender.clone();
+                    let file_path = self.model.file_path.clone().unwrap();
+                    let target_fname = dialog.get_filename().unwrap(); // ## unwrap
+                    self.model
+                        .bg_sender
+                        .send(BgFunc::new(move || {
+                            s.send(SavedBodyData {
+                                error_msg: Self::save_body_bytes(
+                                    &file_path,
+                                    stream_no,
+                                    seq_no,
+                                    &target_fname,
+                                ),
+                            })
+                            .unwrap()
+                        }))
+                        .unwrap();
                 }
             }
+            Msg::SavedBody(SavedBodyData { error_msg: None }) => {}
+            Msg::SavedBody(SavedBodyData {
+                error_msg: Some(err),
+            }) => {}
         }
     }
 
@@ -194,22 +233,45 @@ impl Widget for HttpBodyWidget {
             .unwrap()
     }
 
-    fn load_image(file_path: &Path, tcp_seq_number: u32, s: relm::Sender<(Vec<u8>, u32)>) {
+    fn read_body_bytes(file_path: &Path, tcp_stream_id: u32, tcp_seq_number: u32) -> Vec<u8> {
         let mut packets = win::invoke_tshark::<TSharkCommunicationRaw>(
             file_path,
             win::TSharkMode::JsonRaw,
-            &format!("tcp.seq eq {}", tcp_seq_number),
+            &format!(
+                "tcp.seq eq {} && tcp.stream eq {}",
+                tcp_seq_number, tcp_stream_id
+            ),
         )
         .expect("tshark error");
         if packets.len() == 1 {
-            let bytes = packets.pop().unwrap().source.layers.http.unwrap().file_data;
-            s.send((bytes, tcp_seq_number)).unwrap();
+            packets.pop().unwrap().source.layers.http.unwrap().file_data
         } else {
             panic!(format!(
-                "unexpected json from tshark, tcp stream {}",
-                tcp_seq_number
+                "unexpected json from tshark, tcp stream {}, seq number {}",
+                tcp_stream_id, tcp_seq_number
             ));
         }
+    }
+
+    fn save_body_bytes(
+        pcap_file_path: &Path,
+        tcp_stream_id: u32,
+        tcp_seq_number: u32,
+        target_path: &Path,
+    ) -> Option<String> {
+        let bytes = Self::read_body_bytes(pcap_file_path, tcp_stream_id, tcp_seq_number);
+        let r = std::fs::write(target_path, bytes);
+        r.err().map(|e| e.to_string())
+    }
+
+    fn load_body_bytes(
+        file_path: &Path,
+        tcp_stream_id: u32,
+        tcp_seq_number: u32,
+        s: relm::Sender<(Vec<u8>, u32)>,
+    ) {
+        let bytes = Self::read_body_bytes(file_path, tcp_stream_id, tcp_seq_number);
+        s.send((bytes, tcp_seq_number)).unwrap();
     }
 
     view! {

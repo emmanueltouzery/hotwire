@@ -299,6 +299,7 @@ pub fn get_http_header_value(other_lines: &str, header_name: &str) -> Option<Str
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HttpRequestResponseData {
+    pub tcp_stream_no: u32,
     pub tcp_seq_number: u32,
     pub timestamp: NaiveDateTime,
     pub first_line: String,
@@ -324,6 +325,7 @@ fn parse_request_response(comm: TSharkCommunication) -> (RequestOrResponseOrOthe
     match http.map(|h| (h.http_type, h)) {
         Some((HttpType::Request, h)) => (
             RequestOrResponseOrOther::Request(HttpRequestResponseData {
+                tcp_stream_no: comm.source.layers.tcp.as_ref().unwrap().stream,
                 tcp_seq_number: comm.source.layers.tcp.as_ref().unwrap().seq_number,
                 timestamp: comm.source.layers.frame.frame_time,
                 body: h.body,
@@ -341,6 +343,7 @@ fn parse_request_response(comm: TSharkCommunication) -> (RequestOrResponseOrOthe
         ),
         Some((HttpType::Response, h)) => (
             RequestOrResponseOrOther::Response(HttpRequestResponseData {
+                tcp_stream_no: comm.source.layers.tcp.as_ref().unwrap().stream,
                 tcp_seq_number: comm.source.layers.tcp.as_ref().unwrap().seq_number,
                 timestamp: comm.source.layers.frame.frame_time,
                 body: h.body,
