@@ -34,11 +34,11 @@ pub enum Msg {
     GotImage(Vec<u8>, u32),
     RequestResponseChanged(Option<HttpRequestResponseData>, PathBuf),
     SaveBinaryContents,
-    StartSaveFile,
-    FinishSaveFile(Option<String>),
 }
 
 pub struct Model {
+    win_msg_sender: relm::StreamHandle<win::Msg>,
+
     format_code: bool,
     data: Option<HttpRequestResponseData>,
     file_path: Option<PathBuf>,
@@ -65,13 +65,14 @@ impl Widget for HttpBodyWidget {
         let (_saved_body_channel, saved_body_sender) = {
             let win_stream = win_msg_sender.clone();
             relm::Channel::new(move |d: SavedBodyData| {
-                win_msg_sender.emit(win::Msg::InfoBarShow(
+                win_stream.emit(win::Msg::InfoBarShow(
                     d.error_msg,
                     win::InfobarOptions::ShowCloseButton,
                 ))
             })
         };
         Model {
+            win_msg_sender,
             format_code: true,
             bg_sender,
             data: None,
@@ -161,12 +162,18 @@ impl Widget for HttpBodyWidget {
                     .build();
                 dialog.set_current_name(&self.body_save_filename());
                 if dialog.run() == gtk::ResponseType::Accept {
-                    println!("save {:?}", dialog.get_filename());
+                    let target_fname = dialog.get_filename().unwrap(); // ## unwrap
+                    self.model.win_msg_sender.emit(win::Msg::InfoBarShow(
+                        Some(format!(
+                            "Saving to file {}",
+                            &target_fname.to_string_lossy()
+                        )),
+                        win::InfobarOptions::ShowSpinner,
+                    ));
                     let stream_no = self.model.data.as_ref().unwrap().tcp_stream_no;
                     let seq_no = self.model.data.as_ref().unwrap().tcp_seq_number;
                     let s = self.model.saved_body_sender.clone();
                     let file_path = self.model.file_path.clone().unwrap();
-                    let target_fname = dialog.get_filename().unwrap(); // ## unwrap
                     self.model
                         .bg_sender
                         .send(BgFunc::new(move || {
@@ -183,9 +190,6 @@ impl Widget for HttpBodyWidget {
                         .unwrap();
                 }
             }
-            // meant for my parent
-            Msg::StartSaveFile => {}
-            Msg::FinishSaveFile(_) => {}
         }
     }
 

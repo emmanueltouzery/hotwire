@@ -98,6 +98,7 @@ pub struct Model {
     window_subtitle: Option<String>,
     current_file_path: Option<PathBuf>,
 
+    infobar_spinner: gtk::Spinner,
     infobar_label: gtk::Label,
 
     sidebar_selection_change_signal_id: Option<glib::SignalHandlerId>,
@@ -190,11 +191,13 @@ impl Widget for Win {
             .get_selection()
             .set_mode(gtk::SelectionMode::Multiple);
 
-        self.widgets
-            .infobar
-            .get_content_area()
-            .add(&self.model.infobar_label);
-        self.model.infobar_label.show();
+        let infobar_box = gtk::BoxBuilder::new().spacing(15).build();
+        infobar_box.add(&self.model.infobar_spinner);
+        infobar_box.add(&self.model.infobar_label);
+        infobar_box.show_all();
+        self.widgets.infobar.get_content_area().add(&infobar_box);
+
+        self.model.infobar_spinner.set_visible(false);
 
         // https://bugzilla.gnome.org/show_bug.cgi?id=305277
         gtk::Settings::get_default()
@@ -403,6 +406,10 @@ impl Widget for Win {
         Model {
             relm: relm.clone(),
             bg_sender,
+            infobar_spinner: gtk::SpinnerBuilder::new()
+                .width_request(24)
+                .height_request(24)
+                .build(),
             infobar_label: gtk::LabelBuilder::new().build(),
             _comm_targets_components: vec![],
             selected_card: None,
@@ -439,6 +446,17 @@ impl Widget for Win {
                 self.widgets
                     .infobar
                     .set_show_close_button(options == InfobarOptions::ShowCloseButton);
+                let has_spinner = options == InfobarOptions::ShowSpinner;
+                if self.model.infobar_spinner.get_visible() != has_spinner {
+                    if has_spinner {
+                        println!("start spinner");
+                        self.model.infobar_spinner.start();
+                    } else {
+                        println!("stop spinner");
+                        self.model.infobar_spinner.stop();
+                    }
+                    self.model.infobar_spinner.set_visible(has_spinner);
+                }
                 self.model.infobar_label.set_text(&msg);
                 self.widgets.infobar.set_visible(true);
             }
