@@ -1,5 +1,6 @@
 use crate::icons::Icon;
 use crate::widgets::comm_remote_server::MessageData;
+use crate::widgets::win;
 use crate::BgFunc;
 use crate::TSharkCommunication;
 use std::path::PathBuf;
@@ -36,6 +37,7 @@ pub trait MessageParser {
         parent: &gtk::ScrolledWindow,
         overlay: Option<&gtk::Overlay>,
         bg_sender: mpsc::Sender<BgFunc>,
+        win_msg_sender: relm::StreamHandle<win::Msg>,
     ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, MessageInfo)>;
 }
 

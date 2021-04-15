@@ -42,6 +42,13 @@ pub type LoadedDataParams = (
     Vec<(StreamInfo, Vec<MessageData>)>,
 );
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum InfobarOptions {
+    Default,
+    ShowCloseButton,
+    ShowSpinner,
+}
+
 #[derive(Msg, Debug)]
 pub enum Msg {
     OpenFile,
@@ -51,6 +58,9 @@ pub enum Msg {
 
     SelectCard(Option<usize>),
     SelectRemoteIpStream(gtk::TreeSelection),
+
+    InfoBarShow(Option<String>, InfobarOptions),
+    InfoBarEvent(gtk::ResponseType),
 
     SelectCardFromRemoteIpsAndStreams(CommTargetCardData, Vec<String>, Vec<u32>),
 
@@ -87,6 +97,8 @@ pub struct Model {
 
     window_subtitle: Option<String>,
     current_file_path: Option<PathBuf>,
+
+    infobar_label: gtk::Label,
 
     sidebar_selection_change_signal_id: Option<glib::SignalHandlerId>,
 
@@ -159,6 +171,7 @@ impl Widget for Win {
         if let Err(err) = self.load_style() {
             println!("Error loading the CSS: {}", err);
         }
+        self.widgets.infobar.set_visible(false);
 
         self.model.sidebar_selection_change_signal_id = {
             let stream = self.model.relm.stream().clone();
@@ -176,6 +189,12 @@ impl Widget for Win {
             .remote_ips_streams_treeview
             .get_selection()
             .set_mode(gtk::SelectionMode::Multiple);
+
+        self.widgets
+            .infobar
+            .get_content_area()
+            .add(&self.model.infobar_label);
+        self.model.infobar_label.show();
 
         // https://bugzilla.gnome.org/show_bug.cgi?id=305277
         gtk::Settings::get_default()
@@ -267,6 +286,7 @@ impl Widget for Win {
                 &scroll2,
                 overlay.as_ref(),
                 self.model.bg_sender.clone(),
+                self.model.relm.stream().clone(),
             ));
 
         self.widgets
@@ -383,6 +403,7 @@ impl Widget for Win {
         Model {
             relm: relm.clone(),
             bg_sender,
+            infobar_label: gtk::LabelBuilder::new().build(),
             _comm_targets_components: vec![],
             selected_card: None,
             comm_remote_servers_treeviews: vec![],
@@ -414,6 +435,17 @@ impl Widget for Win {
                 self.widgets.loading_tshark_label.set_visible(false);
                 self.widgets.loading_parsing_label.set_visible(true);
             }
+            Msg::InfoBarShow(Some(msg), options) => {
+                self.widgets
+                    .infobar
+                    .set_show_close_button(options == InfobarOptions::ShowCloseButton);
+                self.model.infobar_label.set_text(&msg);
+                self.widgets.infobar.set_visible(true);
+            }
+            Msg::InfoBarShow(None, _) | Msg::InfoBarEvent(gtk::ResponseType::Close) => {
+                self.widgets.infobar.set_visible(false);
+            }
+            Msg::InfoBarEvent(_) => {}
             Msg::LoadedData((fname, comm_target_cards, streams)) => {
                 self.widgets.loading_spinner.stop();
                 self.model.window_subtitle = Some(
@@ -923,30 +955,38 @@ impl Widget for Win {
                     child: {
                         name: Some(NORMAL_STACK_NAME)
                     },
+                    orientation: gtk::Orientation::Vertical,
                     hexpand: true,
-                    #[style_class="sidebar"]
-                    gtk::ScrolledWindow {
-                        property_width_request: 250,
-                        #[name="comm_target_list"]
-                        gtk::ListBox {
-                            row_selected(_, row) =>
-                                Msg::SelectCard(row.map(|r| r.get_index() as usize))
-                        }
+                    #[name="infobar"]
+                    gtk::InfoBar {
+                        response(_, r) => Msg::InfoBarEvent(r)
                     },
-                    gtk::ScrolledWindow {
-                        property_width_request: 150,
-                        #[name="remote_ips_streams_treeview"]
-                        gtk::TreeView {
-                            activate_on_single_click: true,
-                            // connecting manually to collect the signal id for blocking
-                            // selection.changed(selection) => Msg::SelectRemoteIpStream(selection.clone()),
+                    gtk::Box {
+                        vexpand: true,
+                        #[style_class="sidebar"]
+                        gtk::ScrolledWindow {
+                            property_width_request: 250,
+                            #[name="comm_target_list"]
+                            gtk::ListBox {
+                                row_selected(_, row) =>
+                                    Msg::SelectCard(row.map(|r| r.get_index() as usize))
+                            }
                         },
-                    },
-                    gtk::Separator {
-                        orientation: gtk::Orientation::Vertical,
-                    },
-                    #[name="comm_remote_servers_stack"]
-                    gtk::Stack {}
+                        gtk::ScrolledWindow {
+                            property_width_request: 150,
+                            #[name="remote_ips_streams_treeview"]
+                            gtk::TreeView {
+                                activate_on_single_click: true,
+                                // connecting manually to collect the signal id for blocking
+                                // selection.changed(selection) => Msg::SelectRemoteIpStream(selection.clone()),
+                            },
+                        },
+                        gtk::Separator {
+                            orientation: gtk::Orientation::Vertical,
+                        },
+                        #[name="comm_remote_servers_stack"]
+                        gtk::Stack {}
+                    }
                 },
             },
             delete_event(_, _) => (Msg::Quit, Inhibit(false)),

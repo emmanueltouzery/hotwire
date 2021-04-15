@@ -1,6 +1,7 @@
 use crate::icons::Icon;
 use crate::message_parser::{MessageInfo, MessageParser, StreamData};
 use crate::widgets::comm_remote_server::MessageData;
+use crate::widgets::win;
 use crate::BgFunc;
 use crate::TSharkCommunication;
 use gtk::prelude::*;
@@ -108,6 +109,7 @@ impl MessageParser for Tls {
         parent: &gtk::ScrolledWindow,
         overlay: Option<&gtk::Overlay>,
         bg_sender: mpsc::Sender<BgFunc>,
+        win_msg_sender: relm::StreamHandle<win::Msg>,
     ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, MessageInfo)> {
         let component = Box::leak(Box::new(
             parent.add_widget::<TlsCommEntry>(TlsMessageData {}),

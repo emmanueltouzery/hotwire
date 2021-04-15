@@ -5,6 +5,7 @@ use crate::http::tshark_http::HttpType;
 use crate::icons::Icon;
 use crate::message_parser::{MessageInfo, MessageParser, StreamData};
 use crate::widgets::comm_remote_server::MessageData;
+use crate::widgets::win;
 use crate::BgFunc;
 use crate::TSharkCommunication;
 use chrono::NaiveDateTime;
@@ -250,8 +251,10 @@ impl MessageParser for Http {
         parent: &gtk::ScrolledWindow,
         overlay: Option<&gtk::Overlay>,
         bg_sender: mpsc::Sender<BgFunc>,
+        win_msg_sender: relm::StreamHandle<win::Msg>,
     ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, MessageInfo)> {
         let component = Box::leak(Box::new(parent.add_widget::<HttpCommEntry>((
+            win_msg_sender,
             0,
             "".to_string(),
             HttpMessageData {

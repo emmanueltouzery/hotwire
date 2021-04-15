@@ -32,9 +32,10 @@ pub struct SavedBodyData {
 pub enum Msg {
     FormatCodeChanged(bool),
     GotImage(Vec<u8>, u32),
-    SavedBody(SavedBodyData),
     RequestResponseChanged(Option<HttpRequestResponseData>, PathBuf),
     SaveBinaryContents,
+    StartSaveFile,
+    FinishSaveFile(Option<String>),
 }
 
 pub struct Model {
@@ -52,14 +53,23 @@ pub struct Model {
 
 #[widget]
 impl Widget for HttpBodyWidget {
-    fn model(relm: &relm::Relm<Self>, bg_sender: mpsc::Sender<BgFunc>) -> Model {
+    fn model(
+        relm: &relm::Relm<Self>,
+        params: (relm::StreamHandle<win::Msg>, mpsc::Sender<BgFunc>),
+    ) -> Model {
+        let (win_msg_sender, bg_sender) = params;
         let (_got_image_channel, got_image_sender) = {
             let stream = relm.stream().clone();
             relm::Channel::new(move |d: (Vec<u8>, u32)| stream.emit(Msg::GotImage(d.0, d.1)))
         };
         let (_saved_body_channel, saved_body_sender) = {
-            let stream = relm.stream().clone();
-            relm::Channel::new(move |d: SavedBodyData| stream.emit(Msg::SavedBody(d)))
+            let win_stream = win_msg_sender.clone();
+            relm::Channel::new(move |d: SavedBodyData| {
+                win_msg_sender.emit(win::Msg::InfoBarShow(
+                    d.error_msg,
+                    win::InfobarOptions::ShowCloseButton,
+                ))
+            })
         };
         Model {
             format_code: true,
@@ -146,6 +156,7 @@ impl Widget for HttpBodyWidget {
                 let dialog = gtk::FileChooserNativeBuilder::new()
                     .action(gtk::FileChooserAction::Save)
                     .title("Export to...")
+                    .do_overwrite_confirmation(true)
                     .modal(true)
                     .build();
                 dialog.set_current_name(&self.body_save_filename());
@@ -172,10 +183,9 @@ impl Widget for HttpBodyWidget {
                         .unwrap();
                 }
             }
-            Msg::SavedBody(SavedBodyData { error_msg: None }) => {}
-            Msg::SavedBody(SavedBodyData {
-                error_msg: Some(err),
-            }) => {}
+            // meant for my parent
+            Msg::StartSaveFile => {}
+            Msg::FinishSaveFile(_) => {}
         }
     }
 

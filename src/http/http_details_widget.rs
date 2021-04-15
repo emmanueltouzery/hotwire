@@ -6,6 +6,7 @@ use crate::message_parser::MessageInfo;
 use crate::widgets::comm_info_header;
 use crate::widgets::comm_info_header::CommInfoHeader;
 use crate::widgets::comm_remote_server::MessageData;
+use crate::widgets::win;
 use crate::BgFunc;
 use gtk::prelude::*;
 use relm::Widget;
@@ -20,6 +21,7 @@ pub enum Msg {
 }
 
 pub struct Model {
+    win_msg_sender: relm::StreamHandle<win::Msg>,
     bg_sender: mpsc::Sender<BgFunc>,
     stream_id: u32,
     client_ip: String,
@@ -33,6 +35,7 @@ impl Widget for HttpCommEntry {
     fn model(
         relm: &relm::Relm<Self>,
         params: (
+            relm::StreamHandle<win::Msg>,
             u32,
             String,
             HttpMessageData,
@@ -40,7 +43,7 @@ impl Widget for HttpCommEntry {
             mpsc::Sender<BgFunc>,
         ),
     ) -> Model {
-        let (stream_id, client_ip, data, overlay, bg_sender) = params;
+        let (win_msg_sender, stream_id, client_ip, data, overlay, bg_sender) = params;
 
         let disable_formatting_btn = gtk::ToggleButtonBuilder::new()
             .label("Disable formatting")
@@ -62,6 +65,7 @@ impl Widget for HttpCommEntry {
             Msg::RemoveFormatToggled
         );
         Model {
+            win_msg_sender,
             bg_sender,
             data,
             stream_id,
@@ -141,7 +145,7 @@ impl Widget for HttpCommEntry {
                 selectable: true,
             },
             #[name="request_body"]
-            HttpBodyWidget(self.model.bg_sender.clone()),
+            HttpBodyWidget((self.model.win_msg_sender.clone(), self.model.bg_sender.clone())),
             gtk::Separator {},
             #[style_class="http_first_line"]
             gtk::Label {
@@ -155,7 +159,7 @@ impl Widget for HttpCommEntry {
                 selectable: true,
             },
             #[name="response_body"]
-            HttpBodyWidget(self.model.bg_sender.clone()),
+            HttpBodyWidget((self.model.win_msg_sender.clone(), self.model.bg_sender.clone())),
         }
     }
 }
