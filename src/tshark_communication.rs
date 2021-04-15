@@ -74,7 +74,7 @@ pub struct TSharkIpV6Layer {
 #[derive(Deserialize, Debug)]
 pub struct TSharkTcpLayer {
     #[serde(
-        rename = "tcp.seq",
+        rename = "tcp.seq_raw",
         deserialize_with = "deserialize_number_from_string"
     )]
     pub seq_number: u32,

@@ -237,10 +237,7 @@ impl Widget for HttpBodyWidget {
         let mut packets = win::invoke_tshark::<TSharkCommunicationRaw>(
             file_path,
             win::TSharkMode::JsonRaw,
-            &format!(
-                "tcp.seq eq {} && tcp.stream eq {}",
-                tcp_seq_number, tcp_stream_id
-            ),
+            &format!("tcp.seq_raw eq {} && http", tcp_seq_number),
         )
         .expect("tshark error");
         if packets.len() == 1 {
