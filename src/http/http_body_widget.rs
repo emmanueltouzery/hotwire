@@ -288,6 +288,7 @@ impl Widget for HttpBodyWidget {
     view! {
        #[name="contents_stack"]
        gtk::Stack {
+           visible: self.model.data.as_ref().and_then(|d|d.body.as_ref()).is_some(),
            gtk::Label {
                child: {
                    name: Some(TEXT_CONTENTS_STACK_NAME)
@@ -297,14 +298,25 @@ impl Widget for HttpBodyWidget {
                    self.model.data.as_ref().and_then(|d| d.body.as_ref()).map(|b| b.as_str()).unwrap_or(""),
                    self.model.data.as_ref().and_then(|d| d.content_type.as_deref())),
                xalign: 0.0,
-               visible: self.model.data.as_ref().and_then(|d|d.body.as_ref()).is_some(),
                selectable: true,
            },
-           #[name="body_image"]
-           gtk::Image {
+           gtk::Box {
+               orientation: gtk::Orientation::Vertical,
                child: {
                    name: Some(IMAGE_CONTENTS_STACK_NAME)
                },
+               #[name="body_image"]
+               gtk::Image {
+                   halign: gtk::Align::Start,
+               },
+               gtk::Button {
+                   halign: gtk::Align::Start,
+                   always_show_image: true,
+                   image: Some(&gtk::Image::from_icon_name(
+                        Some("document-save-symbolic"), gtk::IconSize::Menu)),
+                    button_press_event(_, _) => (Msg::SaveBinaryContents, Inhibit(false)),
+                   label: "Save image"
+               }
            },
            gtk::Box {
                child: {
