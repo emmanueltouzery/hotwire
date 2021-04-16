@@ -148,105 +148,7 @@ impl Widget for PostgresCommEntry {
                 self.model.stream_id = stream_id;
                 self.model.client_ip = client_ip;
 
-                let field_descs: Vec<_> = self
-                    .model
-                    .data
-                    .resultset_col_types
-                    .iter()
-                    .map(|t| match t {
-                        // I'd love to "optimize" the liststore by storing ints as ints and not
-                        // as strings. Sadly... https://gtk-rs.org/docs/glib/value/struct.Value.html
-                        // "Some types (e.g. String and objects) support None values while others (e.g. numeric types) don't."
-                        //
-                        // And obviously I want to support 'null'. Therefore write all the columns as strings in the liststore.
-
-                        // PostgresColType::Bool => bool::static_type(),
-                        // PostgresColType::Int2 | PostgresColType::Int4 => i32::static_type(),
-                        // // PostgresColType::Int8 | PostgresColType::Timestamp => i64::static_type(),
-                        // PostgresColType::Int8 => i64::static_type(),
-                        _ => String::static_type(),
-                    })
-                    .collect();
-                let descs = if field_descs.is_empty() {
-                    // gtk really doesn't like if there are no columns (crashes or something like that)
-                    vec![String::static_type()]
-                } else {
-                    field_descs
-                };
-
-                let list_store = gtk::ListStore::new(&descs);
-                for col in &self.widgets.resultset.get_columns() {
-                    self.widgets.resultset.remove_column(col);
-                }
-
-                for (idx, col_name) in self.model.data.resultset_col_names.iter().enumerate() {
-                    let col1 = gtk::TreeViewColumnBuilder::new().title(&col_name).build();
-                    let cell_r_txt = gtk::CellRendererText::new();
-                    col1.pack_start(&cell_r_txt, true);
-                    col1.add_attribute(&cell_r_txt, "text", idx as i32);
-                    self.widgets.resultset.append_column(&col1);
-                }
-
-                for row_idx in 0..self.model.data.resultset_row_count {
-                    let iter = list_store.append();
-                    let mut bool_idx = 0;
-                    let mut int_idx = 0;
-                    let mut bigint_idx = 0;
-                    let mut str_idx = 0;
-                    for (col_idx, col_type) in
-                        self.model.data.resultset_col_types.iter().enumerate()
-                    {
-                        match col_type {
-                            PostgresColType::Bool => {
-                                list_store.set_value(
-                                    &iter,
-                                    col_idx as u32,
-                                    &self.model.data.resultset_bool_cols[bool_idx][row_idx]
-                                        .map(|v| Cow::Owned(v.to_string()))
-                                        .unwrap_or(Cow::Borrowed("null"))
-                                        .to_value(),
-                                );
-                                bool_idx += 1;
-                            }
-                            PostgresColType::Int2 | PostgresColType::Int4 => {
-                                list_store.set_value(
-                                    &iter,
-                                    col_idx as u32,
-                                    &self.model.data.resultset_int_cols[int_idx][row_idx]
-                                        .map(|v| Cow::Owned(v.to_string()))
-                                        .unwrap_or(Cow::Borrowed("null"))
-                                        .to_value(),
-                                );
-                                int_idx += 1;
-                            }
-                            // PostgresColType::Int8 | PostgresColType::Timestamp => {
-                            PostgresColType::Int8 => {
-                                list_store.set_value(
-                                    &iter,
-                                    col_idx as u32,
-                                    &self.model.data.resultset_int_cols[bigint_idx][row_idx]
-                                        .map(|v| Cow::Owned(v.to_string()))
-                                        .unwrap_or(Cow::Borrowed("null"))
-                                        .to_value(),
-                                );
-                                bigint_idx += 1;
-                            }
-                            _ => {
-                                list_store.set_value(
-                                    &iter,
-                                    col_idx as u32,
-                                    &self.model.data.resultset_string_cols[str_idx][row_idx]
-                                        .as_deref()
-                                        .unwrap_or("null")
-                                        .to_value(),
-                                );
-                                str_idx += 1;
-                            }
-                        }
-                    }
-                }
-                self.widgets.resultset.set_model(Some(&list_store));
-                self.model.list_store = Some(list_store);
+                self.fill_resultset();
             }
             Msg::DisplayDetails(_, _, _) => {}
             Msg::ExportResultSet => {
@@ -273,6 +175,110 @@ impl Widget for PostgresCommEntry {
                             s.send(Self::save_resultset(&target_fname)).unwrap()
                         }))
                         .unwrap();
+                }
+            }
+        }
+    }
+
+    fn fill_resultset(&mut self) {
+        let field_descs: Vec<_> = self
+            .model
+            .data
+            .resultset_col_types
+            .iter()
+            .map(|t| match t {
+                // I'd love to "optimize" the liststore by storing ints as ints and not
+                // as strings. Sadly... https://gtk-rs.org/docs/glib/value/struct.Value.html
+                // "Some types (e.g. String and objects) support None values while others (e.g. numeric types) don't."
+                //
+                // And obviously I want to support 'null'. Therefore write all the columns as strings in the liststore.
+
+                // PostgresColType::Bool => bool::static_type(),
+                // PostgresColType::Int2 | PostgresColType::Int4 => i32::static_type(),
+                // // PostgresColType::Int8 | PostgresColType::Timestamp => i64::static_type(),
+                // PostgresColType::Int8 => i64::static_type(),
+                _ => String::static_type(),
+            })
+            .collect();
+        let descs = if field_descs.is_empty() {
+            // gtk really doesn't like if there are no columns (crashes or something like that)
+            vec![String::static_type()]
+        } else {
+            field_descs
+        };
+
+        let list_store = gtk::ListStore::new(&descs);
+        for col in &self.widgets.resultset.get_columns() {
+            self.widgets.resultset.remove_column(col);
+        }
+
+        for (idx, col_name) in self.model.data.resultset_col_names.iter().enumerate() {
+            let col1 = gtk::TreeViewColumnBuilder::new().title(&col_name).build();
+            let cell_r_txt = gtk::CellRendererText::new();
+            col1.pack_start(&cell_r_txt, true);
+            col1.add_attribute(&cell_r_txt, "text", idx as i32);
+            self.widgets.resultset.append_column(&col1);
+        }
+
+        for row_idx in 0..self.model.data.resultset_row_count {
+            self.fill_liststore_row(&list_store, row_idx);
+        }
+        self.widgets.resultset.set_model(Some(&list_store));
+        self.model.list_store = Some(list_store);
+    }
+
+    fn fill_liststore_row(&self, list_store: &gtk::ListStore, row_idx: usize) {
+        let iter = list_store.append();
+        let mut bool_idx = 0;
+        let mut int_idx = 0;
+        let mut bigint_idx = 0;
+        let mut str_idx = 0;
+        for (col_idx, col_type) in self.model.data.resultset_col_types.iter().enumerate() {
+            match col_type {
+                PostgresColType::Bool => {
+                    list_store.set_value(
+                        &iter,
+                        col_idx as u32,
+                        &self.model.data.resultset_bool_cols[bool_idx][row_idx]
+                            .map(|v| Cow::Owned(v.to_string()))
+                            .unwrap_or(Cow::Borrowed("null"))
+                            .to_value(),
+                    );
+                    bool_idx += 1;
+                }
+                PostgresColType::Int2 | PostgresColType::Int4 => {
+                    list_store.set_value(
+                        &iter,
+                        col_idx as u32,
+                        &self.model.data.resultset_int_cols[int_idx][row_idx]
+                            .map(|v| Cow::Owned(v.to_string()))
+                            .unwrap_or(Cow::Borrowed("null"))
+                            .to_value(),
+                    );
+                    int_idx += 1;
+                }
+                // PostgresColType::Int8 | PostgresColType::Timestamp => {
+                PostgresColType::Int8 => {
+                    list_store.set_value(
+                        &iter,
+                        col_idx as u32,
+                        &self.model.data.resultset_int_cols[bigint_idx][row_idx]
+                            .map(|v| Cow::Owned(v.to_string()))
+                            .unwrap_or(Cow::Borrowed("null"))
+                            .to_value(),
+                    );
+                    bigint_idx += 1;
+                }
+                _ => {
+                    list_store.set_value(
+                        &iter,
+                        col_idx as u32,
+                        &self.model.data.resultset_string_cols[str_idx][row_idx]
+                            .as_deref()
+                            .unwrap_or("null")
+                            .to_value(),
+                    );
+                    str_idx += 1;
                 }
             }
         }
