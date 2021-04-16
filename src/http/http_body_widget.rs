@@ -301,10 +301,10 @@ impl Widget for HttpBodyWidget {
                selectable: true,
            },
            gtk::Box {
-               orientation: gtk::Orientation::Vertical,
                child: {
                    name: Some(IMAGE_CONTENTS_STACK_NAME)
                },
+               orientation: gtk::Orientation::Vertical,
                #[name="body_image"]
                gtk::Image {
                    halign: gtk::Align::Start,
@@ -322,15 +322,18 @@ impl Widget for HttpBodyWidget {
                child: {
                    name: Some(BINARY_CONTENTS_STACK_NAME)
                },
+               orientation: gtk::Orientation::Vertical,
                gtk::Label {
-                   text: "Body contents are binary data"
+                   text: "Body contents are binary data",
+                   halign: gtk::Align::Start,
                },
                gtk::Button {
                    always_show_image: true,
                    image: Some(&gtk::Image::from_icon_name(
                         Some("document-save-symbolic"), gtk::IconSize::Menu)),
                     button_press_event(_, _) => (Msg::SaveBinaryContents, Inhibit(false)),
-                   label: "Save body contents"
+                   label: "Save body contents",
+                   halign: gtk::Align::Start,
                }
            }
        }
