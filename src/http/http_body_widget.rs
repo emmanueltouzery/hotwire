@@ -314,7 +314,7 @@ impl Widget for HttpBodyWidget {
                    always_show_image: true,
                    image: Some(&gtk::Image::from_icon_name(
                         Some("document-save-symbolic"), gtk::IconSize::Menu)),
-                    button_press_event(_, _) => (Msg::SaveBinaryContents, Inhibit(false)),
+                   button_press_event(_, _) => (Msg::SaveBinaryContents, Inhibit(false)),
                    label: "Save image"
                }
            },

@@ -4,6 +4,7 @@ use crate::pgsql::tshark_pgsql::PostgresColType;
 use crate::widgets::comm_info_header;
 use crate::widgets::comm_info_header::CommInfoHeader;
 use crate::widgets::comm_remote_server::MessageData;
+use crate::widgets::win;
 use crate::BgFunc;
 use gtk::prelude::*;
 use itertools::Itertools;
@@ -11,34 +12,64 @@ use regex::Regex;
 use relm::Widget;
 use relm_derive::{widget, Msg};
 use std::borrow::Cow;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::mpsc;
 
 pub struct Model {
+    bg_sender: mpsc::Sender<BgFunc>,
+    win_msg_sender: relm::StreamHandle<win::Msg>,
     stream_id: u32,
     client_ip: String,
     data: PostgresMessageData,
     list_store: Option<gtk::ListStore>,
     syntax_highlight: Vec<(Regex, String)>,
+
+    _saved_resultset_channel: relm::Channel<Option<String>>, // None on success, or error message
+    saved_resultset_sender: relm::Sender<Option<String>>,
 }
 
 #[derive(Msg, Debug)]
 pub enum Msg {
     DisplayDetails(mpsc::Sender<BgFunc>, PathBuf, MessageInfo),
+    ExportResultSet,
 }
 
 #[widget]
 impl Widget for PostgresCommEntry {
     fn init_view(&mut self) {}
 
-    fn model(_relm: &relm::Relm<Self>, params: (u32, String, PostgresMessageData)) -> Model {
-        let (stream_id, client_ip, data) = params;
+    fn model(
+        _relm: &relm::Relm<Self>,
+        params: (
+            u32,
+            String,
+            PostgresMessageData,
+            relm::StreamHandle<win::Msg>,
+            mpsc::Sender<BgFunc>,
+        ),
+    ) -> Model {
+        let (stream_id, client_ip, data, win_msg_sender, bg_sender) = params;
+        let (_saved_resultset_channel, saved_resultset_sender) = {
+            let win_stream = win_msg_sender.clone();
+            relm::Channel::new(move |d: Option<String>| {
+                win_stream.emit(win::Msg::InfoBarShow(
+                    d,
+                    win::InfobarOptions::ShowCloseButton,
+                ))
+            })
+        };
         Model {
+            bg_sender,
+            win_msg_sender,
             data,
             stream_id,
             client_ip,
             list_store: None,
             syntax_highlight: Self::prepare_syntax_highlight(),
+
+            saved_resultset_sender,
+            _saved_resultset_channel,
         }
     }
 
@@ -217,8 +248,38 @@ impl Widget for PostgresCommEntry {
                 self.widgets.resultset.set_model(Some(&list_store));
                 self.model.list_store = Some(list_store);
             }
-            _ => {}
+            Msg::DisplayDetails(_, _, _) => {}
+            Msg::ExportResultSet => {
+                let dialog = gtk::FileChooserNativeBuilder::new()
+                    .action(gtk::FileChooserAction::Save)
+                    .title("Export to...")
+                    .do_overwrite_confirmation(true)
+                    .modal(true)
+                    .build();
+                dialog.set_current_name("resultset.csv");
+                if dialog.run() == gtk::ResponseType::Accept {
+                    let target_fname = dialog.get_filename().unwrap(); // ## unwrap
+                    self.model.win_msg_sender.emit(win::Msg::InfoBarShow(
+                        Some(format!(
+                            "Saving to file {}",
+                            &target_fname.to_string_lossy()
+                        )),
+                        win::InfobarOptions::ShowSpinner,
+                    ));
+                    let s = self.model.saved_resultset_sender.clone();
+                    self.model
+                        .bg_sender
+                        .send(BgFunc::new(move || {
+                            s.send(Self::save_resultset(&target_fname)).unwrap()
+                        }))
+                        .unwrap();
+                }
+            }
         }
+    }
+
+    fn save_resultset(target_fname: &Path) -> Option<String> {
+        None
     }
 
     fn highlight_sql(highlight: &[(Regex, String)], query: &str) -> String {
@@ -268,16 +329,25 @@ impl Widget for PostgresCommEntry {
                     orientation: gtk::Orientation::Vertical,
                     gtk::Box {
                         orientation: gtk::Orientation::Horizontal,
+                        visible: self.model.data.resultset_row_count > 0,
                         gtk::Label {
                             label: &self.model.data.resultset_row_count.to_string(),
                             xalign: 0.0,
-                            visible: self.model.data.resultset_row_count > 0
                         },
                         gtk::Label {
                             label: " row(s)",
                             xalign: 0.0,
-                            visible: !self.model.data.resultset_row_count > 0
                         },
+                        gtk::Button {
+                            child: {
+                                pack_type: gtk::PackType::End,
+                            },
+                            always_show_image: true,
+                            image: Some(&gtk::Image::from_icon_name(
+                                Some("document-save-symbolic"), gtk::IconSize::Menu)),
+                            label: "Export resultset...",
+                            button_press_event(_, _) => (Msg::ExportResultSet, Inhibit(false)),
+                        }
                     },
                     gtk::ScrolledWindow {
                         #[name="resultset"]

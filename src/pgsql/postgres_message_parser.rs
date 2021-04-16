@@ -480,7 +480,7 @@ impl MessageParser for Postgres {
         &self,
         parent: &gtk::ScrolledWindow,
         overlay: Option<&gtk::Overlay>,
-        _bg_sender: mpsc::Sender<BgFunc>,
+        bg_sender: mpsc::Sender<BgFunc>,
         win_msg_sender: relm::StreamHandle<win::Msg>,
     ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, MessageInfo)> {
         let component = Box::leak(Box::new(parent.add_widget::<PostgresCommEntry>((
@@ -499,6 +499,8 @@ impl MessageParser for Postgres {
                 resultset_string_cols: vec![],
                 resultset_col_types: vec![],
             },
+            win_msg_sender,
+            bg_sender,
         ))));
         Box::new(move |bg_sender, path, message_info| {
             component
