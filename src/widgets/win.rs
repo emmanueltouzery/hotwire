@@ -47,6 +47,7 @@ pub enum InfobarOptions {
     Default,
     ShowCloseButton,
     ShowSpinner,
+    TimeLimitedWithCloseButton,
 }
 
 #[derive(Msg, Debug)]
@@ -443,9 +444,10 @@ impl Widget for Win {
                 self.widgets.loading_parsing_label.set_visible(true);
             }
             Msg::InfoBarShow(Some(msg), options) => {
-                self.widgets
-                    .infobar
-                    .set_show_close_button(options == InfobarOptions::ShowCloseButton);
+                self.widgets.infobar.set_show_close_button(matches!(
+                    options,
+                    InfobarOptions::ShowCloseButton | InfobarOptions::TimeLimitedWithCloseButton
+                ));
                 let has_spinner = options == InfobarOptions::ShowSpinner;
                 if self.model.infobar_spinner.get_visible() != has_spinner {
                     if has_spinner {
@@ -456,6 +458,11 @@ impl Widget for Win {
                         self.model.infobar_spinner.stop();
                     }
                     self.model.infobar_spinner.set_visible(has_spinner);
+                }
+                if options == InfobarOptions::TimeLimitedWithCloseButton {
+                    relm::timeout(self.model.relm.stream(), 1500, || {
+                        Msg::InfoBarShow(None, InfobarOptions::Default)
+                    });
                 }
                 self.model.infobar_label.set_text(&msg);
                 self.widgets.infobar.set_visible(true);

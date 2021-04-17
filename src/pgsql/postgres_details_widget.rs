@@ -56,10 +56,19 @@ impl Widget for PostgresCommEntry {
         let (_saved_resultset_channel, saved_resultset_sender) = {
             let win_stream = win_msg_sender.clone();
             relm::Channel::new(move |d: Option<String>| {
-                win_stream.emit(win::Msg::InfoBarShow(
-                    d,
-                    win::InfobarOptions::ShowCloseButton,
-                ))
+                if d.is_some() {
+                    // error
+                    win_stream.emit(win::Msg::InfoBarShow(
+                        d,
+                        win::InfobarOptions::ShowCloseButton,
+                    ))
+                } else {
+                    // success
+                    win_stream.emit(win::Msg::InfoBarShow(
+                        Some("The export has completed successfully".to_string()),
+                        win::InfobarOptions::TimeLimitedWithCloseButton,
+                    ))
+                }
             })
         };
         Model {
