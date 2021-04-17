@@ -12,6 +12,9 @@ use regex::Regex;
 use relm::Widget;
 use relm_derive::{widget, Msg};
 use std::borrow::Cow;
+use std::fs::File;
+use std::io::BufWriter;
+use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -168,13 +171,21 @@ impl Widget for PostgresCommEntry {
                         )),
                         win::InfobarOptions::ShowSpinner,
                     ));
-                    let s = self.model.saved_resultset_sender.clone();
-                    self.model
-                        .bg_sender
-                        .send(BgFunc::new(move || {
-                            s.send(Self::save_resultset(&target_fname)).unwrap()
-                        }))
-                        .unwrap();
+                    {
+                        let s = self.model.saved_resultset_sender.clone();
+                        let pg_data = self.model.data.clone();
+                        self.model
+                            .bg_sender
+                            .send(BgFunc::new(move || {
+                                s.send(
+                                    Self::save_resultset(&target_fname, &pg_data)
+                                        .map_err(|e| e.to_string())
+                                        .err(),
+                                )
+                                .unwrap()
+                            }))
+                            .unwrap();
+                    }
                 }
             }
         }
@@ -221,62 +232,88 @@ impl Widget for PostgresCommEntry {
         }
 
         for row_idx in 0..self.model.data.resultset_row_count {
-            self.fill_liststore_row(&list_store, row_idx);
+            let iter = list_store.append();
+            Self::visit_resultset_row(
+                &self.model.data,
+                row_idx,
+                &mut (),
+                |col_idx, bool_val, _| {
+                    list_store.set_value(
+                        &iter,
+                        col_idx as u32,
+                        &bool_val
+                            .map(|v| Cow::Owned(v.to_string()))
+                            .unwrap_or(Cow::Borrowed("null"))
+                            .to_value(),
+                    );
+                },
+                |col_idx, int_val, _| {
+                    list_store.set_value(
+                        &iter,
+                        col_idx as u32,
+                        &int_val
+                            .map(|v| Cow::Owned(v.to_string()))
+                            .unwrap_or(Cow::Borrowed("null"))
+                            .to_value(),
+                    );
+                },
+                |col_idx, str_val, _| {
+                    list_store.set_value(
+                        &iter,
+                        col_idx as u32,
+                        &str_val.as_deref().unwrap_or("null").to_value(),
+                    );
+                },
+            );
         }
         self.widgets.resultset.set_model(Some(&list_store));
         self.model.list_store = Some(list_store);
     }
 
-    fn fill_liststore_row(&self, list_store: &gtk::ListStore, row_idx: usize) {
-        let iter = list_store.append();
+    fn visit_resultset_row<D>(
+        pg_message: &PostgresMessageData,
+        row_idx: usize,
+        data: &mut D,
+        bool_value_cb: impl Fn(usize, Option<bool>, &mut D),
+        int_value_cb: impl Fn(usize, Option<i64>, &mut D),
+        string_value_cb: impl Fn(usize, Option<&str>, &mut D),
+    ) {
         let mut bool_idx = 0;
         let mut int_idx = 0;
         let mut bigint_idx = 0;
         let mut str_idx = 0;
-        for (col_idx, col_type) in self.model.data.resultset_col_types.iter().enumerate() {
+        for (col_idx, col_type) in pg_message.resultset_col_types.iter().enumerate() {
             match col_type {
                 PostgresColType::Bool => {
-                    list_store.set_value(
-                        &iter,
-                        col_idx as u32,
-                        &self.model.data.resultset_bool_cols[bool_idx][row_idx]
-                            .map(|v| Cow::Owned(v.to_string()))
-                            .unwrap_or(Cow::Borrowed("null"))
-                            .to_value(),
+                    bool_value_cb(
+                        col_idx,
+                        pg_message.resultset_bool_cols[bool_idx][row_idx],
+                        data,
                     );
                     bool_idx += 1;
                 }
                 PostgresColType::Int2 | PostgresColType::Int4 => {
-                    list_store.set_value(
-                        &iter,
-                        col_idx as u32,
-                        &self.model.data.resultset_int_cols[int_idx][row_idx]
-                            .map(|v| Cow::Owned(v.to_string()))
-                            .unwrap_or(Cow::Borrowed("null"))
-                            .to_value(),
+                    int_value_cb(
+                        col_idx,
+                        pg_message.resultset_int_cols[int_idx][row_idx].map(|i| i as i64),
+                        data,
                     );
                     int_idx += 1;
                 }
                 // PostgresColType::Int8 | PostgresColType::Timestamp => {
                 PostgresColType::Int8 => {
-                    list_store.set_value(
-                        &iter,
-                        col_idx as u32,
-                        &self.model.data.resultset_int_cols[bigint_idx][row_idx]
-                            .map(|v| Cow::Owned(v.to_string()))
-                            .unwrap_or(Cow::Borrowed("null"))
-                            .to_value(),
+                    int_value_cb(
+                        col_idx,
+                        pg_message.resultset_bigint_cols[bigint_idx][row_idx],
+                        data,
                     );
                     bigint_idx += 1;
                 }
                 _ => {
-                    list_store.set_value(
-                        &iter,
-                        col_idx as u32,
-                        &self.model.data.resultset_string_cols[str_idx][row_idx]
-                            .as_deref()
-                            .unwrap_or("null")
-                            .to_value(),
+                    string_value_cb(
+                        col_idx,
+                        pg_message.resultset_string_cols[str_idx][row_idx].as_deref(),
+                        data,
                     );
                     str_idx += 1;
                 }
@@ -284,8 +321,50 @@ impl Widget for PostgresCommEntry {
         }
     }
 
-    fn save_resultset(target_fname: &Path) -> Option<String> {
-        None
+    fn save_resultset(
+        target_fname: &Path,
+        pg_message: &PostgresMessageData,
+    ) -> std::io::Result<()> {
+        let mut file = BufWriter::new(File::create(target_fname)?);
+        file.write_all(pg_message.resultset_col_names.join("\t").as_bytes())?;
+        let write_separator = |s: &mut String, col_idx| {
+            if col_idx > 0 {
+                s.push('\t');
+            } else {
+                s.push('\n');
+            }
+        };
+        let mut output = String::new();
+        for row_idx in 0..pg_message.resultset_row_count {
+            Self::visit_resultset_row(
+                pg_message,
+                row_idx,
+                &mut output,
+                |col_idx, bool_val, output| {
+                    write_separator(output, col_idx);
+                    output.push_str(match bool_val {
+                        Some(true) => "true",
+                        Some(false) => "false",
+                        None => "null",
+                    });
+                },
+                |col_idx, int_val, output| {
+                    write_separator(output, col_idx);
+                    if let Some(i) = int_val {
+                        output.push_str(&i.to_string());
+                    } else {
+                        output.push_str("null");
+                    }
+                },
+                |col_idx, str_val, output| {
+                    write_separator(output, col_idx);
+                    output.push_str(str_val.unwrap_or("null"));
+                },
+            );
+        }
+        file.write(output.as_bytes())?;
+        file.flush()?;
+        Ok(())
     }
 
     fn highlight_sql(highlight: &[(Regex, String)], query: &str) -> String {
