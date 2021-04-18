@@ -119,6 +119,7 @@ pub struct Model {
     _comm_targets_components: Vec<Component<CommTargetCard>>,
 
     details_component_emitters: Vec<Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, MessageInfo)>>,
+    details_adjustments: Vec<gtk::Adjustment>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -292,6 +293,9 @@ impl Widget for Win {
                 self.model.bg_sender.clone(),
                 self.model.relm.stream().clone(),
             ));
+        self.model
+            .details_adjustments
+            .push(scroll2.get_vadjustment().unwrap());
 
         self.widgets
             .comm_remote_servers_stack
@@ -416,6 +420,7 @@ impl Widget for Win {
             selected_card: None,
             comm_remote_servers_treeviews: vec![],
             details_component_emitters: vec![],
+            details_adjustments: vec![],
             loaded_data_sender,
             _loaded_data_channel,
             finished_tshark_sender,
@@ -534,6 +539,9 @@ impl Widget for Win {
                     .find(|(stream_info, items)| stream_info.stream_id == stream_id)
                     .and_then(|s| s.1.get(idx as usize).map(|f| (&s.0, f)))
                 {
+                    for adj in &self.model.details_adjustments {
+                        adj.set_value(0.0);
+                    }
                     for component_emitter in &self.model.details_component_emitters {
                         component_emitter(
                             self.model.bg_sender.clone(),
