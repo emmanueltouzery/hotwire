@@ -5,7 +5,6 @@ use crate::http::http_message_parser::Http;
 use crate::message_parser::{MessageInfo, MessageParser};
 use crate::pgsql::postgres_message_parser::Postgres;
 use crate::widgets::comm_target_card::SummaryDetails;
-use crate::widgets::tls_message_parser::Tls;
 use crate::BgFunc;
 use crate::TSharkCommunication;
 use gdk::prelude::*;
@@ -33,7 +32,7 @@ const LOADING_STACK_NAME: &str = "loading";
 const NORMAL_STACK_NAME: &str = "normal";
 
 pub fn get_message_parsers() -> Vec<Box<dyn MessageParser>> {
-    vec![Box::new(Http), Box::new(Postgres), Box::new(Tls)]
+    vec![Box::new(Http), Box::new(Postgres)]
 }
 
 pub type LoadedDataParams = (
@@ -134,6 +133,13 @@ pub enum TSharkMode {
     JsonRaw,
 }
 
+// it would be possible to ask tshark to "mix in" a keylog file
+// when opening the pcap file
+// (obtain the keylog file through `SSLKEYLOGFILE=browser_keylog.txt google-chrome` or firefox,
+// pass it to tshark through -o ssh.keylog_file:/path/to/keylog)
+// but we get in flatpak limitations (can only access the file that the user opened
+// due to the sandbox) => better to just mix in the secrets manually and open a single
+// file. this is done through => editcap --inject-secrets tls,/path/to/keylog.txt ~/testtls.pcap ~/outtls.pcapng
 pub fn invoke_tshark<T>(
     fname: &Path,
     tshark_mode: TSharkMode,
@@ -153,6 +159,8 @@ where
                 "-Tjsonraw"
             },
             "--no-duplicate-keys",
+            // "-o",
+            // "ssl.keylog_file:/home/emmanuel/chrome_keylog.txt",
             filters,
             // "tcp.stream eq 104",
         ])
@@ -609,6 +617,7 @@ impl Widget for Win {
             .build();
         let filter = gtk::FileFilter::new();
         filter.add_pattern("*.pcap");
+        filter.add_pattern("*.pcapng");
         dialog.set_filter(&filter);
         if dialog.run() == gtk::ResponseType::Accept {
             if let Some(fname) = dialog.get_filename() {
@@ -936,7 +945,7 @@ impl Widget for Win {
                                         label: "Open",
                                         hexpand: true,
                                         clicked => Msg::OpenFile,
-                                    }
+                                    },
                                 }
                             }
                         },

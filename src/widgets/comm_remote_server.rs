@@ -1,4 +1,3 @@
-use super::tls_message_parser::TlsMessageData;
 use crate::http::http_message_parser::HttpMessageData;
 use crate::pgsql::postgres_message_parser::PostgresMessageData;
 use gtk::prelude::*;
@@ -14,7 +13,6 @@ pub enum Msg {}
 pub enum MessageData {
     Http(HttpMessageData),
     Postgres(PostgresMessageData),
-    Tls(TlsMessageData),
 }
 
 impl MessageData {

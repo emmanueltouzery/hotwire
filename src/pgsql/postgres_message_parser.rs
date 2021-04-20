@@ -606,7 +606,6 @@ fn as_json_array(json: &str) -> Vec<TSharkCommunication> {
                     }),
                     http: None,
                     pgsql: Some(p),
-                    tls: None,
                 },
             },
         })

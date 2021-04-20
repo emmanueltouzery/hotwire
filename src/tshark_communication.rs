@@ -26,7 +26,6 @@ pub struct TSharkLayers {
     pub tcp: Option<TSharkTcpLayer>,
     pub http: Option<tshark_http::TSharkHttp>,
     pub pgsql: Option<tshark_pgsql::TSharkPgsql>,
-    pub tls: Option<Value>, // TODO no more value
 }
 
 impl TSharkLayers {
