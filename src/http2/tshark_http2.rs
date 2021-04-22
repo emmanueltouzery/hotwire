@@ -23,6 +23,7 @@ impl<'de> Deserialize<'de> for TSharkHttp2 {
         let messages = map_ar_or_obj(&s, parse_http2_item)
             .into_iter()
             .flatten()
+            .filter(|msg| !msg.headers.is_empty() || matches!(&msg.data, Some(v) if !v.is_empty()))
             .collect();
         Ok(TSharkHttp2 { messages })
         // Err(de::Error::custom("invalid http contents"))
@@ -60,7 +61,7 @@ fn parse_message(obj: &serde_json::Map<String, Value>) -> TSharkHttp2Message {
     let data = obj
         .get("http2.data.data")
         .and_then(|s| s.as_str())
-        .and_then(|s| hex::decode(s).ok());
+        .and_then(|s| hex::decode(s.replace(':', "")).ok());
     TSharkHttp2Message { headers, data }
 }
 
