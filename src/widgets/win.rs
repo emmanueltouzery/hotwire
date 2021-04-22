@@ -2,6 +2,7 @@ use super::comm_remote_server::MessageData;
 use super::comm_target_card::{CommTargetCard, CommTargetCardData};
 use crate::colors;
 use crate::http::http_message_parser::Http;
+use crate::http2::http2_message_parser::Http2;
 use crate::message_parser::{MessageInfo, MessageParser};
 use crate::pgsql::postgres_message_parser::Postgres;
 use crate::widgets::comm_target_card::SummaryDetails;
@@ -32,7 +33,7 @@ const LOADING_STACK_NAME: &str = "loading";
 const NORMAL_STACK_NAME: &str = "normal";
 
 pub fn get_message_parsers() -> Vec<Box<dyn MessageParser>> {
-    vec![Box::new(Http), Box::new(Postgres)]
+    vec![Box::new(Http), Box::new(Postgres), Box::new(Http2)]
 }
 
 pub type LoadedDataParams = (
@@ -644,8 +645,12 @@ impl Widget for Win {
         sender: relm::Sender<LoadedDataParams>,
         finished_tshark: relm::Sender<()>,
     ) {
-        let packets = invoke_tshark::<TSharkCommunication>(&fname, TSharkMode::Json, "tcp")
-            .expect("tshark error");
+        let packets = invoke_tshark::<TSharkCommunication>(
+            &fname,
+            TSharkMode::Json,
+            "http || pgsql || http2",
+        )
+        .expect("tshark error");
         finished_tshark.send(()).unwrap();
         Self::handle_packets(fname, packets, sender)
     }

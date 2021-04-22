@@ -11,6 +11,7 @@ mod tshark_communication_raw;
 mod widgets;
 
 pub mod http;
+pub mod http2;
 pub mod pgsql;
 
 // we do slow operations in a separate thread not to block the GUI thread.

@@ -1,11 +1,11 @@
 use crate::http::tshark_http;
+use crate::http2::tshark_http2;
 use crate::pgsql::tshark_pgsql;
 use chrono::NaiveDateTime;
 use serde::de;
 use serde::Deserialize;
 use serde::Deserializer;
 use serde_aux::prelude::*;
-use serde_json::Value;
 
 #[derive(Deserialize)]
 pub struct TSharkCommunication {
@@ -25,6 +25,7 @@ pub struct TSharkLayers {
     pub ipv6: Option<TSharkIpV6Layer>,
     pub tcp: Option<TSharkTcpLayer>,
     pub http: Option<tshark_http::TSharkHttp>,
+    pub http2: Option<tshark_http2::TSharkHttp2>,
     pub pgsql: Option<tshark_pgsql::TSharkPgsql>,
 }
 

@@ -16,18 +16,15 @@ impl<'de> Deserialize<'de> for TSharkPgsql {
         D: Deserializer<'de>,
     {
         let s: Value = de::Deserialize::deserialize(deserializer)?;
-        let mut messages = vec![];
-        match s {
+        let messages = match s {
             serde_json::Value::Object(_) => {
-                if let Some(p) = parse_pg_value(&s) {
-                    messages.push(p);
-                }
+                parse_pg_value(&s).map(|v| vec![v]).unwrap_or_else(Vec::new)
             }
             serde_json::Value::Array(vals) => {
-                messages.extend(vals.iter().filter_map(|v| parse_pg_value(&v)))
+                vals.iter().filter_map(|v| parse_pg_value(&v)).collect()
             }
-            _ => {}
-        }
+            _ => vec![],
+        };
         Ok(TSharkPgsql { messages })
     }
 }
