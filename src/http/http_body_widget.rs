@@ -94,7 +94,7 @@ impl Widget for HttpBodyWidget {
                 let content_length = http_data
                     .as_ref()
                     .and_then(|d| {
-                        http_message_parser::get_http_header_value(&d.other_lines, "Content-Length")
+                        http_message_parser::get_http_header_value(&d.headers, "Content-Length")
                     })
                     .and_then(|l| l.parse::<usize>().ok());
                 let body_length = http_data
@@ -199,7 +199,7 @@ impl Widget for HttpBodyWidget {
             .data
             .as_ref()
             .and_then(|d| {
-                http_message_parser::get_http_header_value(&d.other_lines, "Content-Disposition")
+                http_message_parser::get_http_header_value(&d.headers, "Content-Disposition")
             })
             .and_then(|d| {
                 d.strip_prefix("attachment: filename=\"")

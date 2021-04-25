@@ -9,6 +9,7 @@ use crate::widgets::comm_remote_server::MessageData;
 use crate::widgets::win;
 use crate::BgFunc;
 use gtk::prelude::*;
+use itertools::Itertools;
 use relm::Widget;
 use relm_derive::{widget, Msg};
 use std::path::PathBuf;
@@ -122,6 +123,13 @@ impl Widget for HttpCommEntry {
         }
     }
 
+    fn format_headers(headers: &[(String, String)]) -> String {
+        headers
+            .iter()
+            .map(|(k, v)| format!("{}: {}", k, v))
+            .join("\n")
+    }
+
     view! {
         gtk::Box {
             orientation: gtk::Orientation::Vertical,
@@ -140,7 +148,11 @@ impl Widget for HttpCommEntry {
                 selectable: true,
             },
             gtk::Label {
-                label: &self.model.data.request.as_ref().map(|r| r.other_lines.as_str()).unwrap_or(""),
+                label: &self.model.data.request.as_ref()
+                                            .map(|r| &r.headers[..])
+                                            .map(Self::format_headers)
+                                            .as_deref()
+                                            .unwrap_or(""),
                 xalign: 0.0,
                 selectable: true,
             },
@@ -154,7 +166,11 @@ impl Widget for HttpCommEntry {
                 selectable: true,
             },
             gtk::Label {
-                label: &self.model.data.response.as_ref().map(|r| r.other_lines.as_str()).unwrap_or(""),
+                label: &self.model.data.response.as_ref()
+                                            .map(|r| &r.headers[..])
+                                            .map(Self::format_headers)
+                                            .as_deref()
+                                            .unwrap_or(""),
                 xalign: 0.0,
                 selectable: true,
             },

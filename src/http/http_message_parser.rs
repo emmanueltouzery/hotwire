@@ -10,7 +10,9 @@ use crate::BgFunc;
 use crate::TSharkCommunication;
 use chrono::NaiveDateTime;
 use gtk::prelude::*;
+use itertools::Itertools; // collect_tuple
 use relm::ContainerWidget;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc;
 
@@ -49,25 +51,36 @@ impl MessageParser for Http {
         let mut messages = vec![];
         let mut summary_details = None;
         for msg in stream {
+            let rr = parse_request_response(msg);
             if summary_details.is_none() {
-                if let Some(h) = msg.source.layers.http.as_ref() {
-                    match (
-                        get_http_header_value(&h.other_lines, "X-Forwarded-Server"),
-                        h.http_host.as_ref(),
-                    ) {
-                        (Some(fwd), _) => summary_details = Some(fwd.clone()),
-                        (_, Some(host)) => summary_details = Some(host.clone()),
-                        _ => {}
-                    }
+                match (
+                    rr.req_resp
+                        .data()
+                        .and_then(|d| get_http_header_value(&d.headers, "X-Forwarded-Server")),
+                    rr.host.as_ref(),
+                ) {
+                    (Some(fwd), _) => summary_details = Some(fwd.clone()),
+                    (_, Some(host)) => summary_details = Some(host.clone()),
+                    _ => {}
                 }
             }
-            match parse_request_response(msg) {
-                (RequestOrResponseOrOther::Request(r), srv_port, srv_ip) => {
+            match rr {
+                ReqRespInfo {
+                    req_resp: RequestOrResponseOrOther::Request(r),
+                    port_dst: srv_port,
+                    ip_dst: srv_ip,
+                    ..
+                } => {
                     server_ip = srv_ip;
                     server_port = srv_port;
                     cur_request = Some(r);
                 }
-                (RequestOrResponseOrOther::Response(r), srv_port, srv_ip) => {
+                ReqRespInfo {
+                    req_resp: RequestOrResponseOrOther::Response(r),
+                    port_dst: srv_port,
+                    ip_dst: srv_ip,
+                    ..
+                } => {
                     server_ip = srv_ip;
                     server_port = srv_port;
                     messages.push(MessageData::Http(HttpMessageData {
@@ -76,7 +89,10 @@ impl MessageParser for Http {
                     }));
                     cur_request = None;
                 }
-                (RequestOrResponseOrOther::Other, _, _) => {}
+                ReqRespInfo {
+                    req_resp: RequestOrResponseOrOther::Other,
+                    ..
+                } => {}
             }
         }
         if let Some(r) = cur_request {
@@ -276,27 +292,37 @@ impl MessageParser for Http {
     }
 }
 
-pub fn get_http_header_value(other_lines: &str, header_name: &str) -> Option<String> {
+pub fn parse_headers(other_lines: &str) -> Vec<(String, String)> {
+    other_lines
+        .lines()
+        .filter_map(|l| {
+            // TODO use String.split_once after rust 1.52 is stabilized
+            l.splitn(2, ": ").collect_tuple()
+        })
+        .map(|(k, v)| (k.to_string(), v.trim_end().to_string()))
+        .collect()
+}
+
+pub fn get_http_header_value<'a>(
+    headers: &'a [(String, String)],
+    header_name: &str,
+) -> Option<&'a String> {
     let lower_header_name = {
         let mut h = String::from(header_name);
         h.make_ascii_lowercase();
         h
     };
-    // TODO use String.split_once after rust 1.52 is stabilized
-    other_lines.lines().find_map(|l| {
-        let mut parts = l.splitn(2, ": ");
-        parts.next().and_then(|p| {
-            let h_name = {
-                let mut h_name = String::from(p);
-                h_name.make_ascii_lowercase();
-                h_name
-            };
-            if h_name == lower_header_name {
-                parts.next().map(|s| s.trim_end().to_string())
-            } else {
-                None
-            }
-        })
+    headers.iter().find_map(|(k, v)| {
+        let h_name = {
+            let mut h_name = String::from(k);
+            h_name.make_ascii_lowercase();
+            h_name
+        };
+        if h_name == lower_header_name {
+            Some(v)
+        } else {
+            None
+        }
     })
 }
 
@@ -306,7 +332,10 @@ pub struct HttpRequestResponseData {
     pub tcp_seq_number: u32,
     pub timestamp: NaiveDateTime,
     pub first_line: String,
-    pub other_lines: String,
+    // no hashmap, i want to preserve the order,
+    // no btreemap, i want to preserve the case of the keys
+    // => can't make a simple lookup anyway
+    pub headers: Vec<(String, String)>,
     pub body: Option<String>,
     pub content_type: Option<String>,
 }
@@ -323,49 +352,71 @@ enum RequestOrResponseOrOther {
     Other,
 }
 
-fn parse_request_response(comm: TSharkCommunication) -> (RequestOrResponseOrOther, u32, String) {
+impl RequestOrResponseOrOther {
+    fn data(&self) -> Option<&HttpRequestResponseData> {
+        match &self {
+            RequestOrResponseOrOther::Request(r) => Some(r),
+            RequestOrResponseOrOther::Response(r) => Some(r),
+            _ => None,
+        }
+    }
+}
+
+struct ReqRespInfo {
+    req_resp: RequestOrResponseOrOther,
+    port_dst: u32,
+    ip_dst: String,
+    host: Option<String>,
+}
+
+fn parse_request_response(comm: TSharkCommunication) -> ReqRespInfo {
     let http = comm.source.layers.http;
     match http.map(|h| (h.http_type, h)) {
-        Some((HttpType::Request, h)) => (
-            RequestOrResponseOrOther::Request(HttpRequestResponseData {
+        Some((HttpType::Request, h)) => ReqRespInfo {
+            req_resp: RequestOrResponseOrOther::Request(HttpRequestResponseData {
                 tcp_stream_no: comm.source.layers.tcp.as_ref().unwrap().stream,
                 tcp_seq_number: comm.source.layers.tcp.as_ref().unwrap().seq_number,
                 timestamp: comm.source.layers.frame.frame_time,
                 body: h.body,
                 first_line: h.first_line,
-                other_lines: h.other_lines,
+                headers: parse_headers(&h.other_lines),
                 content_type: h.content_type,
             }),
-            comm.source.layers.tcp.as_ref().unwrap().port_dst,
-            comm.source
+            port_dst: comm.source.layers.tcp.as_ref().unwrap().port_dst,
+            ip_dst: comm
+                .source
                 .layers
                 .ip
                 .map(|i| i.ip_dst)
                 .or(comm.source.layers.ipv6.map(|i| i.ip_dst))
                 .unwrap(),
-        ),
-        Some((HttpType::Response, h)) => (
-            RequestOrResponseOrOther::Response(HttpRequestResponseData {
+            host: h.http_host,
+        },
+        Some((HttpType::Response, h)) => ReqRespInfo {
+            req_resp: RequestOrResponseOrOther::Response(HttpRequestResponseData {
                 tcp_stream_no: comm.source.layers.tcp.as_ref().unwrap().stream,
                 tcp_seq_number: comm.source.layers.tcp.as_ref().unwrap().seq_number,
                 timestamp: comm.source.layers.frame.frame_time,
                 body: h.body,
                 first_line: h.first_line,
-                other_lines: h.other_lines,
+                headers: parse_headers(&h.other_lines),
                 content_type: h.content_type,
             }),
-            comm.source.layers.tcp.as_ref().unwrap().port_src,
-            comm.source
+            port_dst: comm.source.layers.tcp.as_ref().unwrap().port_src,
+            ip_dst: comm
+                .source
                 .layers
                 .ip
                 .map(|i| i.ip_src)
                 .or(comm.source.layers.ipv6.map(|i| i.ip_src))
                 .unwrap(),
-        ),
-        _ => (
-            RequestOrResponseOrOther::Other,
-            comm.source.layers.tcp.as_ref().unwrap().port_dst,
-            comm.source.layers.ip.unwrap().ip_dst,
-        ),
+            host: h.http_host,
+        },
+        _ => ReqRespInfo {
+            req_resp: RequestOrResponseOrOther::Other,
+            port_dst: comm.source.layers.tcp.as_ref().unwrap().port_dst,
+            ip_dst: comm.source.layers.ip.unwrap().ip_dst,
+            host: None,
+        },
     }
 }
