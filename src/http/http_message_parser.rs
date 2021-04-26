@@ -2,7 +2,6 @@ use super::http_details_widget;
 use super::http_details_widget::HttpCommEntry;
 use crate::colors;
 use crate::http::tshark_http::HttpType;
-use crate::http::tshark_http::TSharkHttp;
 use crate::icons::Icon;
 use crate::message_parser::{MessageInfo, MessageParser, StreamData};
 use crate::widgets::comm_remote_server::MessageData;
@@ -13,7 +12,6 @@ use chrono::NaiveDateTime;
 use gtk::prelude::*;
 use itertools::Itertools; // collect_tuple
 use relm::ContainerWidget;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc;
 
