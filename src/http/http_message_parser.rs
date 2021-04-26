@@ -2,6 +2,7 @@ use super::http_details_widget;
 use super::http_details_widget::HttpCommEntry;
 use crate::colors;
 use crate::http::tshark_http::HttpType;
+use crate::http::tshark_http::TSharkHttp;
 use crate::icons::Icon;
 use crate::message_parser::{MessageInfo, MessageParser, StreamData};
 use crate::widgets::comm_remote_server::MessageData;
@@ -327,6 +328,23 @@ pub fn get_http_header_value<'a>(
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HttpBody {
+    Text(String),
+    Binary(Vec<u8>),
+    BinaryUnknownContents,
+    Missing,
+}
+
+impl HttpBody {
+    pub fn as_str(&self) -> Option<&str> {
+        match &self {
+            HttpBody::Text(s) => Some(&s),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HttpRequestResponseData {
     pub tcp_stream_no: u32,
     pub tcp_seq_number: u32,
@@ -336,7 +354,7 @@ pub struct HttpRequestResponseData {
     // no btreemap, i want to preserve the case of the keys
     // => can't make a simple lookup anyway
     pub headers: Vec<(String, String)>,
-    pub body: Option<String>,
+    pub body: HttpBody,
     pub content_type: Option<String>,
 }
 
@@ -369,17 +387,36 @@ struct ReqRespInfo {
     host: Option<String>,
 }
 
+fn parse_body(body: Option<String>, headers: &[(String, String)]) -> HttpBody {
+    body.map(|b| {
+        // heuristic to find out whether the body is binary or text:
+        // if it's binary its length as a string will be shorter than content-length
+        let content_length =
+            get_http_header_value(&headers, "Content-Length").and_then(|l| l.parse::<usize>().ok());
+        let body_length = b.len();
+        let is_binary_heuristic = matches!((content_length, body_length),
+                    (Some(l1), l2) if l1 != l2 && l1 != l2+1); // I've seen content-length==body-length+1 for non-binary
+        if is_binary_heuristic {
+            HttpBody::BinaryUnknownContents
+        } else {
+            HttpBody::Text(b)
+        }
+    })
+    .unwrap_or(HttpBody::Missing)
+}
+
 fn parse_request_response(comm: TSharkCommunication) -> ReqRespInfo {
     let http = comm.source.layers.http;
-    match http.map(|h| (h.http_type, h)) {
-        Some((HttpType::Request, h)) => ReqRespInfo {
+    let http_headers = http.as_ref().map(|h| parse_headers(&h.other_lines));
+    match http.map(|h| (h.http_type, h, http_headers)) {
+        Some((HttpType::Request, h, Some(headers))) => ReqRespInfo {
             req_resp: RequestOrResponseOrOther::Request(HttpRequestResponseData {
                 tcp_stream_no: comm.source.layers.tcp.as_ref().unwrap().stream,
                 tcp_seq_number: comm.source.layers.tcp.as_ref().unwrap().seq_number,
                 timestamp: comm.source.layers.frame.frame_time,
-                body: h.body,
+                body: parse_body(h.body, &headers),
                 first_line: h.first_line,
-                headers: parse_headers(&h.other_lines),
+                headers,
                 content_type: h.content_type,
             }),
             port_dst: comm.source.layers.tcp.as_ref().unwrap().port_dst,
@@ -392,14 +429,14 @@ fn parse_request_response(comm: TSharkCommunication) -> ReqRespInfo {
                 .unwrap(),
             host: h.http_host,
         },
-        Some((HttpType::Response, h)) => ReqRespInfo {
+        Some((HttpType::Response, h, Some(headers))) => ReqRespInfo {
             req_resp: RequestOrResponseOrOther::Response(HttpRequestResponseData {
                 tcp_stream_no: comm.source.layers.tcp.as_ref().unwrap().stream,
                 tcp_seq_number: comm.source.layers.tcp.as_ref().unwrap().seq_number,
                 timestamp: comm.source.layers.frame.frame_time,
-                body: h.body,
+                body: parse_body(h.body, &headers),
                 first_line: h.first_line,
-                headers: parse_headers(&h.other_lines),
+                headers,
                 content_type: h.content_type,
             }),
             port_dst: comm.source.layers.tcp.as_ref().unwrap().port_src,

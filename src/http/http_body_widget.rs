@@ -1,6 +1,6 @@
 use super::code_formatting;
 use super::http_message_parser;
-use super::http_message_parser::HttpRequestResponseData;
+use super::http_message_parser::{HttpBody, HttpRequestResponseData};
 use crate::tshark_communication_raw::TSharkCommunicationRaw;
 use crate::widgets::win;
 use crate::BgFunc;
@@ -91,22 +91,6 @@ impl Widget for HttpBodyWidget {
                 self.model.format_code = format_code;
             }
             Msg::RequestResponseChanged(http_data, file_path) => {
-                let content_length = http_data
-                    .as_ref()
-                    .and_then(|d| {
-                        http_message_parser::get_http_header_value(&d.headers, "Content-Length")
-                    })
-                    .and_then(|l| l.parse::<usize>().ok());
-                let body_length = http_data
-                    .as_ref()
-                    .and_then(|d| d.body.as_ref())
-                    .map(|b| b.len());
-                let heuristic_is_binary_body = matches!((content_length, body_length),
-                    (Some(l1), Some(l2)) if l1 != l2 && l1 != l2+1); // I've seen content-length==body-length+1 for non-binary
-                println!(
-                    "CL H: {:?} A: {:?}, binary: {}",
-                    content_length, body_length, heuristic_is_binary_body
-                );
                 // it's very important to set the model right now,
                 // because setting it resets the contents stack
                 // => need to reset the stack to display the "text"
@@ -115,9 +99,11 @@ impl Widget for HttpBodyWidget {
                 self.model.file_path = Some(file_path.clone());
                 match (
                     &http_data.as_ref().and_then(|d| d.content_type.as_deref()),
-                    &http_data.as_ref().and_then(|d| d.body.as_ref()),
+                    &http_data.as_ref().map(|d| &d.body),
                 ) {
-                    (Some(content_type), Some(body)) if content_type.starts_with("image/") => {
+                    (Some(content_type), Some(HttpBody::BinaryUnknownContents))
+                        if content_type.starts_with("image/") =>
+                    {
                         let stream_no = http_data.as_ref().unwrap().tcp_stream_no;
                         let seq_no = http_data.as_ref().unwrap().tcp_seq_number;
                         let s = self.model.got_image_sender.clone();
@@ -128,7 +114,7 @@ impl Widget for HttpBodyWidget {
                             }))
                             .unwrap();
                     }
-                    _ if heuristic_is_binary_body => {
+                    (_, Some(HttpBody::Binary(_))) | (_, Some(HttpBody::BinaryUnknownContents)) => {
                         self.widgets
                             .contents_stack
                             .set_visible_child_name(BINARY_CONTENTS_STACK_NAME);
@@ -288,14 +274,14 @@ impl Widget for HttpBodyWidget {
     view! {
        #[name="contents_stack"]
        gtk::Stack {
-           visible: self.model.data.as_ref().and_then(|d|d.body.as_ref()).is_some(),
+           visible: self.model.data.as_ref().filter(|d| !matches!(d.body, HttpBody::Missing)).is_some(),
            gtk::Label {
                child: {
                    name: Some(TEXT_CONTENTS_STACK_NAME)
                },
                markup: &code_formatting::highlight_indent(
                    self.model.format_code,
-                   self.model.data.as_ref().and_then(|d| d.body.as_ref()).map(|b| b.as_str()).unwrap_or(""),
+                   self.model.data.as_ref().and_then(|d| d.body.as_str()).unwrap_or(""),
                    self.model.data.as_ref().and_then(|d| d.content_type.as_deref())),
                xalign: 0.0,
                selectable: true,
