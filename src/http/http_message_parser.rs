@@ -12,6 +12,8 @@ use chrono::NaiveDateTime;
 use gtk::prelude::*;
 use itertools::Itertools; // collect_tuple
 use relm::ContainerWidget;
+use std::borrow::Cow;
+use std::io::prelude::*;
 use std::path::PathBuf;
 use std::sync::mpsc;
 
@@ -333,15 +335,6 @@ pub enum HttpBody {
     Missing,
 }
 
-impl HttpBody {
-    pub fn as_str(&self) -> Option<&str> {
-        match &self {
-            HttpBody::Text(s) => Some(&s),
-            _ => None,
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HttpRequestResponseData {
     pub tcp_stream_no: u32,
@@ -354,6 +347,31 @@ pub struct HttpRequestResponseData {
     pub headers: Vec<(String, String)>,
     pub body: HttpBody,
     pub content_type: Option<String>,
+    pub content_encoding: ContentEncoding,
+}
+
+impl HttpRequestResponseData {
+    pub fn body_as_str(&self) -> Option<Cow<str>> {
+        match (&self.body, &self.content_encoding) {
+            (HttpBody::Text(s), ContentEncoding::Plain) => Some(Cow::Borrowed(&s)),
+            (HttpBody::Binary(bytes), ContentEncoding::Brotli) => {
+                let mut r = String::new();
+                brotli::Decompressor::new(&bytes[..], 4096)
+                    .read_to_string(&mut r)
+                    .ok()
+                    .map(|_| Cow::Owned(r))
+            }
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ContentEncoding {
+    Plain,
+    Gzip,
+    Brotli,
+    // TODO deflate
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -416,6 +434,7 @@ fn parse_request_response(comm: TSharkCommunication) -> ReqRespInfo {
                 first_line: h.first_line,
                 headers,
                 content_type: h.content_type,
+                content_encoding: ContentEncoding::Plain, // not sure whether maybe tshark decodes before us...
             }),
             port_dst: comm.source.layers.tcp.as_ref().unwrap().port_dst,
             ip_dst: comm
@@ -436,6 +455,7 @@ fn parse_request_response(comm: TSharkCommunication) -> ReqRespInfo {
                 first_line: h.first_line,
                 headers,
                 content_type: h.content_type,
+                content_encoding: ContentEncoding::Plain, // not sure whether maybe tshark decodes before us...
             }),
             port_dst: comm.source.layers.tcp.as_ref().unwrap().port_src,
             ip_dst: comm

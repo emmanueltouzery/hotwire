@@ -8,6 +8,7 @@ use gdk_pixbuf::prelude::*;
 use gtk::prelude::*;
 use relm::Widget;
 use relm_derive::{widget, Msg};
+use std::borrow::Cow;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -97,13 +98,17 @@ impl Widget for HttpBodyWidget {
                 // child after that, if needed.
                 self.model.data = http_data.clone();
                 self.model.file_path = Some(file_path.clone());
+
+                // need to try to decode as string.. the content-type may not be
+                // populated or be too exotic, and binary contents don't mean much
+                // if the data is encoded as brotli, gzip and so on
+                let is_data_str = http_data.as_ref().and_then(|d| d.body_as_str()).is_some();
+
                 match (
                     &http_data.as_ref().and_then(|d| d.content_type.as_deref()),
-                    &http_data.as_ref().map(|d| &d.body),
+                    is_data_str,
                 ) {
-                    (Some(content_type), Some(HttpBody::BinaryUnknownContents))
-                        if content_type.starts_with("image/") =>
-                    {
+                    (Some(content_type), false) if content_type.starts_with("image/") => {
                         let stream_no = http_data.as_ref().unwrap().tcp_stream_no;
                         let seq_no = http_data.as_ref().unwrap().tcp_seq_number;
                         let s = self.model.got_image_sender.clone();
@@ -114,7 +119,7 @@ impl Widget for HttpBodyWidget {
                             }))
                             .unwrap();
                     }
-                    (_, Some(HttpBody::Binary(_))) | (_, Some(HttpBody::BinaryUnknownContents)) => {
+                    (_, false) => {
                         self.widgets
                             .contents_stack
                             .set_visible_child_name(BINARY_CONTENTS_STACK_NAME);
@@ -281,7 +286,7 @@ impl Widget for HttpBodyWidget {
                },
                markup: &code_formatting::highlight_indent(
                    self.model.format_code,
-                   self.model.data.as_ref().and_then(|d| d.body.as_str()).unwrap_or(""),
+                   &self.model.data.as_ref().and_then(|d| d.body_as_str()).unwrap_or(Cow::Borrowed("")),
                    self.model.data.as_ref().and_then(|d| d.content_type.as_deref())),
                xalign: 0.0,
                selectable: true,

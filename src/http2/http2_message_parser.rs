@@ -1,5 +1,7 @@
 use crate::http::http_message_parser;
-use crate::http::http_message_parser::{HttpBody, HttpMessageData, HttpRequestResponseData};
+use crate::http::http_message_parser::{
+    ContentEncoding, HttpBody, HttpMessageData, HttpRequestResponseData,
+};
 use crate::http2::tshark_http2::TSharkHttp2Message;
 use crate::icons;
 use crate::message_parser::{MessageInfo, MessageParser, StreamData};
@@ -195,6 +197,14 @@ fn prepare_http_message(
         };
     let content_type =
         http_message_parser::get_http_header_value(&headers, "content-type").cloned();
+    let content_encoding =
+        match http_message_parser::get_http_header_value(&headers, "content-encoding")
+            .map(|s| s.as_str())
+        {
+            Some("br") => ContentEncoding::Brotli,
+            Some("gzip") => ContentEncoding::Gzip,
+            _ => ContentEncoding::Plain,
+        };
     if matches!(body, HttpBody::Binary(_)) {
         println!(
             "######### GOT BINARY BODY {:?} status {:?} path {:?}",
@@ -215,6 +225,7 @@ fn prepare_http_message(
             content_type,
             headers,
             body,
+            content_encoding,
         },
         msg_type,
     )
