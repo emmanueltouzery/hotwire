@@ -654,6 +654,7 @@ fn as_json_array(json: &str) -> Vec<TSharkCommunication> {
                         port_dst: 0,
                     }),
                     http: None,
+                    http2: None,
                     pgsql: Some(p),
                 },
             },
