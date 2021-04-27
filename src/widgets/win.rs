@@ -682,11 +682,15 @@ impl Widget for Win {
                         .iter()
                         .find_map(|c| message_parsers.iter().find(|p| p.is_my_message(c)));
 
-                    parser.map(|p| {
-                        let stream_data = p.parse_stream(comms);
-                        let card_key = (stream_data.server_ip.clone(), stream_data.server_port);
-                        (p, id, stream_data.server_ip.clone(), card_key, stream_data)
-                    })
+                    parser
+                        .map(|p| {
+                            let stream_data = p.parse_stream(comms);
+                            let card_key = (stream_data.server_ip.clone(), stream_data.server_port);
+                            (p, id, stream_data.server_ip.clone(), card_key, stream_data)
+                        })
+                        .filter(|(_p, _id, _srv_ip, _card_key, stream_data)| {
+                            !stream_data.messages.is_empty()
+                        })
                 })
                 .collect();
             parsed_streams.sort_by_key(|(_parser, id, _ip_src, _card_key, _pstream)| *id);
