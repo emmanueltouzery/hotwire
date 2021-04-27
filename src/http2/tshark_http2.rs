@@ -7,6 +7,8 @@ use serde_json::Value;
 pub struct TSharkHttp2Message {
     pub headers: Vec<(String, String)>,
     pub data: Option<Vec<u8>>,
+    pub stream_id: u32,
+    pub is_end_stream: bool,
 }
 
 #[derive(Debug)]
@@ -62,7 +64,25 @@ fn parse_message(obj: &serde_json::Map<String, Value>) -> TSharkHttp2Message {
         .get("http2.data.data")
         .and_then(|s| s.as_str())
         .and_then(|s| hex::decode(s.replace(':', "")).ok());
-    TSharkHttp2Message { headers, data }
+    let stream_id = obj
+        .get("http2.streamid")
+        .and_then(|sid| sid.as_str())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let is_end_stream = obj
+        .get("http2.flags_tree")
+        .and_then(|t| t.as_object())
+        .and_then(|t| t.get("http2.flags.end_stream"))
+        .and_then(|s| s.as_str())
+        .and_then(|s| s.parse::<u32>().ok())
+        .map(|v| v != 0)
+        .unwrap_or(false);
+    TSharkHttp2Message {
+        headers,
+        data,
+        stream_id,
+        is_end_stream,
+    }
 }
 
 fn parse_header(header: &Value) -> Option<(String, String)> {
