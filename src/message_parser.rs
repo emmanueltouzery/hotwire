@@ -13,6 +13,7 @@ pub struct StreamData {
     // to the client
     pub server_ip: String,
     pub server_port: u32,
+    pub client_ip: String,
     pub messages: Vec<MessageData>,
     pub summary_details: Option<String>,
 }

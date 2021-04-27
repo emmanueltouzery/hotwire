@@ -36,6 +36,14 @@ impl MessageParser for Postgres {
     }
 
     fn parse_stream(&self, comms: Vec<TSharkCommunication>) -> StreamData {
+        let mut client_ip = comms
+            .first()
+            .as_ref()
+            .unwrap()
+            .source
+            .layers
+            .ip_src()
+            .clone();
         let mut server_ip = comms
             .first()
             .as_ref()
@@ -85,7 +93,12 @@ impl MessageParser for Postgres {
                                     comm.source.layers.ip.as_ref(),
                                     comm.source.layers.ipv6.as_ref(),
                                 )
-                                .to_string();
+                                .to_string(); // TODO i think i can drop the to_string()
+                                client_ip = src_ip(
+                                    comm.source.layers.ip.as_ref(),
+                                    comm.source.layers.ipv6.as_ref(),
+                                )
+                                .to_string(); // TODO i think i can drop the to_string()
                                 server_port = comm.source.layers.tcp.as_ref().unwrap().port_dst;
                                 set_correct_server_info = true;
                             }
@@ -115,6 +128,11 @@ impl MessageParser for Postgres {
                                     comm.source.layers.ipv6.as_ref(),
                                 )
                                 .to_string();
+                                client_ip = src_ip(
+                                    comm.source.layers.ip.as_ref(),
+                                    comm.source.layers.ipv6.as_ref(),
+                                )
+                                .to_string();
                                 server_port = comm.source.layers.tcp.as_ref().unwrap().port_dst;
                                 set_correct_server_info = true;
                             }
@@ -125,6 +143,11 @@ impl MessageParser for Postgres {
                         } => {
                             if !set_correct_server_info {
                                 server_ip = dst_ip(
+                                    comm.source.layers.ip.as_ref(),
+                                    comm.source.layers.ipv6.as_ref(),
+                                )
+                                .to_string();
+                                client_ip = src_ip(
                                     comm.source.layers.ip.as_ref(),
                                     comm.source.layers.ipv6.as_ref(),
                                 )
@@ -143,6 +166,11 @@ impl MessageParser for Postgres {
                         } => {
                             if !set_correct_server_info {
                                 server_ip = dst_ip(
+                                    comm.source.layers.ip.as_ref(),
+                                    comm.source.layers.ipv6.as_ref(),
+                                )
+                                .to_string();
+                                client_ip = src_ip(
                                     comm.source.layers.ip.as_ref(),
                                     comm.source.layers.ipv6.as_ref(),
                                 )
@@ -174,6 +202,11 @@ impl MessageParser for Postgres {
                                     comm.source.layers.ipv6.as_ref(),
                                 )
                                 .to_string();
+                                client_ip = dst_ip(
+                                    comm.source.layers.ip.as_ref(),
+                                    comm.source.layers.ipv6.as_ref(),
+                                )
+                                .to_string();
                                 server_port = comm.source.layers.tcp.as_ref().unwrap().port_src;
                                 set_correct_server_info = true;
                             }
@@ -199,6 +232,11 @@ impl MessageParser for Postgres {
                         PostgresWireMessage::ResultSetRow { cols } => {
                             if !set_correct_server_info {
                                 server_ip = src_ip(
+                                    comm.source.layers.ip.as_ref(),
+                                    comm.source.layers.ipv6.as_ref(),
+                                )
+                                .to_string();
+                                client_ip = dst_ip(
                                     comm.source.layers.ip.as_ref(),
                                     comm.source.layers.ipv6.as_ref(),
                                 )
@@ -275,6 +313,11 @@ impl MessageParser for Postgres {
                                     comm.source.layers.ipv6.as_ref(),
                                 )
                                 .to_string();
+                                client_ip = dst_ip(
+                                    comm.source.layers.ip.as_ref(),
+                                    comm.source.layers.ipv6.as_ref(),
+                                )
+                                .to_string();
                                 server_port = comm.source.layers.tcp.as_ref().unwrap().port_src;
                                 set_correct_server_info = true;
                             }
@@ -313,6 +356,11 @@ impl MessageParser for Postgres {
                                     comm.source.layers.ipv6.as_ref(),
                                 )
                                 .to_string();
+                                client_ip = dst_ip(
+                                    comm.source.layers.ip.as_ref(),
+                                    comm.source.layers.ipv6.as_ref(),
+                                )
+                                .to_string();
                                 server_port = comm.source.layers.tcp.as_ref().unwrap().port_src;
                                 set_correct_server_info = true;
                             }
@@ -337,6 +385,7 @@ impl MessageParser for Postgres {
         StreamData {
             server_ip: server_ip.clone(),
             server_port,
+            client_ip: client_ip.clone(),
             messages,
             summary_details: None,
         }

@@ -686,14 +686,22 @@ impl Widget for Win {
                         .map(|p| {
                             let stream_data = p.parse_stream(comms);
                             let card_key = (stream_data.server_ip.clone(), stream_data.server_port);
-                            (p, id, stream_data.server_ip.clone(), card_key, stream_data)
+                            (
+                                p,
+                                id,
+                                stream_data.server_ip.clone(),
+                                stream_data.client_ip.clone(),
+                                card_key,
+                                stream_data,
+                            )
                         })
-                        .filter(|(_p, _id, _srv_ip, _card_key, stream_data)| {
+                        .filter(|(_p, _id, _srv_ip, _client_ip, _card_key, stream_data)| {
                             !stream_data.messages.is_empty()
                         })
                 })
                 .collect();
-            parsed_streams.sort_by_key(|(_parser, id, _ip_src, _card_key, _pstream)| *id);
+            parsed_streams
+                .sort_by_key(|(_parser, id, _srv_ip, _client_ip, _card_key, _pstream)| *id);
             parsed_streams
         };
 
@@ -701,9 +709,9 @@ impl Widget for Win {
             .iter()
             .fold(
                 HashMap::<(String, u32), CommTargetCardData>::new(),
-                |mut sofar, (parser, _stream_id, ip_src, card_key, items)| {
+                |mut sofar, (parser, _stream_id, srv_ip, client_ip, card_key, items)| {
                     if let Some(target_card) = sofar.get_mut(&card_key) {
-                        target_card.remote_hosts.insert(ip_src.to_string());
+                        target_card.remote_hosts.insert(client_ip.to_string());
                         target_card.incoming_session_count += 1;
                         if target_card.summary_details.is_none() && items.summary_details.is_some()
                         {
@@ -715,7 +723,7 @@ impl Widget for Win {
                         }
                     } else {
                         let mut remote_hosts = BTreeSet::new();
-                        remote_hosts.insert(ip_src.to_string());
+                        remote_hosts.insert(client_ip.to_string());
                         let protocol_index = message_parsers
                             .iter()
                             // comparing by the protocol icon is.. quite horrible..
@@ -746,13 +754,13 @@ impl Widget for Win {
 
         let streams = parsed_streams
             .into_iter()
-            .map(|(_parser, id, ip_src, card_key, pstream)| {
+            .map(|(_parser, id, srv_ip, client_ip, card_key, pstream)| {
                 (
                     StreamInfo {
                         stream_id: id.unwrap(),
                         target_ip: card_key.0,
                         target_port: card_key.1,
-                        source_ip: ip_src,
+                        source_ip: client_ip,
                     },
                     pstream.messages,
                 )

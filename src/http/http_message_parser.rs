@@ -29,6 +29,16 @@ impl MessageParser for Http {
     }
 
     fn parse_stream(&self, stream: Vec<TSharkCommunication>) -> StreamData {
+        let mut client_ip = stream
+            .first()
+            .unwrap()
+            .source
+            .layers
+            .ip
+            .as_ref()
+            .unwrap()
+            .ip_src
+            .clone();
         let mut server_ip = stream
             .first()
             .unwrap()
@@ -70,8 +80,10 @@ impl MessageParser for Http {
                     req_resp: RequestOrResponseOrOther::Request(r),
                     port_dst: srv_port,
                     ip_dst: srv_ip,
+                    ip_src: cl_ip,
                     ..
                 } => {
+                    client_ip = cl_ip;
                     server_ip = srv_ip;
                     server_port = srv_port;
                     cur_request = Some(r);
@@ -80,8 +92,10 @@ impl MessageParser for Http {
                     req_resp: RequestOrResponseOrOther::Response(r),
                     port_dst: srv_port,
                     ip_dst: srv_ip,
+                    ip_src: cl_ip,
                     ..
                 } => {
+                    client_ip = cl_ip;
                     server_ip = srv_ip;
                     server_port = srv_port;
                     messages.push(MessageData::Http(HttpMessageData {
@@ -103,6 +117,7 @@ impl MessageParser for Http {
             }));
         }
         StreamData {
+            client_ip,
             server_ip,
             server_port,
             messages,
@@ -399,6 +414,7 @@ impl RequestOrResponseOrOther {
 
 struct ReqRespInfo {
     req_resp: RequestOrResponseOrOther,
+    ip_src: String,
     port_dst: u32,
     ip_dst: String,
     host: Option<String>,
@@ -425,6 +441,11 @@ fn parse_body(body: Option<String>, headers: &[(String, String)]) -> HttpBody {
 fn parse_request_response(comm: TSharkCommunication) -> ReqRespInfo {
     let http = comm.source.layers.http;
     let http_headers = http.as_ref().map(|h| parse_headers(&h.other_lines));
+    let ipv4 = comm.source.layers.ip.map(|ip| (ip.ip_src, ip.ip_dst));
+    let ipv6 = comm.source.layers.ipv6.map(|ip| (ip.ip_src, ip.ip_dst));
+    let ip = ipv4.or(ipv6).unwrap();
+    let ip_src = ip.0;
+    let ip_dst = ip.1;
     match http.map(|h| (h.http_type, h, http_headers)) {
         Some((HttpType::Request, h, Some(headers))) => ReqRespInfo {
             req_resp: RequestOrResponseOrOther::Request(HttpRequestResponseData {
@@ -438,13 +459,8 @@ fn parse_request_response(comm: TSharkCommunication) -> ReqRespInfo {
                 content_encoding: ContentEncoding::Plain, // not sure whether maybe tshark decodes before us...
             }),
             port_dst: comm.source.layers.tcp.as_ref().unwrap().port_dst,
-            ip_dst: comm
-                .source
-                .layers
-                .ip
-                .map(|i| i.ip_dst)
-                .or(comm.source.layers.ipv6.map(|i| i.ip_dst))
-                .unwrap(),
+            ip_dst,
+            ip_src,
             host: h.http_host,
         },
         Some((HttpType::Response, h, Some(headers))) => ReqRespInfo {
@@ -459,19 +475,15 @@ fn parse_request_response(comm: TSharkCommunication) -> ReqRespInfo {
                 content_encoding: ContentEncoding::Plain, // not sure whether maybe tshark decodes before us...
             }),
             port_dst: comm.source.layers.tcp.as_ref().unwrap().port_src,
-            ip_dst: comm
-                .source
-                .layers
-                .ip
-                .map(|i| i.ip_src)
-                .or(comm.source.layers.ipv6.map(|i| i.ip_src))
-                .unwrap(),
+            ip_dst: ip_src,
+            ip_src: ip_dst,
             host: h.http_host,
         },
         _ => ReqRespInfo {
             req_resp: RequestOrResponseOrOther::Other,
             port_dst: comm.source.layers.tcp.as_ref().unwrap().port_dst,
-            ip_dst: comm.source.layers.ip.unwrap().ip_dst,
+            ip_dst,
+            ip_src,
             host: None,
         },
     }

@@ -37,6 +37,16 @@ impl MessageParser for Http2 {
             .unwrap()
             .ip_dst
             .clone();
+        let mut client_ip = stream
+            .first()
+            .unwrap()
+            .source
+            .layers
+            .ip
+            .as_ref()
+            .unwrap()
+            .ip_src
+            .clone();
         let mut server_port = stream
             .first()
             .unwrap()
@@ -72,6 +82,10 @@ impl MessageParser for Http2 {
                                 if *msg_server_ip != server_ip {
                                     server_ip = msg_server_ip.to_string();
                                 }
+                                let msg_client_ip = &msg.source.layers.ip.as_ref().unwrap().ip_src;
+                                if *msg_client_ip != client_ip {
+                                    client_ip = msg_client_ip.to_string();
+                                }
                                 server_port = msg.source.layers.tcp.as_ref().unwrap().port_dst;
                                 cur_request = Some(http_msg);
                             }
@@ -79,6 +93,10 @@ impl MessageParser for Http2 {
                                 let msg_server_ip = &msg.source.layers.ip.as_ref().unwrap().ip_src;
                                 if *msg_server_ip != server_ip {
                                     server_ip = msg_server_ip.to_string();
+                                }
+                                let msg_client_ip = &msg.source.layers.ip.as_ref().unwrap().ip_dst;
+                                if *msg_client_ip != client_ip {
+                                    client_ip = msg_client_ip.to_string();
                                 }
                                 server_port = msg.source.layers.tcp.as_ref().unwrap().port_src;
                                 messages.push(MessageData::Http(HttpMessageData {
@@ -101,6 +119,7 @@ impl MessageParser for Http2 {
         StreamData {
             server_ip,
             server_port,
+            client_ip,
             messages,
             summary_details,
         }
