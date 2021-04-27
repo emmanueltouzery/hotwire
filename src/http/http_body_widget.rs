@@ -106,9 +106,16 @@ impl Widget for HttpBodyWidget {
 
                 match (
                     &http_data.as_ref().and_then(|d| d.content_type.as_deref()),
+                    &http_data.as_ref().map(|d| &d.body),
                     is_data_str,
                 ) {
-                    (Some(content_type), false) if content_type.starts_with("image/") => {
+                    (Some(content_type), Some(HttpBody::Binary(bytes)), false)
+                        if content_type.starts_with("image/") =>
+                    {
+                        self.display_image(bytes);
+                    }
+                    (Some(content_type), _, false) if content_type.starts_with("image/") => {
+                        // since the previous clause didn't match, we don't have the body
                         let stream_no = http_data.as_ref().unwrap().tcp_stream_no;
                         let seq_no = http_data.as_ref().unwrap().tcp_seq_number;
                         let s = self.model.got_image_sender.clone();
@@ -119,7 +126,7 @@ impl Widget for HttpBodyWidget {
                             }))
                             .unwrap();
                     }
-                    (_, false) => {
+                    (_, _, false) => {
                         self.widgets
                             .contents_stack
                             .set_visible_child_name(BINARY_CONTENTS_STACK_NAME);
@@ -133,15 +140,7 @@ impl Widget for HttpBodyWidget {
             }
             Msg::GotImage(bytes, seq_no) => {
                 if self.model.data.as_ref().map(|d| d.tcp_seq_number) == Some(seq_no) {
-                    let loader = gdk_pixbuf::PixbufLoader::new();
-                    loader.write(&bytes).unwrap();
-                    loader.close().unwrap();
-                    self.widgets
-                        .body_image
-                        .set_from_pixbuf(loader.get_pixbuf().as_ref());
-                    self.widgets
-                        .contents_stack
-                        .set_visible_child_name(IMAGE_CONTENTS_STACK_NAME);
+                    self.display_image(&bytes);
                 }
             }
             Msg::SaveBinaryContents => {
@@ -161,27 +160,55 @@ impl Widget for HttpBodyWidget {
                         )),
                         win::InfobarOptions::ShowSpinner,
                     ));
-                    let stream_no = self.model.data.as_ref().unwrap().tcp_stream_no;
-                    let seq_no = self.model.data.as_ref().unwrap().tcp_seq_number;
-                    let s = self.model.saved_body_sender.clone();
                     let file_path = self.model.file_path.clone().unwrap();
-                    self.model
-                        .bg_sender
-                        .send(BgFunc::new(move || {
-                            s.send(SavedBodyData {
-                                error_msg: Self::save_body_bytes(
-                                    &file_path,
-                                    stream_no,
-                                    seq_no,
-                                    &target_fname,
-                                ),
+                    if let Some(HttpBody::Binary(ref bytes)) =
+                        self.model.data.as_ref().map(|d| &d.body)
+                    {
+                        // already have the data, just save it
+                        self.model
+                            .saved_body_sender
+                            .send(SavedBodyData {
+                                error_msg: std::fs::write(target_fname, bytes)
+                                    .err()
+                                    .map(|e| e.to_string()),
                             })
                             .unwrap()
-                        }))
-                        .unwrap();
+                    } else {
+                        // i don't have the data, must fetch it from the pcap file
+                        let stream_no = self.model.data.as_ref().unwrap().tcp_stream_no;
+                        let seq_no = self.model.data.as_ref().unwrap().tcp_seq_number;
+                        let s = self.model.saved_body_sender.clone();
+                        self.model
+                            .bg_sender
+                            .send(BgFunc::new(move || {
+                                s.send(SavedBodyData {
+                                    error_msg: Self::save_body_bytes(
+                                        &file_path,
+                                        stream_no,
+                                        seq_no,
+                                        &target_fname,
+                                    ),
+                                })
+                                .unwrap()
+                            }))
+                            .unwrap();
+                    }
                 }
             }
         }
+    }
+
+    fn display_image(&self, bytes: &[u8]) {
+        println!("loading image: {}", bytes.len());
+        let loader = gdk_pixbuf::PixbufLoader::new();
+        loader.write(bytes).unwrap();
+        loader.close().unwrap();
+        self.widgets
+            .body_image
+            .set_from_pixbuf(loader.get_pixbuf().as_ref());
+        self.widgets
+            .contents_stack
+            .set_visible_child_name(IMAGE_CONTENTS_STACK_NAME);
     }
 
     fn body_save_filename(&self) -> String {

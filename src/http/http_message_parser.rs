@@ -329,6 +329,7 @@ pub fn get_http_header_value<'a>(
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HttpBody {
+    // TODO the whole binary vs text stuff is possibly obsolete due to content encodings..
     Text(String),
     Binary(Vec<u8>),
     BinaryUnknownContents,
