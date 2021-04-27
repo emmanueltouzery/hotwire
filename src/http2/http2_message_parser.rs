@@ -26,6 +26,7 @@ impl MessageParser for Http2 {
     }
 
     fn parse_stream(&self, stream: Vec<TSharkCommunication>) -> StreamData {
+        // TODO ipv6...
         let mut server_ip = stream
             .first()
             .unwrap()
@@ -52,7 +53,7 @@ impl MessageParser for Http2 {
         for msg in stream {
             if let Some(http2) = msg.source.layers.http2 {
                 for http2_msg in http2.messages {
-                    dbg!(&http2_msg);
+                    // dbg!(&http2_msg);
                     let stream_msgs_entry = cur_messages_per_stream
                         .entry(http2_msg.stream_id)
                         .or_insert(vec![]);
@@ -60,19 +61,29 @@ impl MessageParser for Http2 {
                     let is_end_stream = http2_msg.is_end_stream;
                     stream_msgs_entry.push(http2_msg);
                     if is_end_stream {
-                        let (msg, msg_type) = prepare_http_message(
+                        let (http_msg, msg_type) = prepare_http_message(
                             msg.source.layers.tcp.as_ref().unwrap(),
                             &msg.source.layers.frame,
                             cur_messages_per_stream.remove(&stream_id).unwrap(),
                         );
                         match msg_type {
                             MsgType::Request => {
-                                cur_request = Some(msg);
+                                let msg_server_ip = &msg.source.layers.ip.as_ref().unwrap().ip_dst;
+                                if *msg_server_ip != server_ip {
+                                    server_ip = msg_server_ip.to_string();
+                                }
+                                server_port = msg.source.layers.tcp.as_ref().unwrap().port_dst;
+                                cur_request = Some(http_msg);
                             }
                             MsgType::Response => {
+                                let msg_server_ip = &msg.source.layers.ip.as_ref().unwrap().ip_src;
+                                if *msg_server_ip != server_ip {
+                                    server_ip = msg_server_ip.to_string();
+                                }
+                                server_port = msg.source.layers.tcp.as_ref().unwrap().port_src;
                                 messages.push(MessageData::Http(HttpMessageData {
                                     request: cur_request,
-                                    response: Some(msg),
+                                    response: Some(http_msg),
                                 }));
                                 cur_request = None;
                             }
@@ -144,7 +155,7 @@ fn prepare_http_message(
 ) -> (HttpRequestResponseData, MsgType) {
     let (headers, data) = http2_msgs.into_iter().fold(
         (vec![], None::<Vec<u8>>),
-        |(mut sofar_h, mut sofar_d), mut cur| {
+        |(mut sofar_h, sofar_d), mut cur| {
             sofar_h.append(&mut cur.headers);
             let new_data = match (sofar_d, cur.data) {
                 (None, Some(d)) => Some(d),
