@@ -9,6 +9,7 @@ use crate::widgets::win;
 use crate::BgFunc;
 use crate::TSharkCommunication;
 use chrono::NaiveDateTime;
+use flate2::read::GzDecoder;
 use gtk::prelude::*;
 use itertools::Itertools; // collect_tuple
 use relm::ContainerWidget;
@@ -369,13 +370,20 @@ pub struct HttpRequestResponseData {
 impl HttpRequestResponseData {
     pub fn body_as_str(&self) -> Option<Cow<str>> {
         match (&self.body, &self.content_encoding) {
-            (HttpBody::Text(s), ContentEncoding::Plain) => Some(Cow::Borrowed(&s)),
+            (HttpBody::Text(s), _) => Some(Cow::Borrowed(&s)), // tshark will do some decoding for us... could have text even if the encoding is gzip
             (HttpBody::Binary(bytes), ContentEncoding::Brotli) => {
                 let mut r = String::new();
                 brotli::Decompressor::new(&bytes[..], 4096)
                     .read_to_string(&mut r)
                     .ok()
                     .map(|_| Cow::Owned(r))
+            }
+            (HttpBody::Binary(bytes), ContentEncoding::Gzip) => {
+                // not sure we really need the gzip. i think tshark always decodes gzip for us
+                // (doesn't do it for brotli!!)
+                let mut d = GzDecoder::new(&bytes[..]);
+                let mut r = String::new();
+                d.read_to_string(&mut r).ok().map(|_| Cow::Owned(r))
             }
             _ => None,
         }

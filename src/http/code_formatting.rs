@@ -8,9 +8,7 @@ pub fn highlight_indent<'a>(do_format: bool, body: &str, content_type: Option<&s
         }
     });
     match content_type_first_part {
-        Some("application/xml") | Some("text/xml") | Some("text/html") if do_format => {
-            highlight_indent_xml(body)
-        }
+        Some("application/xml") | Some("text/xml") if do_format => highlight_indent_xml(body),
         Some("application/json") | Some("text/json") if do_format => highlight_indent_json(body),
         _ => glib::markup_escape_text(body).to_string(),
     }

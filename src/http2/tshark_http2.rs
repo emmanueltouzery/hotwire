@@ -62,6 +62,19 @@ fn parse_message(obj: &serde_json::Map<String, Value>) -> TSharkHttp2Message {
         .unwrap_or(vec![]);
     let data = obj
         .get("http2.data.data")
+        .or_else(|| {
+            // we didn't find directly a field "http2.data.data", but sometimes tshark will decode for us
+            // and create "Content-encoded ....": { "http2.data.data": "...", ... }
+            // => search for a field that would CONTAIN A FIELD named http2.data.data
+            obj.iter()
+                .find(|(_k, v)| {
+                    v.as_object()
+                        .filter(|o| o.contains_key("http2.data.data"))
+                        .is_some()
+                })
+                .and_then(|(_k, v)| v.as_object())
+                .and_then(|o| o.get("http2.data.data"))
+        })
         .and_then(|s| s.as_str())
         .and_then(|s| hex::decode(s.replace(':', "")).ok());
     let stream_id = obj
