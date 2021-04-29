@@ -3,10 +3,31 @@ use serde::Deserialize;
 use serde::Deserializer;
 use serde_json::Value;
 
+// if i have data over 2 http2 packets, tshark will often give me
+// the first part of the data in the first packet, then
+// the RECOMPOSED data in the second packet, repeating data from
+// the first packet.
+// => when combining packets, the recomposed data should overwrite
+// previously collected data
+#[derive(Debug)]
+pub enum Http2Data {
+    BasicData(Vec<u8>),
+    RecomposedData(Vec<u8>),
+}
+
+impl Http2Data {
+    fn is_empty(&self) -> bool {
+        match &self {
+            Http2Data::BasicData(v) => v.is_empty(),
+            Http2Data::RecomposedData(v) => v.is_empty(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct TSharkHttp2Message {
     pub headers: Vec<(String, String)>,
-    pub data: Option<Vec<u8>>,
+    pub data: Option<Http2Data>,
     pub stream_id: u32,
     pub is_end_stream: bool,
 }
@@ -60,23 +81,7 @@ fn parse_message(obj: &serde_json::Map<String, Value>) -> TSharkHttp2Message {
         .and_then(|h| h.as_array())
         .map(|ar| ar.into_iter().filter_map(|v| parse_header(v)).collect())
         .unwrap_or(vec![]);
-    let data = obj
-        .get("http2.data.data")
-        .or_else(|| {
-            // we didn't find directly a field "http2.data.data", but sometimes tshark will decode for us
-            // and create "Content-encoded ....": { "http2.data.data": "...", ... }
-            // => search for a field that would CONTAIN A FIELD named http2.data.data
-            obj.iter()
-                .find(|(_k, v)| {
-                    v.as_object()
-                        .filter(|o| o.contains_key("http2.data.data"))
-                        .is_some()
-                })
-                .and_then(|(_k, v)| v.as_object())
-                .and_then(|o| o.get("http2.data.data"))
-        })
-        .and_then(|s| s.as_str())
-        .and_then(|s| hex::decode(s.replace(':', "")).ok());
+    let data = read_data(&obj);
     let stream_id = obj
         .get("http2.streamid")
         .and_then(|sid| sid.as_str())
@@ -96,6 +101,29 @@ fn parse_message(obj: &serde_json::Map<String, Value>) -> TSharkHttp2Message {
         stream_id,
         is_end_stream,
     }
+}
+
+fn read_data(obj: &serde_json::Map<String, serde_json::Value>) -> Option<Http2Data> {
+    obj.get("http2.data.data")
+        .and_then(|s| s.as_str())
+        .and_then(|s| hex::decode(s.replace(':', "")).ok())
+        .map(Http2Data::BasicData)
+        .or_else(|| {
+            // we didn't find directly a field "http2.data.data", but sometimes tshark will decode for us
+            // and create "Content-encoded ....": { "http2.data.data": "...", ... }
+            // => search for a field that would CONTAIN A FIELD named http2.data.data
+            obj.iter()
+                .find(|(_k, v)| {
+                    v.as_object()
+                        .filter(|o| o.contains_key("http2.data.data"))
+                        .is_some()
+                })
+                .and_then(|(_k, v)| v.as_object())
+                .and_then(|o| o.get("http2.data.data"))
+                .and_then(|s| s.as_str())
+                .and_then(|s| hex::decode(s.replace(':', "")).ok())
+                .map(Http2Data::RecomposedData)
+        })
 }
 
 fn parse_header(header: &Value) -> Option<(String, String)> {

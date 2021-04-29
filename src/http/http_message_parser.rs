@@ -432,11 +432,15 @@ fn parse_body(body: Option<String>, headers: &[(String, String)]) -> HttpBody {
     body.map(|b| {
         // heuristic to find out whether the body is binary or text:
         // if it's binary its length as a string will be shorter than content-length
+        // due to \0s in the string
+        // TODO this is very fishy.
         let content_length =
             get_http_header_value(&headers, "Content-Length").and_then(|l| l.parse::<usize>().ok());
         let body_length = b.len();
+        // dbg!(&content_length);
+        // dbg!(&body_length);
         let is_binary_heuristic = matches!((content_length, body_length),
-                    (Some(l1), l2) if l1 != l2 && l1 != l2+1); // I've seen content-length==body-length+1 for non-binary
+                    (Some(cl), bl) if bl + 2 < cl); // btw I've seen content-length==body-length+2 for non-binary
         if is_binary_heuristic {
             HttpBody::BinaryUnknownContents
         } else {

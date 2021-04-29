@@ -2,7 +2,7 @@ use crate::http::http_message_parser;
 use crate::http::http_message_parser::{
     ContentEncoding, HttpBody, HttpMessageData, HttpRequestResponseData,
 };
-use crate::http2::tshark_http2::TSharkHttp2Message;
+use crate::http2::tshark_http2::{Http2Data, TSharkHttp2Message};
 use crate::icons;
 use crate::message_parser::{MessageInfo, MessageParser, StreamData};
 use crate::tshark_communication::{TSharkCommunication, TSharkFrameLayer, TSharkTcpLayer};
@@ -177,11 +177,13 @@ fn prepare_http_message(
         |(mut sofar_h, sofar_d), mut cur| {
             sofar_h.append(&mut cur.headers);
             let new_data = match (sofar_d, cur.data) {
-                (None, Some(d)) => Some(d),
-                (Some(mut s), Some(mut n)) => {
+                (None, Some(Http2Data::BasicData(d))) => Some(d),
+                (None, Some(Http2Data::RecomposedData(d))) => Some(d),
+                (Some(mut s), Some(Http2Data::BasicData(mut n))) => {
                     s.append(&mut n);
                     Some(s)
                 }
+                (Some(_s), Some(Http2Data::RecomposedData(n))) => Some(n),
                 (d, _) => d,
             };
             (sofar_h, new_data)
