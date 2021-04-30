@@ -56,65 +56,80 @@ impl MessageParser for Http2 {
             .as_ref()
             .unwrap()
             .port_dst;
-        let mut summary_details = None;
-        let mut messages = vec![];
-        let mut cur_messages_per_stream = HashMap::new();
-        let mut cur_request = None;
+        let mut messages_per_stream = HashMap::new();
+        let mut packet_infos = vec![];
         for msg in stream {
             if let Some(http2) = msg.source.layers.http2 {
+                packet_infos.push((
+                    msg.source.layers.frame,
+                    msg.source.layers.ip,
+                    msg.source.layers.tcp,
+                ));
                 for http2_msg in http2.messages {
-                    // dbg!(&http2_msg);
-                    let stream_msgs_entry = cur_messages_per_stream
+                    let stream_msgs_entry = messages_per_stream
                         .entry(http2_msg.stream_id)
                         .or_insert(vec![]);
-                    let stream_id = http2_msg.stream_id;
-                    let is_end_stream = http2_msg.is_end_stream;
-                    stream_msgs_entry.push(http2_msg);
-                    if is_end_stream {
-                        let (http_msg, msg_type) = prepare_http_message(
-                            msg.source.layers.tcp.as_ref().unwrap(),
-                            &msg.source.layers.frame,
-                            cur_messages_per_stream.remove(&stream_id).unwrap(),
-                        );
-                        match msg_type {
-                            MsgType::Request => {
-                                let msg_server_ip = &msg.source.layers.ip.as_ref().unwrap().ip_dst;
-                                if *msg_server_ip != server_ip {
-                                    server_ip = msg_server_ip.to_string();
-                                }
-                                let msg_client_ip = &msg.source.layers.ip.as_ref().unwrap().ip_src;
-                                if *msg_client_ip != client_ip {
-                                    client_ip = msg_client_ip.to_string();
-                                }
-                                server_port = msg.source.layers.tcp.as_ref().unwrap().port_dst;
-                                cur_request = Some(http_msg);
+                    stream_msgs_entry.push((packet_infos.len() - 1, http2_msg));
+                }
+            }
+        }
+        let mut summary_details = None;
+        let mut messages = vec![];
+        for (_http2_stream_id, stream_messages) in messages_per_stream {
+            let mut cur_request = None;
+            let mut cur_stream_messages = vec![];
+            let stream_messages_len = stream_messages.len();
+            for (idx, (packet_info_idx, http2_msg)) in stream_messages.into_iter().enumerate() {
+                let (msg_frame, msg_ip, msg_tcp) = &packet_infos[packet_info_idx];
+                // dbg!(&http2_msg);
+                let stream_id = http2_msg.stream_id;
+                let is_end_stream = http2_msg.is_end_stream;
+                cur_stream_messages.push(http2_msg);
+                if is_end_stream || idx == stream_messages_len - 1 {
+                    let (http_msg, msg_type) = prepare_http_message(
+                        msg_tcp.as_ref().unwrap(),
+                        msg_frame,
+                        cur_stream_messages,
+                    );
+                    cur_stream_messages = vec![];
+                    match msg_type {
+                        MsgType::Request => {
+                            let msg_server_ip = &msg_ip.as_ref().unwrap().ip_dst;
+                            if *msg_server_ip != server_ip {
+                                server_ip = msg_server_ip.to_string();
                             }
-                            MsgType::Response => {
-                                let msg_server_ip = &msg.source.layers.ip.as_ref().unwrap().ip_src;
-                                if *msg_server_ip != server_ip {
-                                    server_ip = msg_server_ip.to_string();
-                                }
-                                let msg_client_ip = &msg.source.layers.ip.as_ref().unwrap().ip_dst;
-                                if *msg_client_ip != client_ip {
-                                    client_ip = msg_client_ip.to_string();
-                                }
-                                server_port = msg.source.layers.tcp.as_ref().unwrap().port_src;
-                                messages.push(MessageData::Http(HttpMessageData {
-                                    request: cur_request,
-                                    response: Some(http_msg),
-                                }));
-                                cur_request = None;
+                            let msg_client_ip = &msg_ip.as_ref().unwrap().ip_src;
+                            if *msg_client_ip != client_ip {
+                                client_ip = msg_client_ip.to_string();
                             }
+                            server_port = msg_tcp.as_ref().unwrap().port_dst;
+                            cur_request = Some(http_msg);
+                        }
+                        MsgType::Response => {
+                            let msg_server_ip = &msg_ip.as_ref().unwrap().ip_src;
+                            if *msg_server_ip != server_ip {
+                                server_ip = msg_server_ip.to_string();
+                            }
+                            let msg_client_ip = &msg_ip.as_ref().unwrap().ip_dst;
+                            if *msg_client_ip != client_ip {
+                                client_ip = msg_client_ip.to_string();
+                            }
+                            server_port = msg_tcp.as_ref().unwrap().port_src;
+                            messages.push(MessageData::Http(HttpMessageData {
+                                request: cur_request,
+                                response: Some(http_msg),
+                            }));
+                            cur_request = None;
                         }
                     }
                 }
             }
-        }
-        if let Some(r) = cur_request {
-            messages.push(MessageData::Http(HttpMessageData {
-                request: Some(r),
-                response: None,
-            }));
+            if let Some(r) = cur_request {
+                messages.push(MessageData::Http(HttpMessageData {
+                    request: Some(r),
+                    response: None,
+                }));
+            }
         }
         StreamData {
             server_ip,

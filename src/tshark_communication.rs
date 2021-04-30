@@ -7,13 +7,13 @@ use serde::Deserialize;
 use serde::Deserializer;
 use serde_aux::prelude::*;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct TSharkCommunication {
     #[serde(rename = "_source")]
     pub source: TSharkSource,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct TSharkSource {
     pub layers: TSharkLayers,
 }

@@ -2,6 +2,7 @@ use serde::de;
 use serde::Deserialize;
 use serde::Deserializer;
 use serde_json::Value;
+use std::fmt::Debug;
 
 // if i have data over 2 http2 packets, tshark will often give me
 // the first part of the data in the first packet, then
@@ -9,10 +10,20 @@ use serde_json::Value;
 // the first packet.
 // => when combining packets, the recomposed data should overwrite
 // previously collected data
-#[derive(Debug)]
 pub enum Http2Data {
     BasicData(Vec<u8>),
     RecomposedData(Vec<u8>),
+}
+
+impl Debug for Http2Data {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+        match &self {
+            Http2Data::BasicData(d) => fmt.write_str(&format!("BasicData(length: {})", d.len())),
+            Http2Data::RecomposedData(d) => {
+                fmt.write_str(&format!("RecomposedData(length: {})", d.len()))
+            }
+        }
+    }
 }
 
 impl Http2Data {
