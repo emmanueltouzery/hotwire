@@ -64,7 +64,6 @@ impl MessageParser for Http2 {
             for (idx, (packet_info_idx, http2_msg)) in stream_messages.into_iter().enumerate() {
                 let (msg_frame, msg_ip, msg_tcp) = &packet_infos[packet_info_idx];
                 // dbg!(&http2_msg);
-                let stream_id = http2_msg.stream_id;
                 let is_end_stream = http2_msg.is_end_stream;
                 cur_stream_messages.push(http2_msg);
                 if is_end_stream || idx == stream_messages_len - 1 {
@@ -76,6 +75,13 @@ impl MessageParser for Http2 {
                     cur_stream_messages = vec![];
                     match msg_type {
                         MsgType::Request => {
+                            if summary_details.is_none() {
+                                summary_details = http_message_parser::get_http_header_value(
+                                    &http_msg.headers,
+                                    ":authority",
+                                )
+                                .map(|c| c.to_string());
+                            }
                             let msg_server_ip = &msg_ip.as_ref().unwrap().ip_dst;
                             if *msg_server_ip != server_ip {
                                 server_ip = msg_server_ip.to_string();
@@ -107,6 +113,11 @@ impl MessageParser for Http2 {
                 }
             }
             if let Some(r) = cur_request {
+                if summary_details.is_none() {
+                    summary_details =
+                        http_message_parser::get_http_header_value(&r.headers, ":authority")
+                            .map(|c| c.to_string());
+                }
                 messages.push(MessageData::Http(HttpMessageData {
                     request: Some(r),
                     response: None,
