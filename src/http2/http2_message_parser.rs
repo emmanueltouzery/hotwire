@@ -26,27 +26,9 @@ impl MessageParser for Http2 {
     }
 
     fn parse_stream(&self, stream: Vec<TSharkCommunication>) -> StreamData {
-        // TODO ipv6...
-        let mut server_ip = stream
-            .first()
-            .unwrap()
-            .source
-            .layers
-            .ip
-            .as_ref()
-            .unwrap()
-            .ip_dst
-            .clone();
-        let mut client_ip = stream
-            .first()
-            .unwrap()
-            .source
-            .layers
-            .ip
-            .as_ref()
-            .unwrap()
-            .ip_src
-            .clone();
+        dbg!(&stream);
+        let mut server_ip = stream.first().unwrap().source.layers.ip_dst().clone();
+        let mut client_ip = stream.first().unwrap().source.layers.ip_src().clone();
         let mut server_port = stream
             .first()
             .unwrap()
