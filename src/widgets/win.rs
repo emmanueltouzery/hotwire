@@ -33,7 +33,8 @@ const LOADING_STACK_NAME: &str = "loading";
 const NORMAL_STACK_NAME: &str = "normal";
 
 pub fn get_message_parsers() -> Vec<Box<dyn MessageParser>> {
-    vec![Box::new(Http), Box::new(Postgres), Box::new(Http2)]
+    // vec![Box::new(Http), Box::new(Postgres), Box::new(Http2)]
+    vec![Box::new(Http2)]
 }
 
 pub type LoadedDataParams = (
@@ -159,7 +160,7 @@ where
             } else {
                 "-Tjsonraw"
             },
-            "--no-duplicate-keys",
+            // "--no-duplicate-keys",
             // "-o",
             // "ssl.keylog_file:/home/emmanuel/chrome_keylog.txt",
             filters,
@@ -648,7 +649,8 @@ impl Widget for Win {
         let packets = invoke_tshark::<TSharkCommunication>(
             &fname,
             TSharkMode::Json,
-            "http || pgsql || http2",
+            // "http || pgsql || http2",
+            "http2",
         )
         .expect("tshark error");
         finished_tshark.send(()).unwrap();

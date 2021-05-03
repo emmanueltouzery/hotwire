@@ -1,6 +1,7 @@
 use crate::http::tshark_http;
 use crate::http2::tshark_http2;
 use crate::pgsql::tshark_pgsql;
+use crate::serde_multival::MultiVal;
 use chrono::NaiveDateTime;
 use serde::de;
 use serde::Deserialize;
@@ -18,7 +19,7 @@ pub struct TSharkSource {
     pub layers: TSharkLayers,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Debug)]
 pub struct TSharkLayers {
     pub frame: TSharkFrameLayer,
     pub ip: Option<TSharkIpLayer>,
@@ -27,6 +28,17 @@ pub struct TSharkLayers {
     pub http: Option<tshark_http::TSharkHttp>,
     pub http2: Option<tshark_http2::TSharkHttp2>,
     pub pgsql: Option<tshark_pgsql::TSharkPgsql>,
+}
+
+impl<'de> Deserialize<'de> for TSharkLayers {
+    fn deserialize<D>(deserializer: D) -> Result<TSharkLayers, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s: MultiVal = de::Deserialize::deserialize(deserializer)?;
+        dbg!(&s);
+        todo!()
+    }
 }
 
 impl TSharkLayers {

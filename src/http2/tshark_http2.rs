@@ -1,3 +1,4 @@
+use crate::serde_multival::MultiVal;
 use serde::de;
 use serde::Deserialize;
 use serde::Deserializer;
@@ -53,13 +54,14 @@ impl<'de> Deserialize<'de> for TSharkHttp2 {
     where
         D: Deserializer<'de>,
     {
-        let s: Value = de::Deserialize::deserialize(deserializer)?;
-        let messages = map_ar_or_obj(&s, parse_http2_item)
-            .into_iter()
-            .flatten()
-            .filter(|msg| !msg.headers.is_empty() || matches!(&msg.data, Some(v) if !v.is_empty()))
-            .collect();
-        Ok(TSharkHttp2 { messages })
+        let s: MultiVal = de::Deserialize::deserialize(deserializer)?;
+        dbg!(&s);
+        // let messages = map_ar_or_obj(&s, parse_http2_item)
+        //     .into_iter()
+        //     .flatten()
+        //     .filter(|msg| !msg.headers.is_empty() || matches!(&msg.data, Some(v) if !v.is_empty()))
+        //     .collect();
+        Ok(TSharkHttp2 { messages: vec![] })
         // Err(de::Error::custom("invalid http contents"))
     }
 }
