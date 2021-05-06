@@ -1,4 +1,3 @@
-use crate::tshark_communication::TSharkCommunication;
 use relm::Widget;
 use std::sync::mpsc;
 use std::thread;

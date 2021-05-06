@@ -12,6 +12,7 @@ use gdk::prelude::*;
 use glib::translate::ToGlib;
 use gtk::prelude::*;
 use itertools::Itertools;
+use quick_xml::events::Event;
 use relm::{Component, ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
 use std::cmp::Reverse;
@@ -21,6 +22,7 @@ use std::collections::HashSet;
 use std::io::BufReader;
 use std::path::Path;
 use std::path::PathBuf;
+use std::process::ChildStdout;
 use std::process::Command;
 use std::process::Stdio;
 use std::sync::mpsc;
@@ -130,6 +132,7 @@ enum RefreshRemoteIpsAndStreams {
 
 #[derive(PartialEq, Eq)]
 pub enum TSharkMode {
+    // TODO obsolete
     Json,
     JsonRaw,
 }
@@ -149,17 +152,13 @@ pub fn invoke_tshark<T>(
 where
     T: serde::de::DeserializeOwned,
 {
+    dbg!(&filters);
     // piping from tshark, not to load the entire JSON in ram...
     let tshark_child = Command::new("tshark")
         .args(&[
             "-r",
             fname.to_str().expect("invalid filename"),
-            if tshark_mode == TSharkMode::Json {
-                "-Tjson"
-            } else {
-                "-Tjsonraw"
-            },
-            "--no-duplicate-keys",
+            "-Tpdml",
             // "-o",
             // "ssl.keylog_file:/home/emmanuel/chrome_keylog.txt",
             filters,
@@ -167,8 +166,27 @@ where
         ])
         .stdout(Stdio::piped())
         .spawn()?;
-    let reader = BufReader::new(tshark_child.stdout.unwrap());
-    Ok(serde_json::de::from_reader(reader)?)
+    let buf_reader = BufReader::new(tshark_child.stdout.unwrap());
+    let mut xml_reader = quick_xml::Reader::from_reader(buf_reader);
+    let mut buf = vec![];
+    let mut r = vec![];
+    loop {
+        match xml_reader.read_event(&mut buf) {
+            Ok(Event::Start(ref e)) => {
+                if e.name() == b"packet" {
+                    if let Some(packet) = tshark_communication::parse_packet(&xml_reader, &mut buf)
+                    {
+                        r.push(packet);
+                    }
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(e) => return Err(Box::new(e)),
+            _ => {}
+        };
+        // buf.clear();
+    }
+    Ok(r)
 }
 
 #[derive(Debug)]
