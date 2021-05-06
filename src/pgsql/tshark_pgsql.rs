@@ -1,33 +1,9 @@
 // https://www.postgresql.org/docs/12/protocol.html
-use serde::de;
-use serde::Deserialize;
-use serde::Deserializer;
-use serde_json::Value;
+use crate::tshark_communication;
+use quick_xml::events::Event;
 use std::collections::HashMap;
-
-#[derive(Debug)]
-pub struct TSharkPgsql {
-    pub messages: Vec<PostgresWireMessage>,
-}
-
-impl<'de> Deserialize<'de> for TSharkPgsql {
-    fn deserialize<D>(deserializer: D) -> Result<TSharkPgsql, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s: Value = de::Deserialize::deserialize(deserializer)?;
-        let messages = match s {
-            serde_json::Value::Object(_) => {
-                parse_pg_value(&s).map(|v| vec![v]).unwrap_or_else(Vec::new)
-            }
-            serde_json::Value::Array(vals) => {
-                vals.iter().filter_map(|v| parse_pg_value(&v)).collect()
-            }
-            _ => vec![],
-        };
-        Ok(TSharkPgsql { messages })
-    }
-}
+use std::io::BufReader;
+use std::process::ChildStdout;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum PostgresColType {
@@ -70,6 +46,123 @@ pub enum PostgresWireMessage {
     ReadyForQuery,
 }
 
+fn parse_pgsql_info(
+    xml_reader: &quick_xml::Reader<BufReader<ChildStdout>>,
+    buf: &mut Vec<u8>,
+) -> Vec<PostgresWireMessage> {
+    let result = vec![];
+    loop {
+        match xml_reader.read_event(buf) {
+            Ok(Event::Empty(ref e)) => {
+                if e.name() == b"field" {
+                    let name = e
+                        .attributes()
+                        .find(|kv| kv.unwrap().key == "name".as_bytes())
+                        .map(|kv| &*kv.unwrap().value);
+                    match name {
+                        Some(b"pgsql.type") => {
+                            match tshark_communication::element_attr_val(e, b"show") {
+                                b"Startup message" => {
+                                    result.push(parse_startup_message(xml_reader, buf))
+                                }
+                                b"Copy data" => result.push(PostgresWireMessage::CopyData),
+                                b"Parse" => result.push(parse_parse_message(xml_reader, buf)),
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn parse_startup_message(
+    xml_reader: &quick_xml::Reader<BufReader<ChildStdout>>,
+    buf: &mut Vec<u8>,
+) -> PostgresWireMessage {
+    let mut cur_param_name;
+    let mut username;
+    let mut database;
+    let mut application;
+    loop {
+        match xml_reader.read_event(buf) {
+            Ok(Event::Empty(ref e)) => {
+                if e.name() == b"field" {
+                    let name = e
+                        .attributes()
+                        .find(|kv| kv.unwrap().key == "name".as_bytes())
+                        .map(|kv| &*kv.unwrap().value);
+                    let val = tshark_communication::element_attr_val(e, b"show");
+                    match name {
+                        Some(b"pgsql.parameter_name") => {
+                            cur_param_name = val;
+                        }
+                        Some(b"pgsql.parameter_value") => match cur_param_name {
+                            b"user" => {
+                                username = String::from_utf8(val.to_vec()).ok();
+                            }
+                            b"database" => {
+                                database = String::from_utf8(val.to_vec()).ok();
+                            }
+                            b"application_name" => {
+                                application = String::from_utf8(val.to_vec()).ok();
+                            }
+                        },
+                    }
+                }
+            }
+            Ok(Event::End(ref e)) => {
+                if e.name() == b"proto" {
+                    return PostgresWireMessage::Startup {
+                        username,
+                        database,
+                        application,
+                    };
+                }
+            }
+        }
+    }
+}
+
+fn parse_parse_message(
+    xml_reader: &quick_xml::Reader<BufReader<ChildStdout>>,
+    buf: &mut Vec<u8>,
+) -> PostgresWireMessage {
+    let mut statement;
+    let mut query;
+    loop {
+        match xml_reader.read_event(buf) {
+            Ok(Event::Empty(ref e)) => {
+                if e.name() == b"field" {
+                    let name = e
+                        .attributes()
+                        .find(|kv| kv.unwrap().key == "name".as_bytes())
+                        .map(|kv| &*kv.unwrap().value);
+                    match name {
+                        Some(b"pgsql.statement") => {
+                            statement = String::from_utf8(
+                                tshark_communication::element_attr_val(e, b"show").to_vec(),
+                            )
+                            .ok();
+                        }
+                        Some(b"pgsql.query") => {
+                            query = String::from_utf8(
+                                tshark_communication::element_attr_val(e, b"show").to_vec(),
+                            )
+                            .ok();
+                        }
+                    }
+                }
+            }
+            Ok(Event::End(ref e)) => {
+                if e.name() == b"proto" {
+                    return PostgresWireMessage::Parse { statement, query };
+                }
+            }
+        }
+    }
+}
+
 fn parse_pg_value(pgsql: &serde_json::Value) -> Option<PostgresWireMessage> {
     let obj = pgsql.as_object();
     let typ = obj
@@ -77,39 +170,6 @@ fn parse_pg_value(pgsql: &serde_json::Value) -> Option<PostgresWireMessage> {
         .and_then(|t| t.as_str());
     // if let Some(query_info) = obj.and_then(|o| o.get("pgsql.query")) {
     match typ {
-        Some("Startup message") => {
-            if let (Some(names), Some(vals)) = (
-                obj.and_then(|o| o.get("pgsql.parameter_name"))
-                    .and_then(as_string_array),
-                obj.and_then(|o| o.get("pgsql.parameter_value"))
-                    .and_then(as_string_array),
-            ) {
-                let idx_to_key: HashMap<_, _> = names.into_iter().zip(vals.into_iter()).collect();
-                Some(PostgresWireMessage::Startup {
-                    username: idx_to_key.get("user").map(|x| x.to_string()),
-                    database: idx_to_key.get("database").map(|x| x.to_string()),
-                    application: idx_to_key.get("application_name").map(|x| x.to_string()),
-                })
-            } else {
-                None
-            }
-        }
-        Some("Copy data") => Some(PostgresWireMessage::CopyData),
-        Some("Parse") => {
-            Some(PostgresWireMessage::Parse {
-                // query: format!("{} -> {}", time_relative, q),
-                query: obj
-                    .and_then(|o| o.get("pgsql.query"))
-                    .and_then(|s| s.as_str())
-                    .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string()),
-                statement: obj
-                    .and_then(|o| o.get("pgsql.statement"))
-                    .and_then(|s| s.as_str())
-                    .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string()),
-            })
-        }
         Some("Bind") => {
             // for prepared statements, the first time we get parse & statement+query
             // the following times we get bind and only statement (statement ID)

@@ -201,7 +201,7 @@ fn parse_tcp_info(
     }
 }
 
-fn element_attr_val<'a>(
+pub fn element_attr_val<'a>(
     e: &'a quick_xml::events::BytesStart<'a>,
     attr_name: &'static [u8],
 ) -> &'a [u8] {
