@@ -5,6 +5,7 @@ use crate::http::http_message_parser::{
 use crate::http2::tshark_http2::{Http2Data, TSharkHttp2Message};
 use crate::icons;
 use crate::message_parser::{MessageInfo, MessageParser, StreamData};
+use crate::tshark_communication::TSharkPacket;
 use crate::widgets::comm_remote_server::MessageData;
 use crate::widgets::win;
 use crate::BgFunc;
@@ -16,31 +17,23 @@ use std::sync::mpsc;
 pub struct Http2;
 
 impl MessageParser for Http2 {
-    fn is_my_message(&self, msg: &TSharkCommunication) -> bool {
-        msg.source.layers.http2.is_some()
+    fn is_my_message(&self, msg: &TSharkPacket) -> bool {
+        msg.http2.is_some()
     }
 
     fn protocol_icon(&self) -> icons::Icon {
         icons::Icon::HTTP
     }
 
-    fn parse_stream(&self, stream: Vec<TSharkCommunication>) -> StreamData {
+    fn parse_stream(&self, stream: Vec<TSharkPacket>) -> StreamData {
         dbg!(&stream);
-        let mut server_ip = stream.first().unwrap().source.layers.ip_dst().clone();
-        let mut client_ip = stream.first().unwrap().source.layers.ip_src().clone();
-        let mut server_port = stream
-            .first()
-            .unwrap()
-            .source
-            .layers
-            .tcp
-            .as_ref()
-            .unwrap()
-            .port_dst;
+        let mut server_ip = stream.first().unwrap().ip_dst.clone();
+        let mut client_ip = stream.first().unwrap().ip_src.clone();
+        let mut server_port = stream.first().unwrap().port_dst;
         let mut messages_per_stream = HashMap::new();
         let mut packet_infos = vec![];
         for msg in stream {
-            if let Some(http2) = msg.source.layers.http2 {
+            if let Some(http2) = msg.http2 {
                 packet_infos.push((
                     msg.source.layers.frame,
                     msg.source.layers.ip,

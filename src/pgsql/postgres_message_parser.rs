@@ -4,10 +4,10 @@ use crate::colors;
 use crate::icons::Icon;
 use crate::message_parser::{MessageInfo, MessageParser, StreamData};
 use crate::pgsql::tshark_pgsql::{PostgresColType, PostgresWireMessage};
+use crate::tshark_communication::TSharkPacket;
 use crate::widgets::comm_remote_server::MessageData;
 use crate::widgets::win;
 use crate::BgFunc;
-use crate::TSharkCommunication;
 use chrono::{NaiveDateTime, Utc};
 use gtk::prelude::*;
 use relm::ContainerWidget;
@@ -26,41 +26,18 @@ use chrono::NaiveDate;
 pub struct Postgres;
 
 impl MessageParser for Postgres {
-    fn is_my_message(&self, msg: &TSharkCommunication) -> bool {
-        msg.source.layers.pgsql.is_some()
+    fn is_my_message(&self, msg: &TSharkPacket) -> bool {
+        msg.pgsql.is_some()
     }
 
     fn protocol_icon(&self) -> Icon {
         Icon::DATABASE
     }
 
-    fn parse_stream(&self, comms: Vec<TSharkCommunication>) -> StreamData {
-        let mut client_ip = comms
-            .first()
-            .as_ref()
-            .unwrap()
-            .source
-            .layers
-            .ip_src()
-            .clone();
-        let mut server_ip = comms
-            .first()
-            .as_ref()
-            .unwrap()
-            .source
-            .layers
-            .ip_dst()
-            .clone();
-        let mut server_port = comms
-            .first()
-            .as_ref()
-            .unwrap()
-            .source
-            .layers
-            .tcp
-            .as_ref()
-            .unwrap()
-            .port_dst;
+    fn parse_stream(&self, comms: Vec<TSharkPacket>) -> StreamData {
+        let mut client_ip = comms.first().as_ref().unwrap().ip_src.clone();
+        let mut server_ip = comms.first().as_ref().unwrap().ip_dst.clone();
+        let mut server_port = comms.first().as_ref().unwrap().port_dst;
         let mut messages = vec![];
         let mut cur_query = None;
         let mut cur_col_names = vec![];
@@ -77,8 +54,8 @@ impl MessageParser for Postgres {
         let mut query_timestamp = None;
         let mut set_correct_server_info = false;
         for comm in comms {
-            let timestamp = comm.source.layers.frame.frame_time;
-            if let Some(pgsql) = comm.source.layers.pgsql {
+            let timestamp = comm.frame_time;
+            if let Some(pgsql) = comm.pgsql {
                 let mds = pgsql.messages;
                 for md in mds {
                     match md {

@@ -4,10 +4,10 @@ use crate::colors;
 use crate::http::tshark_http::HttpType;
 use crate::icons::Icon;
 use crate::message_parser::{MessageInfo, MessageParser, StreamData};
+use crate::tshark_communication::TSharkPacket;
 use crate::widgets::comm_remote_server::MessageData;
 use crate::widgets::win;
 use crate::BgFunc;
-use crate::TSharkCommunication;
 use chrono::NaiveDateTime;
 use flate2::read::GzDecoder;
 use gtk::prelude::*;
@@ -21,26 +21,18 @@ use std::sync::mpsc;
 pub struct Http;
 
 impl MessageParser for Http {
-    fn is_my_message(&self, msg: &TSharkCommunication) -> bool {
-        msg.source.layers.http.is_some()
+    fn is_my_message(&self, msg: &TSharkPacket) -> bool {
+        msg.http.is_some()
     }
 
     fn protocol_icon(&self) -> Icon {
         Icon::HTTP
     }
 
-    fn parse_stream(&self, stream: Vec<TSharkCommunication>) -> StreamData {
-        let mut client_ip = stream.first().unwrap().source.layers.ip_src().clone();
-        let mut server_ip = stream.first().unwrap().source.layers.ip_dst().clone();
-        let mut server_port = stream
-            .first()
-            .unwrap()
-            .source
-            .layers
-            .tcp
-            .as_ref()
-            .unwrap()
-            .port_dst;
+    fn parse_stream(&self, stream: Vec<TSharkPacket>) -> StreamData {
+        let mut client_ip = stream.first().unwrap().ip_src.clone();
+        let mut server_ip = stream.first().unwrap().ip_dst.clone();
+        let mut server_port = stream.first().unwrap().port_dst;
         let mut cur_request = None;
         let mut messages = vec![];
         let mut summary_details = None;

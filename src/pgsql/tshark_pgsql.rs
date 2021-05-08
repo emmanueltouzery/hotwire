@@ -49,7 +49,7 @@ pub enum PostgresWireMessage {
     ReadyForQuery,
 }
 
-fn parse_pgsql_info(
+pub fn parse_pgsql_info(
     xml_reader: &quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> Vec<PostgresWireMessage> {

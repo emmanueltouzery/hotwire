@@ -16,6 +16,9 @@ pub struct TSharkPacket {
     pub tcp_stream_id: u32,
     pub port_src: u32,
     pub port_dst: u32,
+    pub http: Option<tshark_http::TSharkHttp>,
+    pub http2: Vec<tshark_http2::TSharkHttp2Message>,
+    pub pgsql: Vec<tshark_pgsql::PostgresWireMessage>,
 }
 
 pub fn parse_packet(
@@ -29,6 +32,9 @@ pub fn parse_packet(
     let mut tcp_stream_id;
     let mut port_src;
     let mut port_dst;
+    let mut http;
+    let mut http2;
+    let mut pgsql;
     loop {
         match xml_reader.read_event(&mut buf) {
             Ok(Event::Start(ref e)) => {
@@ -55,6 +61,15 @@ pub fn parse_packet(
                             port_src = tcp_info.2;
                             port_dst = tcp_info.3;
                         }
+                        Some(b"http") => {
+                            http = Some(tshark_http::parse_http_info(xml_reader, buf));
+                        }
+                        Some(b"http2") => {
+                            http2 = tshark_http2::parse_http2_info(xml_reader, buf);
+                        }
+                        Some(b"pgsql") => {
+                            pgsql = tshark_pgsql::parse_pgsql_info(xml_reader, buf);
+                        }
                         _ => {}
                     }
                 }
@@ -69,6 +84,9 @@ pub fn parse_packet(
                         tcp_stream_id,
                         port_src,
                         port_dst,
+                        http,
+                        http2,
+                        pgsql,
                     });
                 }
             }

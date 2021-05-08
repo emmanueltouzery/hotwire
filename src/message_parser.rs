@@ -1,8 +1,8 @@
 use crate::icons::Icon;
+use crate::tshark_communication::TSharkPacket;
 use crate::widgets::comm_remote_server::MessageData;
 use crate::widgets::win;
 use crate::BgFunc;
-use crate::TSharkCommunication;
 use std::path::PathBuf;
 use std::sync::mpsc;
 
@@ -19,9 +19,9 @@ pub struct StreamData {
 }
 
 pub trait MessageParser {
-    fn is_my_message(&self, msg: &TSharkCommunication) -> bool;
+    fn is_my_message(&self, msg: &TSharkPacket) -> bool;
     fn protocol_icon(&self) -> Icon;
-    fn parse_stream(&self, stream: Vec<TSharkCommunication>) -> StreamData;
+    fn parse_stream(&self, stream: Vec<TSharkPacket>) -> StreamData;
     fn prepare_treeview(&self, tv: &gtk::TreeView);
     fn get_empty_liststore(&self) -> gtk::ListStore;
     fn populate_treeview(

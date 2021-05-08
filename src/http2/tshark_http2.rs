@@ -44,7 +44,7 @@ pub struct TSharkHttp2Message {
     pub is_end_stream: bool,
 }
 
-fn parse_http2_info(
+pub fn parse_http2_info(
     xml_reader: &quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> Vec<TSharkHttp2Message> {
