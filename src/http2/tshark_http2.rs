@@ -1,9 +1,5 @@
 use crate::tshark_communication;
 use quick_xml::events::Event;
-use serde::de;
-use serde::Deserialize;
-use serde::Deserializer;
-use serde_json::Value;
 use std::fmt::Debug;
 use std::io::BufReader;
 use std::process::ChildStdout;
@@ -81,7 +77,7 @@ fn parse_http2_stream(
     xml_reader: &quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> TSharkHttp2Message {
-    let mut headers = vec![];
+    let mut headers;
     let mut data;
     let mut stream_id;
     let mut is_end_stream;
@@ -102,7 +98,25 @@ fn parse_http2_stream(
                                     .unwrap();
                         }
                         Some(b"http2.header") => {
-                            headers.push(parse_http2_headers(xml_reader, buf));
+                            headers = parse_http2_headers(xml_reader, buf);
+                        }
+                        Some(b"http2.flags.end_stream") => {
+                            is_end_stream =
+                                str::from_utf8(tshark_communication::element_attr_val(e, b"show"))
+                                    .unwrap()
+                                    == "1";
+                        }
+                        Some(b"http2.data.data") => {
+                            // TODO diff basic/recomposed data relevant in pdml?
+                            data = hex::decode(
+                                String::from_utf8(
+                                    tshark_communication::element_attr_val(e, b"show").to_vec(),
+                                )
+                                .unwrap()
+                                .replace(':', ""),
+                            )
+                            .ok()
+                            .map(Http2Data::RecomposedData);
                         }
                     }
                 }
@@ -125,7 +139,8 @@ fn parse_http2_headers(
     xml_reader: &quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> Vec<(String, String)> {
-    let headers = vec![];
+    let mut cur_name;
+    let mut headers = vec![];
     loop {
         match xml_reader.read_event(buf) {
             Ok(Event::Empty(ref e)) => {
@@ -135,125 +150,29 @@ fn parse_http2_headers(
                         .find(|kv| kv.unwrap().key == "name".as_bytes())
                         .map(|kv| &*kv.unwrap().value);
                     match name {
-                        Some(b"http2.streamid") => {
-                            stream_id =
-                                str::from_utf8(tshark_communication::element_attr_val(e, b"show"))
-                                    .unwrap()
-                                    .parse()
-                                    .unwrap();
+                        Some(b"http2.header.name") => {
+                            cur_name = String::from_utf8(
+                                tshark_communication::element_attr_val(e, b"show").to_vec(),
+                            )
+                            .unwrap();
                         }
-                        Some(b"http2.header") => {
-                            headers.push(parse_http2_header(xml_reader, buf));
+                        Some(b"http2.header.value") => {
+                            headers.push((
+                                cur_name,
+                                String::from_utf8(
+                                    tshark_communication::element_attr_val(e, b"show").to_vec(),
+                                )
+                                .unwrap(),
+                            ));
                         }
                     }
                 }
             }
             Ok(Event::End(ref e)) => {
                 if e.name() == b"field" {
-                    return TSharkHttp2Message {
-                        headers,
-                        data,
-                        stream_id,
-                        is_end_stream,
-                    };
+                    return headers;
                 }
             }
         }
     }
-}
-
-impl<'de> Deserialize<'de> for TSharkHttp2 {
-    fn deserialize<D>(deserializer: D) -> Result<TSharkHttp2, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s: Value = de::Deserialize::deserialize(deserializer)?;
-        let messages = map_ar_or_obj(&s, parse_http2_item)
-            .into_iter()
-            .flatten()
-            .filter(|msg| !msg.headers.is_empty() || matches!(&msg.data, Some(v) if !v.is_empty()))
-            .collect();
-        Ok(TSharkHttp2 { messages })
-        // Err(de::Error::custom("invalid http contents"))
-    }
-}
-
-fn parse_http2_item(obj: &serde_json::Map<String, Value>) -> Vec<TSharkHttp2Message> {
-    let stream = &obj.get("http2.stream");
-    stream
-        .map(|s| map_ar_or_obj(s, parse_message))
-        .unwrap_or_else(Vec::new)
-}
-
-pub fn map_ar_or_obj<T>(
-    val: &Value,
-    mapper: impl Fn(&serde_json::Map<String, Value>) -> T,
-) -> Vec<T> {
-    match val {
-        Value::Object(o) => vec![mapper(&o)],
-        Value::Array(vals) => vals
-            .iter()
-            .filter_map(|v| v.as_object())
-            .map(|o| mapper(o))
-            .collect(),
-        _ => vec![],
-    }
-}
-
-fn parse_message(obj: &serde_json::Map<String, Value>) -> TSharkHttp2Message {
-    let headers = obj
-        .get("http2.header")
-        .and_then(|h| h.as_array())
-        .map(|ar| ar.into_iter().filter_map(|v| parse_header(v)).collect())
-        .unwrap_or(vec![]);
-    let data = read_data(&obj);
-    let stream_id = obj
-        .get("http2.streamid")
-        .and_then(|sid| sid.as_str())
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
-    let is_end_stream = obj
-        .get("http2.flags_tree")
-        .and_then(|t| t.as_object())
-        .and_then(|t| t.get("http2.flags.end_stream"))
-        .and_then(|s| s.as_str())
-        .and_then(|s| s.parse::<u32>().ok())
-        .map(|v| v != 0)
-        .unwrap_or(false);
-    TSharkHttp2Message {
-        headers,
-        data,
-        stream_id,
-        is_end_stream,
-    }
-}
-
-fn read_data(obj: &serde_json::Map<String, serde_json::Value>) -> Option<Http2Data> {
-    obj.get("http2.data.data")
-        .and_then(|s| s.as_str())
-        .and_then(|s| hex::decode(s.replace(':', "")).ok())
-        .map(Http2Data::BasicData)
-        .or_else(|| {
-            // we didn't find directly a field "http2.data.data", but sometimes tshark will decode for us
-            // and create "Content-encoded ....": { "http2.data.data": "...", ... }
-            // => search for a field that would CONTAIN A FIELD named http2.data.data
-            obj.iter()
-                .find(|(_k, v)| {
-                    v.as_object()
-                        .filter(|o| o.contains_key("http2.data.data"))
-                        .is_some()
-                })
-                .and_then(|(_k, v)| v.as_object())
-                .and_then(|o| o.get("http2.data.data"))
-                .and_then(|s| s.as_str())
-                .and_then(|s| hex::decode(s.replace(':', "")).ok())
-                .map(Http2Data::RecomposedData)
-        })
-}
-
-fn parse_header(header: &Value) -> Option<(String, String)> {
-    let obj = header.as_object()?;
-    let key = obj.get("http2.header.name")?.as_str()?;
-    let value = obj.get("http2.header.value")?.as_str()?;
-    Some((key.to_string(), value.to_string()))
 }
