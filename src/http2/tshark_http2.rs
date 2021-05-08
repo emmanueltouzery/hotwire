@@ -1,8 +1,13 @@
+use crate::tshark_communication;
+use quick_xml::events::Event;
 use serde::de;
 use serde::Deserialize;
 use serde::Deserializer;
 use serde_json::Value;
 use std::fmt::Debug;
+use std::io::BufReader;
+use std::process::ChildStdout;
+use std::str;
 
 // if i have data over 2 http2 packets, tshark will often give me
 // the first part of the data in the first packet, then
@@ -43,9 +48,118 @@ pub struct TSharkHttp2Message {
     pub is_end_stream: bool,
 }
 
-#[derive(Debug)]
-pub struct TSharkHttp2 {
-    pub messages: Vec<TSharkHttp2Message>,
+fn parse_http2_info(
+    xml_reader: &quick_xml::Reader<BufReader<ChildStdout>>,
+    buf: &mut Vec<u8>,
+) -> Vec<TSharkHttp2Message> {
+    let mut streams = vec![];
+    loop {
+        match xml_reader.read_event(buf) {
+            Ok(Event::Empty(ref e)) => {
+                if e.name() == b"field" {
+                    let name = e
+                        .attributes()
+                        .find(|kv| kv.unwrap().key == "name".as_bytes())
+                        .map(|kv| &*kv.unwrap().value);
+                    match name {
+                        Some(b"http2.stream") => {
+                            streams.push(parse_http2_stream(xml_reader, buf));
+                        }
+                    }
+                }
+            }
+            Ok(Event::End(ref e)) => {
+                if e.name() == b"proto" {
+                    return streams;
+                }
+            }
+        }
+    }
+}
+
+fn parse_http2_stream(
+    xml_reader: &quick_xml::Reader<BufReader<ChildStdout>>,
+    buf: &mut Vec<u8>,
+) -> TSharkHttp2Message {
+    let mut headers = vec![];
+    let mut data;
+    let mut stream_id;
+    let mut is_end_stream;
+    loop {
+        match xml_reader.read_event(buf) {
+            Ok(Event::Empty(ref e)) => {
+                if e.name() == b"field" {
+                    let name = e
+                        .attributes()
+                        .find(|kv| kv.unwrap().key == "name".as_bytes())
+                        .map(|kv| &*kv.unwrap().value);
+                    match name {
+                        Some(b"http2.streamid") => {
+                            stream_id =
+                                str::from_utf8(tshark_communication::element_attr_val(e, b"show"))
+                                    .unwrap()
+                                    .parse()
+                                    .unwrap();
+                        }
+                        Some(b"http2.header") => {
+                            headers.push(parse_http2_headers(xml_reader, buf));
+                        }
+                    }
+                }
+            }
+            Ok(Event::End(ref e)) => {
+                if e.name() == b"field" {
+                    return TSharkHttp2Message {
+                        headers,
+                        data,
+                        stream_id,
+                        is_end_stream,
+                    };
+                }
+            }
+        }
+    }
+}
+
+fn parse_http2_headers(
+    xml_reader: &quick_xml::Reader<BufReader<ChildStdout>>,
+    buf: &mut Vec<u8>,
+) -> Vec<(String, String)> {
+    let headers = vec![];
+    loop {
+        match xml_reader.read_event(buf) {
+            Ok(Event::Empty(ref e)) => {
+                if e.name() == b"field" {
+                    let name = e
+                        .attributes()
+                        .find(|kv| kv.unwrap().key == "name".as_bytes())
+                        .map(|kv| &*kv.unwrap().value);
+                    match name {
+                        Some(b"http2.streamid") => {
+                            stream_id =
+                                str::from_utf8(tshark_communication::element_attr_val(e, b"show"))
+                                    .unwrap()
+                                    .parse()
+                                    .unwrap();
+                        }
+                        Some(b"http2.header") => {
+                            headers.push(parse_http2_header(xml_reader, buf));
+                        }
+                    }
+                }
+            }
+            Ok(Event::End(ref e)) => {
+                if e.name() == b"field" {
+                    return TSharkHttp2Message {
+                        headers,
+                        data,
+                        stream_id,
+                        is_end_stream,
+                    };
+                }
+            }
+        }
+    }
 }
 
 impl<'de> Deserialize<'de> for TSharkHttp2 {
