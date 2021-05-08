@@ -173,25 +173,6 @@ impl Widget for HttpBodyWidget {
                                     .map(|e| e.to_string()),
                             })
                             .unwrap()
-                    } else {
-                        // i don't have the data, must fetch it from the pcap file
-                        let stream_no = self.model.data.as_ref().unwrap().tcp_stream_no;
-                        let seq_no = self.model.data.as_ref().unwrap().tcp_seq_number;
-                        let s = self.model.saved_body_sender.clone();
-                        self.model
-                            .bg_sender
-                            .send(BgFunc::new(move || {
-                                s.send(SavedBodyData {
-                                    error_msg: Self::save_body_bytes(
-                                        &file_path,
-                                        stream_no,
-                                        seq_no,
-                                        &target_fname,
-                                    ),
-                                })
-                                .unwrap()
-                            }))
-                            .unwrap();
                     }
                 }
             }
@@ -263,44 +244,6 @@ impl Widget for HttpBodyWidget {
             .splitn(2, '+')
             .last()
             .unwrap()
-    }
-
-    fn read_body_bytes(file_path: &Path, tcp_stream_id: u32, tcp_seq_number: u32) -> Vec<u8> {
-        let mut packets = win::invoke_tshark::<TSharkCommunicationRaw>(
-            file_path,
-            win::TSharkMode::JsonRaw,
-            &format!("tcp.seq_raw eq {} && http", tcp_seq_number),
-        )
-        .expect("tshark error");
-        if packets.len() == 1 {
-            packets.pop().unwrap().source.layers.http.unwrap().file_data
-        } else {
-            panic!(format!(
-                "unexpected json from tshark, tcp stream {}, seq number {}",
-                tcp_stream_id, tcp_seq_number
-            ));
-        }
-    }
-
-    fn save_body_bytes(
-        pcap_file_path: &Path,
-        tcp_stream_id: u32,
-        tcp_seq_number: u32,
-        target_path: &Path,
-    ) -> Option<String> {
-        let bytes = Self::read_body_bytes(pcap_file_path, tcp_stream_id, tcp_seq_number);
-        let r = std::fs::write(target_path, bytes);
-        r.err().map(|e| e.to_string())
-    }
-
-    fn load_body_bytes(
-        file_path: &Path,
-        tcp_stream_id: u32,
-        tcp_seq_number: u32,
-        s: relm::Sender<(Vec<u8>, u32)>,
-    ) {
-        let bytes = Self::read_body_bytes(file_path, tcp_stream_id, tcp_seq_number);
-        s.send((bytes, tcp_seq_number)).unwrap();
     }
 
     view! {

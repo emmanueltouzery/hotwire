@@ -5,9 +5,9 @@ use crate::http::http_message_parser::Http;
 use crate::http2::http2_message_parser::Http2;
 use crate::message_parser::{MessageInfo, MessageParser};
 use crate::pgsql::postgres_message_parser::Postgres;
+use crate::tshark_communication;
 use crate::widgets::comm_target_card::SummaryDetails;
 use crate::BgFunc;
-use crate::TSharkCommunication;
 use gdk::prelude::*;
 use glib::translate::ToGlib;
 use gtk::prelude::*;
@@ -144,11 +144,11 @@ pub enum TSharkMode {
 // but we get in flatpak limitations (can only access the file that the user opened
 // due to the sandbox) => better to just mix in the secrets manually and open a single
 // file. this is done through => editcap --inject-secrets tls,/path/to/keylog.txt ~/testtls.pcap ~/outtls.pcapng
-pub fn invoke_tshark<T>(
+pub fn invoke_tshark(
     fname: &Path,
     tshark_mode: TSharkMode,
     filters: &str,
-) -> Result<Vec<T>, Box<dyn std::error::Error>>
+) -> Result<Vec<tshark_communication::TSharkPacket>, Box<dyn std::error::Error>>
 where
     T: serde::de::DeserializeOwned,
 {
@@ -174,7 +174,8 @@ where
         match xml_reader.read_event(&mut buf) {
             Ok(Event::Start(ref e)) => {
                 if e.name() == b"packet" {
-                    if let Some(packet) = tshark_communication::parse_packet(&xml_reader, &mut buf)
+                    if let Some(packet) =
+                        tshark_communication::parse_packet(&xml_reader, &mut buf).ok()
                     {
                         r.push(packet);
                     }
@@ -663,19 +664,15 @@ impl Widget for Win {
         sender: relm::Sender<LoadedDataParams>,
         finished_tshark: relm::Sender<()>,
     ) {
-        let packets = invoke_tshark::<TSharkCommunication>(
-            &fname,
-            TSharkMode::Json,
-            "http || pgsql || http2",
-        )
-        .expect("tshark error");
+        let packets = invoke_tshark(&fname, TSharkMode::Json, "http || pgsql || http2")
+            .expect("tshark error");
         finished_tshark.send(()).unwrap();
         Self::handle_packets(fname, packets, sender)
     }
 
     fn handle_packets(
         fname: PathBuf,
-        packets: Vec<TSharkCommunication>,
+        packets: Vec<tshark_communication::TSharkPacket>,
         sender: relm::Sender<LoadedDataParams>,
     ) {
         let by_stream = {
