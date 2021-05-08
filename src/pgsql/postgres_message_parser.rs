@@ -4,7 +4,6 @@ use crate::colors;
 use crate::icons::Icon;
 use crate::message_parser::{MessageInfo, MessageParser, StreamData};
 use crate::pgsql::tshark_pgsql::{PostgresColType, PostgresWireMessage};
-use crate::tshark_communication::{TSharkIpLayer, TSharkIpV6Layer};
 use crate::widgets::comm_remote_server::MessageData;
 use crate::widgets::win;
 use crate::BgFunc;

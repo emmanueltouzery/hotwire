@@ -83,6 +83,11 @@ fn parse_pgsql_info(
                     }
                 }
             }
+            Ok(Event::End(ref e)) => {
+                if e.name() == b"proto" {
+                    return result;
+                }
+            }
         }
     }
 }

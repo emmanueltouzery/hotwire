@@ -1,7 +1,7 @@
-use serde::de;
-use serde::Deserialize;
-use serde::Deserializer;
-use serde_json::Value;
+use crate::tshark_communication;
+use quick_xml::events::Event;
+use std::io::BufReader;
+use std::process::ChildStdout;
 
 #[derive(Debug, Copy, Clone)]
 pub enum HttpType {
@@ -19,73 +19,72 @@ pub struct TSharkHttp {
     pub content_type: Option<String>,
 }
 
-fn extract_first_line(http_map: &serde_json::Map<String, Value>, key_name: &str) -> String {
-    http_map
-        .iter()
-        .find(|(_k, v)| {
-            matches!(v, serde_json::Value::Object(fields) if fields.contains_key(key_name))
-        })
-        .map(|(k, _v)| k.as_str())
-        .unwrap_or("")
-        .trim_end_matches("\\r\\n")
-        .to_string()
-}
-
-impl<'de> Deserialize<'de> for TSharkHttp {
-    fn deserialize<D>(deserializer: D) -> Result<TSharkHttp, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s: Value = de::Deserialize::deserialize(deserializer)?;
-        let http_map = s.as_object().unwrap();
-        let body = http_map
-            .get("http.file_data")
-            .and_then(|v| v.as_str())
-            .map(|v| v.trim().to_string());
-        if let Some(req_line) = http_map.get("http.request.line") {
-            let other_lines_vec: Vec<_> = req_line
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|v| v.as_str().unwrap())
-                .collect();
-            return Ok(TSharkHttp {
-                http_type: HttpType::Request,
-                first_line: extract_first_line(http_map, "http.request.method"),
-                other_lines: other_lines_vec.join(""),
-                http_host: http_map
-                    .get("http.host")
-                    .and_then(|c| c.as_str())
-                    .map(|c| c.to_string()),
-                content_type: http_map
-                    .get("http.content_type")
-                    .and_then(|c| c.as_str())
-                    .map(|c| c.to_string()),
-                body,
-            });
+fn parse_http_info(
+    xml_reader: &quick_xml::Reader<BufReader<ChildStdout>>,
+    buf: &mut Vec<u8>,
+) -> TSharkHttp {
+    let mut http_type;
+    let mut http_host;
+    let mut first_line;
+    let mut other_lines = vec![];
+    let mut body;
+    let mut content_type;
+    loop {
+        match xml_reader.read_event(buf) {
+            Ok(Event::Empty(ref e)) => {
+                if e.name() == b"field" {
+                    let name = e
+                        .attributes()
+                        .find(|kv| kv.unwrap().key == "name".as_bytes())
+                        .map(|kv| &*kv.unwrap().value);
+                    match name {
+                        Some(b"") => {
+                            first_line = String::from_utf8(
+                                tshark_communication::element_attr_val(e, b"show").to_vec(),
+                            )
+                            .unwrap();
+                        }
+                        Some(b"http.content_type") => {
+                            content_type = String::from_utf8(
+                                tshark_communication::element_attr_val(e, b"show").to_vec(),
+                            )
+                            .ok();
+                        }
+                        Some(b"http.host") => {
+                            http_host = String::from_utf8(
+                                tshark_communication::element_attr_val(e, b"show").to_vec(),
+                            )
+                            .ok();
+                        }
+                        Some(b"http.request.line") => {
+                            other_lines.push(
+                                String::from_utf8(
+                                    tshark_communication::element_attr_val(e, b"show").to_vec(),
+                                )
+                                .unwrap(),
+                            );
+                        }
+                        Some(b"http.file_data") => {
+                            body = String::from_utf8(
+                                tshark_communication::element_attr_val(e, b"show").to_vec(),
+                            )
+                            .ok();
+                        }
+                    }
+                }
+            }
+            Ok(Event::End(ref e)) => {
+                if e.name() == b"proto" {
+                    return TSharkHttp {
+                        http_type,
+                        http_host,
+                        first_line,
+                        other_lines: other_lines.join(""),
+                        body,
+                        content_type,
+                    };
+                }
+            }
         }
-        if let Some(resp_line) = http_map.get("http.response.line") {
-            let other_lines_vec: Vec<_> = resp_line
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|v| v.as_str().unwrap())
-                .collect();
-            return Ok(TSharkHttp {
-                http_type: HttpType::Response,
-                first_line: extract_first_line(http_map, "http.response.code"),
-                other_lines: other_lines_vec.join(""),
-                http_host: http_map
-                    .get("http.host")
-                    .and_then(|c| c.as_str())
-                    .map(|c| c.to_string()),
-                content_type: http_map
-                    .get("http.content_type")
-                    .and_then(|c| c.as_str())
-                    .map(|c| c.to_string()),
-                body,
-            });
-        }
-        Err(de::Error::custom("invalid http contents"))
     }
 }
