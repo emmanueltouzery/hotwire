@@ -562,16 +562,6 @@ impl MessageParser for Postgres {
     }
 }
 
-fn src_ip<'a>(ip: Option<&'a TSharkIpLayer>, ipv6: Option<&'a TSharkIpV6Layer>) -> &'a str {
-    ip.map(|i| &i.ip_src)
-        .unwrap_or_else(|| &ipv6.unwrap().ip_src)
-}
-
-fn dst_ip<'a>(ip: Option<&'a TSharkIpLayer>, ipv6: Option<&'a TSharkIpV6Layer>) -> &'a str {
-    ip.map(|i| &i.ip_dst)
-        .unwrap_or_else(|| &ipv6.unwrap().ip_dst)
-}
-
 fn get_query_type_desc(query: &Option<Cow<'static, str>>) -> &'static str {
     if query.as_ref().filter(|q| q.len() >= 5).is_none() {
         "-"
