@@ -41,7 +41,7 @@ pub fn parse_packet(
     let mut http2 = None;
     let mut pgsql = None;
     loop {
-        match xml_reader.read_event(&mut buf) {
+        match xml_reader.read_event(buf) {
             Ok(Event::Start(ref e)) => {
                 if e.name() == b"proto" {
                     let name = e
@@ -105,7 +105,7 @@ pub fn parse_packet(
 }
 
 fn parse_frame_info(
-    xml_reader: &quick_xml::Reader<BufReader<ChildStdout>>,
+    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> NaiveDateTime {
     loop {
