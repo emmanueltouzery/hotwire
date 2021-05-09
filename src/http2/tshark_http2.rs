@@ -55,7 +55,7 @@ pub fn parse_http2_info(
                 if e.name() == b"field" {
                     let name = e
                         .attributes()
-                        .find(|kv| kv.unwrap().key == "name".as_bytes())
+                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                         .map(|kv| &*kv.unwrap().value);
                     match name {
                         Some(b"http2.stream") => {
@@ -89,7 +89,7 @@ fn parse_http2_stream(
                 if e.name() == b"field" {
                     let name = e
                         .attributes()
-                        .find(|kv| kv.unwrap().key == "name".as_bytes())
+                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                         .map(|kv| &*kv.unwrap().value);
                     match name {
                         Some(b"http2.streamid") => {
@@ -151,7 +151,7 @@ fn parse_http2_headers(
                 if e.name() == b"field" {
                     let name = e
                         .attributes()
-                        .find(|kv| kv.unwrap().key == "name".as_bytes())
+                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                         .map(|kv| &*kv.unwrap().value);
                     match name {
                         Some(b"http2.header.name") => {

@@ -35,7 +35,7 @@ pub fn parse_http_info(
                 if e.name() == b"field" {
                     let name = e
                         .attributes()
-                        .find(|kv| kv.unwrap().key == "name".as_bytes())
+                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                         .map(|kv| &*kv.unwrap().value);
                     match name {
                         Some(b"") => {

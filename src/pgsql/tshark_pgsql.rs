@@ -60,7 +60,7 @@ pub fn parse_pgsql_info(
                 if e.name() == b"field" {
                     let name = e
                         .attributes()
-                        .find(|kv| kv.unwrap().key == "name".as_bytes())
+                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                         .map(|kv| &*kv.unwrap().value);
                     match name {
                         Some(b"pgsql.type") => {
@@ -108,7 +108,7 @@ fn parse_startup_message(
                 if e.name() == b"field" {
                     let name = e
                         .attributes()
-                        .find(|kv| kv.unwrap().key == "name".as_bytes())
+                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                         .map(|kv| &*kv.unwrap().value);
                     let val = tshark_communication::element_attr_val(e, b"show");
                     match name {
@@ -157,7 +157,7 @@ fn parse_parse_message(
                 if e.name() == b"field" {
                     let name = e
                         .attributes()
-                        .find(|kv| kv.unwrap().key == "name".as_bytes())
+                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                         .map(|kv| &*kv.unwrap().value);
                     match name {
                         Some(b"pgsql.statement") => {
@@ -198,7 +198,7 @@ fn parse_bind_message(
                 if e.name() == b"field" {
                     let name = e
                         .attributes()
-                        .find(|kv| kv.unwrap().key == "name".as_bytes())
+                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                         .map(|kv| &*kv.unwrap().value);
                     match name {
                         Some(b"pgsql.statement") => {
@@ -247,7 +247,7 @@ fn parse_parameter_values(
                 if e.name() == b"field" {
                     let name = e
                         .attributes()
-                        .find(|kv| kv.unwrap().key == "name".as_bytes())
+                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                         .map(|kv| &*kv.unwrap().value);
                     match name {
                         Some(b"pgsql.val.length") => {
@@ -295,7 +295,7 @@ fn parse_row_description_message(
                 if e.name() == b"field" {
                     let name = e
                         .attributes()
-                        .find(|kv| kv.unwrap().key == "name".as_bytes())
+                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                         .map(|kv| &*kv.unwrap().value);
                     match name {
                         Some(b"pgsql.col.name") => {
@@ -341,7 +341,7 @@ fn parse_data_row_message(
                 if e.name() == b"field" {
                     let name = e
                         .attributes()
-                        .find(|kv| kv.unwrap().key == "name".as_bytes())
+                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                         .map(|kv| &*kv.unwrap().value);
                     match name {
                         Some(b"pgsql.val.length") => {

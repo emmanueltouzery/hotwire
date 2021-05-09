@@ -46,7 +46,7 @@ pub fn parse_packet(
                 if e.name() == b"proto" {
                     let name = e
                         .attributes()
-                        .find(|kv| kv.unwrap().key == "name".as_bytes())
+                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                         .map(|kv| &*kv.unwrap().value);
                     match name {
                         Some(b"frame") => {
@@ -151,7 +151,7 @@ fn parse_ip_info(
                 if e.name() == b"field" {
                     let name = e
                         .attributes()
-                        .find(|kv| kv.unwrap().key == "name".as_bytes())
+                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                         .map(|kv| &*kv.unwrap().value);
                     match name {
                         Some(b"ip.src") => {
@@ -188,7 +188,7 @@ fn parse_tcp_info(
                 if e.name() == b"field" {
                     let name = e
                         .attributes()
-                        .find(|kv| kv.unwrap().key == "name".as_bytes())
+                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                         .map(|kv| &*kv.unwrap().value);
                     match name {
                         Some(b"tcp.srcport") => {
@@ -234,7 +234,7 @@ pub fn element_attr_val<'a>(
     attr_name: &'static [u8],
 ) -> &'a [u8] {
     &*e.attributes()
-        .find(|kv| &*kv.unwrap().key == attr_name)
+        .find(|kv| &*kv.as_ref().unwrap().key == attr_name)
         .unwrap()
         .unwrap()
         .value
