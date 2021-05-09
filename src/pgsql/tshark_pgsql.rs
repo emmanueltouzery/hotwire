@@ -61,8 +61,8 @@ pub fn parse_pgsql_info(
                     let name = e
                         .attributes()
                         .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                        .map(|kv| &*kv.unwrap().value);
-                    match name {
+                        .map(|kv| kv.unwrap().value);
+                    match name.as_deref() {
                         Some(b"pgsql.type") => {
                             match tshark_communication::element_attr_val(e, b"show") {
                                 b"Startup message" => {
@@ -109,9 +109,9 @@ fn parse_startup_message(
                     let name = e
                         .attributes()
                         .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                        .map(|kv| &*kv.unwrap().value);
+                        .map(|kv| kv.unwrap().value);
                     let val = tshark_communication::element_attr_val(e, b"show");
-                    match name {
+                    match name.as_deref() {
                         Some(b"pgsql.parameter_name") => {
                             cur_param_name = Some(val);
                         }
@@ -158,8 +158,8 @@ fn parse_parse_message(
                     let name = e
                         .attributes()
                         .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                        .map(|kv| &*kv.unwrap().value);
-                    match name {
+                        .map(|kv| kv.unwrap().value);
+                    match name.as_deref() {
                         Some(b"pgsql.statement") => {
                             statement = String::from_utf8(
                                 tshark_communication::element_attr_val(e, b"show").to_vec(),
@@ -199,8 +199,8 @@ fn parse_bind_message(
                     let name = e
                         .attributes()
                         .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                        .map(|kv| &*kv.unwrap().value);
-                    match name {
+                        .map(|kv| kv.unwrap().value);
+                    match name.as_deref() {
                         Some(b"pgsql.statement") => {
                             statement = String::from_utf8(
                                 tshark_communication::element_attr_val(e, b"show").to_vec(),
@@ -248,8 +248,8 @@ fn parse_parameter_values(
                     let name = e
                         .attributes()
                         .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                        .map(|kv| &*kv.unwrap().value);
-                    match name {
+                        .map(|kv| kv.unwrap().value);
+                    match name.as_deref() {
                         Some(b"pgsql.val.length") => {
                             param_lengths.push(
                                 str::from_utf8(tshark_communication::element_attr_val(e, b"show"))
@@ -296,8 +296,8 @@ fn parse_row_description_message(
                     let name = e
                         .attributes()
                         .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                        .map(|kv| &*kv.unwrap().value);
-                    match name {
+                        .map(|kv| kv.unwrap().value);
+                    match name.as_deref() {
                         Some(b"pgsql.col.name") => {
                             col_names.push(
                                 String::from_utf8(
@@ -342,8 +342,8 @@ fn parse_data_row_message(
                     let name = e
                         .attributes()
                         .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                        .map(|kv| &*kv.unwrap().value);
-                    match name {
+                        .map(|kv| kv.unwrap().value);
+                    match name.as_deref() {
                         Some(b"pgsql.val.length") => {
                             col_lengths.push(
                                 str::from_utf8(tshark_communication::element_attr_val(e, b"show"))

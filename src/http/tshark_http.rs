@@ -36,8 +36,8 @@ pub fn parse_http_info(
                     let name = e
                         .attributes()
                         .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                        .map(|kv| &*kv.unwrap().value);
-                    match name {
+                        .map(|kv| kv.unwrap().value);
+                    match name.as_deref() {
                         Some(b"") => {
                             first_line = String::from_utf8(
                                 tshark_communication::element_attr_val(e, b"show").to_vec(),

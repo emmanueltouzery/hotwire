@@ -56,8 +56,8 @@ pub fn parse_http2_info(
                     let name = e
                         .attributes()
                         .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                        .map(|kv| &*kv.unwrap().value);
-                    match name {
+                        .map(|kv| kv.unwrap().value);
+                    match name.as_deref() {
                         Some(b"http2.stream") => {
                             streams.push(parse_http2_stream(xml_reader, buf));
                         }
@@ -90,8 +90,8 @@ fn parse_http2_stream(
                     let name = e
                         .attributes()
                         .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                        .map(|kv| &*kv.unwrap().value);
-                    match name {
+                        .map(|kv| kv.unwrap().value);
+                    match name.as_deref() {
                         Some(b"http2.streamid") => {
                             stream_id =
                                 str::from_utf8(tshark_communication::element_attr_val(e, b"show"))
@@ -152,8 +152,8 @@ fn parse_http2_headers(
                     let name = e
                         .attributes()
                         .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                        .map(|kv| &*kv.unwrap().value);
-                    match name {
+                        .map(|kv| kv.unwrap().value);
+                    match name.as_deref() {
                         Some(b"http2.header.name") => {
                             cur_name = String::from_utf8(
                                 tshark_communication::element_attr_val(e, b"show").to_vec(),

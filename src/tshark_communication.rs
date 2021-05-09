@@ -47,8 +47,8 @@ pub fn parse_packet(
                     let name = e
                         .attributes()
                         .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                        .map(|kv| &*kv.unwrap().value);
-                    match name {
+                        .map(|kv| kv.unwrap().value);
+                    match name.as_deref() {
                         Some(b"frame") => {
                             frame_time = parse_frame_info(xml_reader, buf);
                         }
@@ -152,8 +152,8 @@ fn parse_ip_info(
                     let name = e
                         .attributes()
                         .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                        .map(|kv| &*kv.unwrap().value);
-                    match name {
+                        .map(|kv| kv.unwrap().value);
+                    match name.as_deref() {
                         Some(b"ip.src") => {
                             ip_src = String::from_utf8(element_attr_val(e, b"show").to_vec()).ok();
                         }
@@ -189,8 +189,8 @@ fn parse_tcp_info(
                     let name = e
                         .attributes()
                         .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                        .map(|kv| &*kv.unwrap().value);
-                    match name {
+                        .map(|kv| kv.unwrap().value);
+                    match name.as_deref() {
                         Some(b"tcp.srcport") => {
                             port_src = str::from_utf8(element_attr_val(e, b"show"))
                                 .unwrap()
