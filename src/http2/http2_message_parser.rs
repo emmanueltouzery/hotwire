@@ -9,6 +9,7 @@ use crate::tshark_communication::TSharkPacket;
 use crate::widgets::comm_remote_server::MessageData;
 use crate::widgets::win;
 use crate::BgFunc;
+use chrono::NaiveDateTime;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str;
@@ -34,12 +35,8 @@ impl MessageParser for Http2 {
         let mut packet_infos = vec![];
         for msg in stream {
             if let Some(http2) = msg.http2 {
-                packet_infos.push((
-                    msg.source.layers.frame,
-                    msg.source.layers.ip,
-                    msg.source.layers.tcp,
-                ));
-                for http2_msg in http2.messages {
+                packet_infos.push(&msg);
+                for http2_msg in http2 {
                     let stream_msgs_entry = messages_per_stream
                         .entry(http2_msg.stream_id)
                         .or_insert(vec![]);
@@ -54,14 +51,15 @@ impl MessageParser for Http2 {
             let mut cur_stream_messages = vec![];
             let stream_messages_len = stream_messages.len();
             for (idx, (packet_info_idx, http2_msg)) in stream_messages.into_iter().enumerate() {
-                let (msg_frame, msg_ip, msg_tcp) = &packet_infos[packet_info_idx];
+                let cur_msg = &packet_infos[packet_info_idx];
                 // dbg!(&http2_msg);
                 let is_end_stream = http2_msg.is_end_stream;
                 cur_stream_messages.push(http2_msg);
                 if is_end_stream || idx == stream_messages_len - 1 {
                     let (http_msg, msg_type) = prepare_http_message(
-                        msg_tcp.as_ref().unwrap(),
-                        msg_frame,
+                        cur_msg.tcp_stream_id,
+                        cur_msg.tcp_seq_number,
+                        cur_msg.frame_time,
                         cur_stream_messages,
                     );
                     cur_stream_messages = vec![];
@@ -74,27 +72,27 @@ impl MessageParser for Http2 {
                                 )
                                 .map(|c| c.to_string());
                             }
-                            let msg_server_ip = &msg_ip.as_ref().unwrap().ip_dst;
+                            let msg_server_ip = &cur_msg.ip_dst;
                             if *msg_server_ip != server_ip {
                                 server_ip = msg_server_ip.to_string();
                             }
-                            let msg_client_ip = &msg_ip.as_ref().unwrap().ip_src;
+                            let msg_client_ip = &cur_msg.ip_src;
                             if *msg_client_ip != client_ip {
                                 client_ip = msg_client_ip.to_string();
                             }
-                            server_port = msg_tcp.as_ref().unwrap().port_dst;
+                            server_port = cur_msg.port_dst;
                             cur_request = Some(http_msg);
                         }
                         MsgType::Response => {
-                            let msg_server_ip = &msg_ip.as_ref().unwrap().ip_src;
+                            let msg_server_ip = &cur_msg.ip_src;
                             if *msg_server_ip != server_ip {
                                 server_ip = msg_server_ip.to_string();
                             }
-                            let msg_client_ip = &msg_ip.as_ref().unwrap().ip_dst;
+                            let msg_client_ip = &cur_msg.ip_dst;
                             if *msg_client_ip != client_ip {
                                 client_ip = msg_client_ip.to_string();
                             }
-                            server_port = msg_tcp.as_ref().unwrap().port_src;
+                            server_port = cur_msg.port_src;
                             messages.push(MessageData::Http(HttpMessageData {
                                 request: cur_request,
                                 response: Some(http_msg),
@@ -168,8 +166,9 @@ enum MsgType {
 }
 
 fn prepare_http_message(
-    tcp: &TSharkTcpLayer,
-    frame: &TSharkFrameLayer,
+    tcp_stream_no: u32,
+    tcp_seq_number: u32,
+    timestamp: NaiveDateTime,
     http2_msgs: Vec<TSharkHttp2Message>,
 ) -> (HttpRequestResponseData, MsgType) {
     let (headers, data) = http2_msgs.into_iter().fold(
@@ -245,9 +244,6 @@ fn prepare_http_message(
             http_message_parser::get_http_header_value(&headers, ":path"),
         );
     }
-    let tcp_stream_no = tcp.stream;
-    let tcp_seq_number = tcp.seq_number;
-    let timestamp = frame.frame_time;
     (
         HttpRequestResponseData {
             tcp_stream_no,

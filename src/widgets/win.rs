@@ -148,10 +148,7 @@ pub fn invoke_tshark(
     fname: &Path,
     tshark_mode: TSharkMode,
     filters: &str,
-) -> Result<Vec<tshark_communication::TSharkPacket>, Box<dyn std::error::Error>>
-where
-    T: serde::de::DeserializeOwned,
-{
+) -> Result<Vec<tshark_communication::TSharkPacket>, Box<dyn std::error::Error>> {
     dbg!(&filters);
     // piping from tshark, not to load the entire JSON in ram...
     let tshark_child = Command::new("tshark")
@@ -175,7 +172,7 @@ where
             Ok(Event::Start(ref e)) => {
                 if e.name() == b"packet" {
                     if let Some(packet) =
-                        tshark_communication::parse_packet(&xml_reader, &mut buf).ok()
+                        tshark_communication::parse_packet(&mut xml_reader, &mut buf).ok()
                     {
                         r.push(packet);
                     }
@@ -678,8 +675,7 @@ impl Widget for Win {
         let by_stream = {
             let mut by_stream: Vec<_> = packets
                 .into_iter()
-                // .filter(|p| p.source.layers.http.is_some())
-                .map(|p| (p.source.layers.tcp.as_ref().map(|t| t.stream), p))
+                .map(|p| (p.tcp_stream_id, p))
                 .into_group_map()
                 .into_iter()
                 .collect();
@@ -772,7 +768,7 @@ impl Widget for Win {
             .map(|(_parser, id, srv_ip, client_ip, card_key, pstream)| {
                 (
                     StreamInfo {
-                        stream_id: id.unwrap(),
+                        stream_id: id,
                         target_ip: card_key.0,
                         target_port: card_key.1,
                         source_ip: client_ip,

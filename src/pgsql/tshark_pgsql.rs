@@ -50,10 +50,10 @@ pub enum PostgresWireMessage {
 }
 
 pub fn parse_pgsql_info(
-    xml_reader: &quick_xml::Reader<BufReader<ChildStdout>>,
+    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> Vec<PostgresWireMessage> {
-    let result = vec![];
+    let mut result = vec![];
     loop {
         match xml_reader.read_event(buf) {
             Ok(Event::Empty(ref e)) => {
@@ -93,7 +93,7 @@ pub fn parse_pgsql_info(
 }
 
 fn parse_startup_message(
-    xml_reader: &quick_xml::Reader<BufReader<ChildStdout>>,
+    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> PostgresWireMessage {
     let mut cur_param_name;
@@ -141,7 +141,7 @@ fn parse_startup_message(
 }
 
 fn parse_parse_message(
-    xml_reader: &quick_xml::Reader<BufReader<ChildStdout>>,
+    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> PostgresWireMessage {
     let mut statement;
@@ -180,7 +180,7 @@ fn parse_parse_message(
 }
 
 fn parse_bind_message(
-    xml_reader: &quick_xml::Reader<BufReader<ChildStdout>>,
+    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> PostgresWireMessage {
     let mut statement;
@@ -227,7 +227,7 @@ fn parse_bind_message(
 }
 
 fn parse_parameter_values(
-    xml_reader: &quick_xml::Reader<BufReader<ChildStdout>>,
+    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> Vec<String> {
     let mut param_lengths = vec![];
@@ -273,7 +273,7 @@ fn parse_parameter_values(
 }
 
 fn parse_row_description_message(
-    xml_reader: &quick_xml::Reader<BufReader<ChildStdout>>,
+    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> PostgresWireMessage {
     let mut col_names = vec![];
@@ -317,7 +317,7 @@ fn parse_row_description_message(
 }
 
 fn parse_data_row_message(
-    xml_reader: &quick_xml::Reader<BufReader<ChildStdout>>,
+    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> PostgresWireMessage {
     let mut col_lengths = vec![];

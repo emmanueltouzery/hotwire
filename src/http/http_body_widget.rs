@@ -1,7 +1,6 @@
 use super::code_formatting;
 use super::http_message_parser;
 use super::http_message_parser::{HttpBody, HttpRequestResponseData};
-use crate::tshark_communication_raw::TSharkCommunicationRaw;
 use crate::widgets::win;
 use crate::BgFunc;
 use gdk_pixbuf::prelude::*;
@@ -9,7 +8,6 @@ use gtk::prelude::*;
 use relm::Widget;
 use relm_derive::{widget, Msg};
 use std::borrow::Cow;
-use std::path::Path;
 use std::path::PathBuf;
 use std::sync::mpsc;
 
@@ -113,18 +111,6 @@ impl Widget for HttpBodyWidget {
                         if content_type.starts_with("image/") =>
                     {
                         self.display_image(bytes);
-                    }
-                    (Some(content_type), _, false) if content_type.starts_with("image/") => {
-                        // since the previous clause didn't match, we don't have the body
-                        let stream_no = http_data.as_ref().unwrap().tcp_stream_no;
-                        let seq_no = http_data.as_ref().unwrap().tcp_seq_number;
-                        let s = self.model.got_image_sender.clone();
-                        self.model
-                            .bg_sender
-                            .send(BgFunc::new(move || {
-                                Self::load_body_bytes(&file_path, stream_no, seq_no, s.clone())
-                            }))
-                            .unwrap();
                     }
                     (_, _, false) => {
                         self.widgets

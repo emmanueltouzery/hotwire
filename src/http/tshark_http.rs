@@ -20,7 +20,7 @@ pub struct TSharkHttp {
 }
 
 pub fn parse_http_info(
-    xml_reader: &quick_xml::Reader<BufReader<ChildStdout>>,
+    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> TSharkHttp {
     let mut http_type;

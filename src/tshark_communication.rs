@@ -17,12 +17,12 @@ pub struct TSharkPacket {
     pub port_src: u32,
     pub port_dst: u32,
     pub http: Option<tshark_http::TSharkHttp>,
-    pub http2: Vec<tshark_http2::TSharkHttp2Message>,
-    pub pgsql: Vec<tshark_pgsql::PostgresWireMessage>,
+    pub http2: Option<Vec<tshark_http2::TSharkHttp2Message>>,
+    pub pgsql: Option<Vec<tshark_pgsql::PostgresWireMessage>>,
 }
 
 pub fn parse_packet(
-    xml_reader: &quick_xml::Reader<BufReader<ChildStdout>>,
+    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> Result<TSharkPacket, quick_xml::Error> {
     let mut frame_time;
@@ -65,10 +65,10 @@ pub fn parse_packet(
                             http = Some(tshark_http::parse_http_info(xml_reader, buf));
                         }
                         Some(b"http2") => {
-                            http2 = tshark_http2::parse_http2_info(xml_reader, buf);
+                            http2 = Some(tshark_http2::parse_http2_info(xml_reader, buf));
                         }
                         Some(b"pgsql") => {
-                            pgsql = tshark_pgsql::parse_pgsql_info(xml_reader, buf);
+                            pgsql = Some(tshark_pgsql::parse_pgsql_info(xml_reader, buf));
                         }
                         _ => {}
                     }
@@ -132,7 +132,7 @@ fn parse_frame_info(
 }
 
 fn parse_ip_info(
-    xml_reader: &quick_xml::Reader<BufReader<ChildStdout>>,
+    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> (String, String) {
     let mut ip_src;
@@ -167,7 +167,7 @@ fn parse_ip_info(
 }
 
 fn parse_tcp_info(
-    xml_reader: &quick_xml::Reader<BufReader<ChildStdout>>,
+    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> (u32, u32, u32, u32) {
     let mut tcp_seq_number;

@@ -55,8 +55,7 @@ impl MessageParser for Postgres {
         let mut set_correct_server_info = false;
         for comm in comms {
             let timestamp = comm.frame_time;
-            if let Some(pgsql) = comm.pgsql {
-                let mds = pgsql.messages;
+            if let Some(mds) = comm.pgsql {
                 for md in mds {
                     match md {
                         PostgresWireMessage::Startup {

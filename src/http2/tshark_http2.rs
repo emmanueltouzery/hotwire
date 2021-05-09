@@ -45,7 +45,7 @@ pub struct TSharkHttp2Message {
 }
 
 pub fn parse_http2_info(
-    xml_reader: &quick_xml::Reader<BufReader<ChildStdout>>,
+    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> Vec<TSharkHttp2Message> {
     let mut streams = vec![];
@@ -74,7 +74,7 @@ pub fn parse_http2_info(
 }
 
 fn parse_http2_stream(
-    xml_reader: &quick_xml::Reader<BufReader<ChildStdout>>,
+    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> TSharkHttp2Message {
     let mut headers;
@@ -136,7 +136,7 @@ fn parse_http2_stream(
 }
 
 fn parse_http2_headers(
-    xml_reader: &quick_xml::Reader<BufReader<ChildStdout>>,
+    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> Vec<(String, String)> {
     let mut cur_name;
