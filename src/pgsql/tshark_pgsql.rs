@@ -269,6 +269,7 @@ fn parse_parameter_values(
                                 .unwrap(),
                             );
                         }
+                        _ => {}
                     }
                 }
             }
@@ -277,6 +278,7 @@ fn parse_parameter_values(
                     return add_cols(param_vals, param_lengths);
                 }
             }
+            _ => {}
         }
     }
 }
@@ -322,6 +324,7 @@ fn parse_row_description_message(
                     };
                 }
             }
+            _ => {}
         }
     }
 }
@@ -370,6 +373,7 @@ fn parse_data_row_message(
                     return PostgresWireMessage::ResultSetRow { cols };
                 }
             }
+            _ => {}
         }
     }
 }

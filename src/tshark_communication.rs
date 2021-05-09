@@ -226,6 +226,7 @@ fn parse_tcp_info(
                     return (tcp_seq_number, tcp_stream_id, port_src, port_dst);
                 }
             }
+            _ => {}
         }
     }
 }
