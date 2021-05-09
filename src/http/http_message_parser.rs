@@ -30,9 +30,9 @@ impl MessageParser for Http {
     }
 
     fn parse_stream(&self, stream: Vec<TSharkPacket>) -> StreamData {
-        let mut client_ip = stream.first().unwrap().ip_src.clone();
-        let mut server_ip = stream.first().unwrap().ip_dst.clone();
-        let mut server_port = stream.first().unwrap().port_dst;
+        let mut client_ip = stream.first().unwrap().basic_info.ip_src.clone();
+        let mut server_ip = stream.first().unwrap().basic_info.ip_dst.clone();
+        let mut server_port = stream.first().unwrap().basic_info.port_dst;
         let mut cur_request = None;
         let mut messages = vec![];
         let mut summary_details = None;
@@ -427,44 +427,44 @@ fn parse_body(body: Option<String>, headers: &[(String, String)]) -> HttpBody {
 fn parse_request_response(comm: TSharkPacket) -> ReqRespInfo {
     let http = comm.http;
     let http_headers = http.as_ref().map(|h| parse_headers(&h.other_lines));
-    let ip_src = comm.ip_src;
-    let ip_dst = comm.ip_dst;
+    let ip_src = comm.basic_info.ip_src;
+    let ip_dst = comm.basic_info.ip_dst;
     match http.map(|h| (h.http_type, h, http_headers)) {
         Some((HttpType::Request, h, Some(headers))) => ReqRespInfo {
             req_resp: RequestOrResponseOrOther::Request(HttpRequestResponseData {
-                tcp_stream_no: comm.tcp_stream_id,
-                tcp_seq_number: comm.tcp_seq_number,
-                timestamp: comm.frame_time,
+                tcp_stream_no: comm.basic_info.tcp_stream_id,
+                tcp_seq_number: comm.basic_info.tcp_seq_number,
+                timestamp: comm.basic_info.frame_time,
                 body: parse_body(h.body, &headers),
                 first_line: h.first_line,
                 headers,
                 content_type: h.content_type,
                 content_encoding: ContentEncoding::Plain, // not sure whether maybe tshark decodes before us...
             }),
-            port_dst: comm.port_dst,
+            port_dst: comm.basic_info.port_dst,
             ip_dst,
             ip_src,
             host: h.http_host,
         },
         Some((HttpType::Response, h, Some(headers))) => ReqRespInfo {
             req_resp: RequestOrResponseOrOther::Response(HttpRequestResponseData {
-                tcp_stream_no: comm.tcp_stream_id,
-                tcp_seq_number: comm.tcp_seq_number,
-                timestamp: comm.frame_time,
+                tcp_stream_no: comm.basic_info.tcp_stream_id,
+                tcp_seq_number: comm.basic_info.tcp_seq_number,
+                timestamp: comm.basic_info.frame_time,
                 body: parse_body(h.body, &headers),
                 first_line: h.first_line,
                 headers,
                 content_type: h.content_type,
                 content_encoding: ContentEncoding::Plain, // not sure whether maybe tshark decodes before us...
             }),
-            port_dst: comm.port_src,
+            port_dst: comm.basic_info.port_src,
             ip_dst: ip_src,
             ip_src: ip_dst,
             host: h.http_host,
         },
         _ => ReqRespInfo {
             req_resp: RequestOrResponseOrOther::Other,
-            port_dst: comm.port_dst,
+            port_dst: comm.basic_info.port_dst,
             ip_dst,
             ip_src,
             host: None,

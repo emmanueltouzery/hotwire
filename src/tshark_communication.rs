@@ -8,7 +8,7 @@ use std::process::ChildStdout;
 use std::str;
 
 #[derive(Debug)]
-pub struct TSharkPacket {
+pub struct TSharkPacketBasicInfo {
     pub frame_time: NaiveDateTime,
     pub ip_src: String, // v4 or v6
     pub ip_dst: String, // v4 or v6
@@ -16,6 +16,11 @@ pub struct TSharkPacket {
     pub tcp_stream_id: u32,
     pub port_src: u32,
     pub port_dst: u32,
+}
+
+#[derive(Debug)]
+pub struct TSharkPacket {
+    pub basic_info: TSharkPacketBasicInfo,
     pub http: Option<tshark_http::TSharkHttp>,
     pub http2: Option<Vec<tshark_http2::TSharkHttp2Message>>,
     pub pgsql: Option<Vec<tshark_pgsql::PostgresWireMessage>>,
@@ -77,13 +82,15 @@ pub fn parse_packet(
             Ok(Event::End(ref e)) => {
                 if e.name() == b"packet" {
                     return Ok(TSharkPacket {
-                        frame_time,
-                        ip_src,
-                        ip_dst,
-                        tcp_seq_number,
-                        tcp_stream_id,
-                        port_src,
-                        port_dst,
+                        basic_info: TSharkPacketBasicInfo {
+                            frame_time,
+                            ip_src,
+                            ip_dst,
+                            tcp_seq_number,
+                            tcp_stream_id,
+                            port_src,
+                            port_dst,
+                        },
                         http,
                         http2,
                         pgsql,

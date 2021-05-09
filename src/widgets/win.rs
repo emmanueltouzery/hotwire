@@ -675,7 +675,7 @@ impl Widget for Win {
         let by_stream = {
             let mut by_stream: Vec<_> = packets
                 .into_iter()
-                .map(|p| (p.tcp_stream_id, p))
+                .map(|p| (p.basic_info.tcp_stream_id, p))
                 .into_group_map()
                 .into_iter()
                 .collect();

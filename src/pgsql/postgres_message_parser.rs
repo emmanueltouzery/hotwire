@@ -35,9 +35,9 @@ impl MessageParser for Postgres {
     }
 
     fn parse_stream(&self, comms: Vec<TSharkPacket>) -> StreamData {
-        let mut client_ip = comms.first().as_ref().unwrap().ip_src.clone();
-        let mut server_ip = comms.first().as_ref().unwrap().ip_dst.clone();
-        let mut server_port = comms.first().as_ref().unwrap().port_dst;
+        let mut client_ip = comms.first().as_ref().unwrap().basic_info.ip_src.clone();
+        let mut server_ip = comms.first().as_ref().unwrap().basic_info.ip_dst.clone();
+        let mut server_port = comms.first().as_ref().unwrap().basic_info.port_dst;
         let mut messages = vec![];
         let mut cur_query = None;
         let mut cur_col_names = vec![];
@@ -54,7 +54,7 @@ impl MessageParser for Postgres {
         let mut query_timestamp = None;
         let mut set_correct_server_info = false;
         for comm in comms {
-            let timestamp = comm.frame_time;
+            let timestamp = comm.basic_info.frame_time;
             if let Some(mds) = comm.pgsql {
                 for md in mds {
                     match md {
@@ -64,9 +64,9 @@ impl MessageParser for Postgres {
                             application,
                         } => {
                             if !set_correct_server_info {
-                                server_ip = comm.ip_dst.to_string(); // TODO i think i can drop the to_string()
-                                client_ip = comm.ip_src.to_string(); // TODO i think i can drop the to_string()
-                                server_port = comm.port_dst;
+                                server_ip = comm.basic_info.ip_dst.to_string(); // TODO i think i can drop the to_string()
+                                client_ip = comm.basic_info.ip_src.to_string(); // TODO i think i can drop the to_string()
+                                server_port = comm.basic_info.port_dst;
                                 set_correct_server_info = true;
                             }
                             messages.push(MessageData::Postgres(PostgresMessageData {
@@ -90,9 +90,9 @@ impl MessageParser for Postgres {
                         }
                         PostgresWireMessage::Startup { .. } => {
                             if !set_correct_server_info {
-                                server_ip = comm.ip_dst.to_string();
-                                client_ip = comm.ip_src.to_string();
-                                server_port = comm.port_dst;
+                                server_ip = comm.basic_info.ip_dst.to_string();
+                                client_ip = comm.basic_info.ip_src.to_string();
+                                server_port = comm.basic_info.port_dst;
                                 set_correct_server_info = true;
                             }
                         }
@@ -101,9 +101,9 @@ impl MessageParser for Postgres {
                             ref statement,
                         } => {
                             if !set_correct_server_info {
-                                server_ip = comm.ip_dst.to_string();
-                                client_ip = comm.ip_src.to_string();
-                                server_port = comm.port_dst;
+                                server_ip = comm.basic_info.ip_dst.to_string();
+                                client_ip = comm.basic_info.ip_src.to_string();
+                                server_port = comm.basic_info.port_dst;
                                 set_correct_server_info = true;
                             }
                             if let (Some(st), Some(q)) = (statement, query) {
@@ -116,9 +116,9 @@ impl MessageParser for Postgres {
                             parameter_values,
                         } => {
                             if !set_correct_server_info {
-                                server_ip = comm.ip_dst.to_string();
-                                client_ip = comm.ip_src.to_string();
-                                server_port = comm.port_dst;
+                                server_ip = comm.basic_info.ip_dst.to_string();
+                                client_ip = comm.basic_info.ip_src.to_string();
+                                server_port = comm.basic_info.port_dst;
                                 set_correct_server_info = true;
                             }
                             was_bind = true;
@@ -140,9 +140,9 @@ impl MessageParser for Postgres {
                             col_types,
                         } => {
                             if !set_correct_server_info {
-                                server_ip = comm.ip_src.to_string();
-                                client_ip = comm.ip_dst.to_string();
-                                server_port = comm.port_src;
+                                server_ip = comm.basic_info.ip_src.to_string();
+                                client_ip = comm.basic_info.ip_dst.to_string();
+                                server_port = comm.basic_info.port_src;
                                 set_correct_server_info = true;
                             }
                             cur_col_names = col_names;
@@ -166,9 +166,9 @@ impl MessageParser for Postgres {
                         }
                         PostgresWireMessage::ResultSetRow { cols } => {
                             if !set_correct_server_info {
-                                server_ip = comm.ip_src.to_string();
-                                client_ip = comm.ip_dst.to_string();
-                                server_port = comm.port_src;
+                                server_ip = comm.basic_info.ip_src.to_string();
+                                client_ip = comm.basic_info.ip_dst.to_string();
+                                server_port = comm.basic_info.port_src;
                                 set_correct_server_info = true;
                             }
                             cur_rs_row_count += 1;
@@ -235,9 +235,9 @@ impl MessageParser for Postgres {
                         }
                         PostgresWireMessage::ReadyForQuery => {
                             if !set_correct_server_info {
-                                server_ip = comm.ip_src.to_string();
-                                client_ip = comm.ip_dst.to_string();
-                                server_port = comm.port_src;
+                                server_ip = comm.basic_info.ip_src.to_string();
+                                client_ip = comm.basic_info.ip_dst.to_string();
+                                server_port = comm.basic_info.port_src;
                                 set_correct_server_info = true;
                             }
                             if was_bind {
@@ -270,9 +270,9 @@ impl MessageParser for Postgres {
                         }
                         PostgresWireMessage::CopyData => {
                             if !set_correct_server_info {
-                                server_ip = comm.ip_src.to_string();
-                                client_ip = comm.ip_dst.to_string();
-                                server_port = comm.port_src;
+                                server_ip = comm.basic_info.ip_src.to_string();
+                                client_ip = comm.basic_info.ip_dst.to_string();
+                                server_port = comm.basic_info.port_src;
                                 set_correct_server_info = true;
                             }
                             messages.push(MessageData::Postgres(PostgresMessageData {
