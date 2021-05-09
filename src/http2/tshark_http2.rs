@@ -61,6 +61,7 @@ pub fn parse_http2_info(
                         Some(b"http2.stream") => {
                             streams.push(parse_http2_stream(xml_reader, buf));
                         }
+                        _ => {}
                     }
                 }
             }
@@ -118,6 +119,7 @@ fn parse_http2_stream(
                             .ok()
                             .map(Http2Data::RecomposedData);
                         }
+                        _ => {}
                     }
                 }
             }
@@ -165,6 +167,7 @@ fn parse_http2_headers(
                                 .unwrap(),
                             ));
                         }
+                        _ => {}
                     }
                 }
             }

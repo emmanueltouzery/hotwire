@@ -80,6 +80,7 @@ pub fn parse_pgsql_info(
                                 b"Data row" => result.push(parse_data_row_message(xml_reader, buf)),
                             }
                         }
+                        _ => {}
                     }
                 }
             }
@@ -96,7 +97,7 @@ fn parse_startup_message(
     xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> PostgresWireMessage {
-    let mut cur_param_name;
+    let mut cur_param_name = None;
     let mut username;
     let mut database;
     let mut application;
@@ -111,19 +112,21 @@ fn parse_startup_message(
                     let val = tshark_communication::element_attr_val(e, b"show");
                     match name {
                         Some(b"pgsql.parameter_name") => {
-                            cur_param_name = val;
+                            cur_param_name = Some(val);
                         }
                         Some(b"pgsql.parameter_value") => match cur_param_name {
-                            b"user" => {
+                            Some(b"user") => {
                                 username = String::from_utf8(val.to_vec()).ok();
                             }
-                            b"database" => {
+                            Some(b"database") => {
                                 database = String::from_utf8(val.to_vec()).ok();
                             }
-                            b"application_name" => {
+                            Some(b"application_name") => {
                                 application = String::from_utf8(val.to_vec()).ok();
                             }
+                            _ => {}
                         },
+                        _ => {}
                     }
                 }
             }
@@ -167,6 +170,7 @@ fn parse_parse_message(
                             )
                             .ok();
                         }
+                        _ => {}
                     }
                 }
             }
@@ -211,6 +215,7 @@ fn parse_bind_message(
                                 parameter_values = parse_parameter_values(xml_reader, buf);
                             }
                         }
+                        _ => {}
                     }
                 }
             }
@@ -350,6 +355,7 @@ fn parse_data_row_message(
                                 .unwrap(),
                             );
                         }
+                        _ => {}
                     }
                 }
             }

@@ -207,6 +207,7 @@ fn parse_tcp_info(
                                 .parse()
                                 .unwrap();
                         }
+                        _ => {}
                     }
                 }
             }

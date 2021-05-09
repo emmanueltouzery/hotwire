@@ -70,6 +70,7 @@ pub fn parse_http_info(
                             )
                             .ok();
                         }
+                        _ => {}
                     }
                 }
             }
