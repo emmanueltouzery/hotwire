@@ -30,13 +30,13 @@ pub fn parse_packet(
     xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> Result<TSharkPacket, quick_xml::Error> {
-    let mut frame_time;
-    let mut ip_src;
-    let mut ip_dst;
-    let mut tcp_seq_number;
-    let mut tcp_stream_id;
-    let mut port_src;
-    let mut port_dst;
+    let mut frame_time = NaiveDateTime::from_timestamp(0, 0);
+    let mut ip_src = None;
+    let mut ip_dst = None;
+    let mut tcp_seq_number = 0;
+    let mut tcp_stream_id = 0;
+    let mut port_src = 0;
+    let mut port_dst = 0;
     let mut http = None;
     let mut http2 = None;
     let mut pgsql = None;
@@ -54,8 +54,8 @@ pub fn parse_packet(
                         }
                         Some(b"ip") => {
                             let ip_info = parse_ip_info(xml_reader, buf);
-                            ip_src = ip_info.0;
-                            ip_dst = ip_info.1;
+                            ip_src = Some(ip_info.0);
+                            ip_dst = Some(ip_info.1);
                         }
                         // TODO ipv6
                         Some(b"tcp") => {
@@ -84,8 +84,8 @@ pub fn parse_packet(
                     return Ok(TSharkPacket {
                         basic_info: TSharkPacketBasicInfo {
                             frame_time,
-                            ip_src,
-                            ip_dst,
+                            ip_src: ip_src.unwrap_or_default(),
+                            ip_dst: ip_dst.unwrap_or_default(),
                             tcp_seq_number,
                             tcp_stream_id,
                             port_src,
@@ -143,8 +143,8 @@ fn parse_ip_info(
     xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> (String, String) {
-    let mut ip_src;
-    let mut ip_dst;
+    let mut ip_src = None;
+    let mut ip_dst = None;
     loop {
         match xml_reader.read_event(buf) {
             Ok(Event::Empty(ref e)) => {
@@ -155,12 +155,10 @@ fn parse_ip_info(
                         .map(|kv| &*kv.unwrap().value);
                     match name {
                         Some(b"ip.src") => {
-                            ip_src =
-                                String::from_utf8(element_attr_val(e, b"show").to_vec()).unwrap();
+                            ip_src = String::from_utf8(element_attr_val(e, b"show").to_vec()).ok();
                         }
                         Some(b"ip.dst") => {
-                            ip_dst =
-                                String::from_utf8(element_attr_val(e, b"show").to_vec()).unwrap();
+                            ip_dst = String::from_utf8(element_attr_val(e, b"show").to_vec()).ok();
                         }
                         _ => {}
                     }
@@ -168,7 +166,7 @@ fn parse_ip_info(
             }
             Ok(Event::End(ref e)) => {
                 if e.name() == b"proto" {
-                    return (ip_src, ip_dst);
+                    return (ip_src.unwrap_or_default(), ip_dst.unwrap_or_default());
                 }
             }
             _ => {}
@@ -180,10 +178,10 @@ fn parse_tcp_info(
     xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> (u32, u32, u32, u32) {
-    let mut tcp_seq_number;
-    let mut tcp_stream_id;
-    let mut port_src;
-    let mut port_dst;
+    let mut tcp_seq_number = 0;
+    let mut tcp_stream_id = 0;
+    let mut port_src = 0;
+    let mut port_dst = 0;
     loop {
         match xml_reader.read_event(buf) {
             Ok(Event::Empty(ref e)) => {
@@ -206,7 +204,7 @@ fn parse_tcp_info(
                                 .unwrap();
                         }
                         Some(b"tcp.seq_raw") => {
-                            port_dst = str::from_utf8(element_attr_val(e, b"show"))
+                            tcp_seq_number = str::from_utf8(element_attr_val(e, b"show"))
                                 .unwrap()
                                 .parse()
                                 .unwrap();
