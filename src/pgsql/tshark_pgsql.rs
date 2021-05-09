@@ -89,6 +89,7 @@ pub fn parse_pgsql_info(
                     return result;
                 }
             }
+            _ => {}
         }
     }
 }
@@ -98,9 +99,9 @@ fn parse_startup_message(
     buf: &mut Vec<u8>,
 ) -> PostgresWireMessage {
     let mut cur_param_name = None;
-    let mut username;
-    let mut database;
-    let mut application;
+    let mut username = None;
+    let mut database = None;
+    let mut application = None;
     loop {
         match xml_reader.read_event(buf) {
             Ok(Event::Empty(ref e)) => {
@@ -139,6 +140,7 @@ fn parse_startup_message(
                     };
                 }
             }
+            _ => {}
         }
     }
 }
@@ -147,8 +149,8 @@ fn parse_parse_message(
     xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> PostgresWireMessage {
-    let mut statement;
-    let mut query;
+    let mut statement = None;
+    let mut query = None;
     loop {
         match xml_reader.read_event(buf) {
             Ok(Event::Empty(ref e)) => {
@@ -179,6 +181,7 @@ fn parse_parse_message(
                     return PostgresWireMessage::Parse { statement, query };
                 }
             }
+            _ => {}
         }
     }
 }
@@ -187,8 +190,8 @@ fn parse_bind_message(
     xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> PostgresWireMessage {
-    let mut statement;
-    let mut parameter_values;
+    let mut statement = None;
+    let mut parameter_values = vec![];
     loop {
         match xml_reader.read_event(buf) {
             Ok(Event::Empty(ref e)) => {
@@ -227,6 +230,7 @@ fn parse_bind_message(
                     };
                 }
             }
+            _ => {}
         }
     }
 }
@@ -306,6 +310,7 @@ fn parse_row_description_message(
                                     .unwrap(),
                             ));
                         }
+                        _ => {}
                     }
                 }
             }

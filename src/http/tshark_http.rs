@@ -23,12 +23,12 @@ pub fn parse_http_info(
     xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> TSharkHttp {
-    let mut http_type;
-    let mut http_host;
-    let mut first_line;
+    let mut http_type; // TODO
+    let mut http_host = None;
+    let mut first_line = None;
     let mut other_lines = vec![];
-    let mut body;
-    let mut content_type;
+    let mut body = None;
+    let mut content_type = None;
     loop {
         match xml_reader.read_event(buf) {
             Ok(Event::Empty(ref e)) => {
@@ -42,7 +42,7 @@ pub fn parse_http_info(
                             first_line = String::from_utf8(
                                 tshark_communication::element_attr_val(e, b"show").to_vec(),
                             )
-                            .unwrap();
+                            .ok();
                         }
                         Some(b"http.content_type") => {
                             content_type = String::from_utf8(
@@ -79,13 +79,14 @@ pub fn parse_http_info(
                     return TSharkHttp {
                         http_type,
                         http_host,
-                        first_line,
+                        first_line: first_line.unwrap_or_default(),
                         other_lines: other_lines.join(""),
                         body,
                         content_type,
                     };
                 }
             }
+            _ => {}
         }
     }
 }

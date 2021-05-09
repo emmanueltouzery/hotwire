@@ -70,6 +70,7 @@ pub fn parse_http2_info(
                     return streams;
                 }
             }
+            _ => {}
         }
     }
 }
@@ -78,10 +79,10 @@ fn parse_http2_stream(
     xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> TSharkHttp2Message {
-    let mut headers;
-    let mut data;
-    let mut stream_id;
-    let mut is_end_stream;
+    let mut headers = vec![];
+    let mut data = None;
+    let mut stream_id = 0;
+    let mut is_end_stream = false;
     loop {
         match xml_reader.read_event(buf) {
             Ok(Event::Empty(ref e)) => {
@@ -133,6 +134,7 @@ fn parse_http2_stream(
                     };
                 }
             }
+            _ => {}
         }
     }
 }
@@ -176,6 +178,7 @@ fn parse_http2_headers(
                     return headers;
                 }
             }
+            _ => {}
         }
     }
 }

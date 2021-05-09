@@ -32,9 +32,9 @@ pub fn parse_packet(
     let mut tcp_stream_id;
     let mut port_src;
     let mut port_dst;
-    let mut http;
-    let mut http2;
-    let mut pgsql;
+    let mut http = None;
+    let mut http2 = None;
+    let mut pgsql = None;
     loop {
         match xml_reader.read_event(&mut buf) {
             Ok(Event::Start(ref e)) => {
@@ -127,6 +127,7 @@ fn parse_frame_info(
                     }
                 }
             }
+            _ => {}
         }
     }
 }
@@ -154,6 +155,7 @@ fn parse_ip_info(
                             ip_dst =
                                 String::from_utf8(element_attr_val(e, b"show").to_vec()).unwrap();
                         }
+                        _ => {}
                     }
                 }
             }
@@ -162,6 +164,7 @@ fn parse_ip_info(
                     return (ip_src, ip_dst);
                 }
             }
+            _ => {}
         }
     }
 }
