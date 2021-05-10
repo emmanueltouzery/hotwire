@@ -3,9 +3,11 @@ use crate::http2::tshark_http2;
 use crate::pgsql::tshark_pgsql;
 use chrono::NaiveDateTime;
 use quick_xml::events::Event;
+use std::fmt::Debug;
 use std::io::BufReader;
 use std::process::ChildStdout;
 use std::str;
+use std::str::FromStr;
 
 #[derive(Debug)]
 pub struct TSharkPacketBasicInfo {
@@ -155,10 +157,10 @@ fn parse_ip_info(
                         .map(|kv| kv.unwrap().value);
                     match name.as_deref() {
                         Some(b"ip.src") => {
-                            ip_src = String::from_utf8(element_attr_val(e, b"show").to_vec()).ok();
+                            ip_src = element_attr_val_string(e, b"show");
                         }
                         Some(b"ip.dst") => {
-                            ip_dst = String::from_utf8(element_attr_val(e, b"show").to_vec()).ok();
+                            ip_dst = element_attr_val_string(e, b"show");
                         }
                         _ => {}
                     }
@@ -192,28 +194,16 @@ fn parse_tcp_info(
                         .map(|kv| kv.unwrap().value);
                     match name.as_deref() {
                         Some(b"tcp.srcport") => {
-                            port_src = str::from_utf8(element_attr_val(e, b"show"))
-                                .unwrap()
-                                .parse()
-                                .unwrap();
+                            port_src = element_attr_val_number(e, b"show").unwrap();
                         }
                         Some(b"tcp.dstport") => {
-                            port_dst = str::from_utf8(element_attr_val(e, b"show"))
-                                .unwrap()
-                                .parse()
-                                .unwrap();
+                            port_dst = element_attr_val_number(e, b"show").unwrap();
                         }
                         Some(b"tcp.seq_raw") => {
-                            tcp_seq_number = str::from_utf8(element_attr_val(e, b"show"))
-                                .unwrap()
-                                .parse()
-                                .unwrap();
+                            tcp_seq_number = element_attr_val_number(e, b"show").unwrap();
                         }
                         Some(b"tcp.stream") => {
-                            tcp_stream_id = str::from_utf8(element_attr_val(e, b"show"))
-                                .unwrap()
-                                .parse()
-                                .unwrap();
+                            tcp_stream_id = element_attr_val_number(e, b"show").unwrap();
                         }
                         _ => {}
                     }
@@ -229,13 +219,39 @@ fn parse_tcp_info(
     }
 }
 
-pub fn element_attr_val<'a>(
+pub fn element_attr_val_number<'a, F: FromStr>(
     e: &'a quick_xml::events::BytesStart<'a>,
     attr_name: &'static [u8],
-) -> &'a [u8] {
-    &*e.attributes()
-        .find(|kv| &*kv.as_ref().unwrap().key == attr_name)
-        .unwrap()
-        .unwrap()
-        .value
+) -> Option<F>
+where
+    <F as FromStr>::Err: Debug,
+{
+    str::from_utf8(
+        e.attributes()
+            .find(|kv| kv.as_ref().unwrap().key == attr_name)
+            .unwrap()
+            .unwrap()
+            .unescaped_value()
+            .unwrap()
+            .as_ref(),
+    )
+    .unwrap()
+    .parse()
+    .ok()
+}
+
+pub fn element_attr_val_string<'a>(
+    e: &'a quick_xml::events::BytesStart<'a>,
+    attr_name: &'static [u8],
+) -> Option<String> {
+    String::from_utf8(
+        e.attributes()
+            .find(|kv| kv.as_ref().unwrap().key == attr_name)
+            .unwrap()
+            .unwrap()
+            .unescaped_value()
+            .unwrap()
+            .to_vec(),
+    )
+    .ok()
 }

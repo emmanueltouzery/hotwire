@@ -94,28 +94,22 @@ fn parse_http2_stream(
                     match name.as_deref() {
                         Some(b"http2.streamid") => {
                             stream_id =
-                                str::from_utf8(tshark_communication::element_attr_val(e, b"show"))
-                                    .unwrap()
-                                    .parse()
-                                    .unwrap();
+                                tshark_communication::element_attr_val_number(e, b"show").unwrap();
                         }
                         Some(b"http2.header") => {
                             headers = parse_http2_headers(xml_reader, buf);
                         }
                         Some(b"http2.flags.end_stream") => {
                             is_end_stream =
-                                str::from_utf8(tshark_communication::element_attr_val(e, b"show"))
-                                    .unwrap()
-                                    == "1";
+                                tshark_communication::element_attr_val_number(e, b"show")
+                                    == Some(1);
                         }
                         Some(b"http2.data.data") => {
                             // TODO diff basic/recomposed data relevant in pdml?
                             data = hex::decode(
-                                String::from_utf8(
-                                    tshark_communication::element_attr_val(e, b"show").to_vec(),
-                                )
-                                .unwrap()
-                                .replace(':', ""),
+                                tshark_communication::element_attr_val_string(e, b"show")
+                                    .unwrap()
+                                    .replace(':', ""),
                             )
                             .ok()
                             .map(Http2Data::RecomposedData);
@@ -143,7 +137,7 @@ fn parse_http2_headers(
     xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> Vec<(String, String)> {
-    let mut cur_name;
+    let mut cur_name = None;
     let mut headers = vec![];
     loop {
         match xml_reader.read_event(buf) {
@@ -155,18 +149,12 @@ fn parse_http2_headers(
                         .map(|kv| kv.unwrap().value);
                     match name.as_deref() {
                         Some(b"http2.header.name") => {
-                            cur_name = String::from_utf8(
-                                tshark_communication::element_attr_val(e, b"show").to_vec(),
-                            )
-                            .unwrap();
+                            cur_name = tshark_communication::element_attr_val_string(e, b"show");
                         }
                         Some(b"http2.header.value") => {
                             headers.push((
-                                cur_name,
-                                String::from_utf8(
-                                    tshark_communication::element_attr_val(e, b"show").to_vec(),
-                                )
-                                .unwrap(),
+                                cur_name.take().unwrap(),
+                                tshark_communication::element_attr_val_string(e, b"show").unwrap(),
                             ));
                         }
                         _ => {}

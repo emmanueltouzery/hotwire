@@ -64,20 +64,24 @@ pub fn parse_pgsql_info(
                         .map(|kv| kv.unwrap().value);
                     match name.as_deref() {
                         Some(b"pgsql.type") => {
-                            match tshark_communication::element_attr_val(e, b"show") {
-                                b"Startup message" => {
+                            match tshark_communication::element_attr_val_string(e, b"show")
+                                .unwrap()
+                                .as_str()
+                            {
+                                "Startup message" => {
                                     result.push(parse_startup_message(xml_reader, buf))
                                 }
-                                b"Copy data" => result.push(PostgresWireMessage::CopyData),
-                                b"Parse" => result.push(parse_parse_message(xml_reader, buf)),
-                                b"Bind" => result.push(parse_bind_message(xml_reader, buf)),
-                                b"Ready for query" => {
+                                "Copy data" => result.push(PostgresWireMessage::CopyData),
+                                "Parse" => result.push(parse_parse_message(xml_reader, buf)),
+                                "Bind" => result.push(parse_bind_message(xml_reader, buf)),
+                                "Ready for query" => {
                                     result.push(PostgresWireMessage::ReadyForQuery)
                                 }
-                                b"Row description" => {
+                                "Row description" => {
                                     result.push(parse_row_description_message(xml_reader, buf))
                                 }
-                                b"Data row" => result.push(parse_data_row_message(xml_reader, buf)),
+                                "Data row" => result.push(parse_data_row_message(xml_reader, buf)),
+                                _ => {}
                             }
                         }
                         _ => {}
@@ -110,20 +114,20 @@ fn parse_startup_message(
                         .attributes()
                         .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                         .map(|kv| kv.unwrap().value);
-                    let val = tshark_communication::element_attr_val(e, b"show");
+                    let val = tshark_communication::element_attr_val_string(e, b"show");
                     match name.as_deref() {
                         Some(b"pgsql.parameter_name") => {
-                            cur_param_name = Some(val);
+                            cur_param_name = val;
                         }
-                        Some(b"pgsql.parameter_value") => match cur_param_name {
-                            Some(b"user") => {
-                                username = String::from_utf8(val.to_vec()).ok();
+                        Some(b"pgsql.parameter_value") => match cur_param_name.as_deref() {
+                            Some("user") => {
+                                username = val;
                             }
-                            Some(b"database") => {
-                                database = String::from_utf8(val.to_vec()).ok();
+                            Some("database") => {
+                                database = val;
                             }
-                            Some(b"application_name") => {
-                                application = String::from_utf8(val.to_vec()).ok();
+                            Some("application_name") => {
+                                application = val;
                             }
                             _ => {}
                         },
@@ -161,16 +165,10 @@ fn parse_parse_message(
                         .map(|kv| kv.unwrap().value);
                     match name.as_deref() {
                         Some(b"pgsql.statement") => {
-                            statement = String::from_utf8(
-                                tshark_communication::element_attr_val(e, b"show").to_vec(),
-                            )
-                            .ok();
+                            statement = tshark_communication::element_attr_val_string(e, b"show")
                         }
                         Some(b"pgsql.query") => {
-                            query = String::from_utf8(
-                                tshark_communication::element_attr_val(e, b"show").to_vec(),
-                            )
-                            .ok();
+                            query = tshark_communication::element_attr_val_string(e, b"show")
                         }
                         _ => {}
                     }
@@ -202,18 +200,12 @@ fn parse_bind_message(
                         .map(|kv| kv.unwrap().value);
                     match name.as_deref() {
                         Some(b"pgsql.statement") => {
-                            statement = String::from_utf8(
-                                tshark_communication::element_attr_val(e, b"show").to_vec(),
-                            )
-                            .ok()
-                            .filter(|s| !s.is_empty());
+                            statement = tshark_communication::element_attr_val_string(e, b"show")
+                                .filter(|s| !s.is_empty());
                         }
                         Some(b"") => {
-                            let show = String::from_utf8(
-                                tshark_communication::element_attr_val(e, b"show").to_vec(),
-                            )
-                            .ok()
-                            .unwrap();
+                            let show =
+                                tshark_communication::element_attr_val_string(e, b"show").unwrap();
                             if show.starts_with("Parameter values") {
                                 parameter_values = parse_parameter_values(xml_reader, buf);
                             }
@@ -252,19 +244,14 @@ fn parse_parameter_values(
                     match name.as_deref() {
                         Some(b"pgsql.val.length") => {
                             param_lengths.push(
-                                str::from_utf8(tshark_communication::element_attr_val(e, b"show"))
-                                    .unwrap()
-                                    .parse()
-                                    .unwrap(),
+                                tshark_communication::element_attr_val_number(e, b"show").unwrap(),
                             );
                         }
                         Some(b"pgsql.val.data") => {
                             param_vals.push(
                                 hex_chars_to_string(
-                                    str::from_utf8(tshark_communication::element_attr_val(
-                                        e, b"show",
-                                    ))
-                                    .unwrap(),
+                                    &tshark_communication::element_attr_val_string(e, b"show")
+                                        .unwrap(),
                                 )
                                 .unwrap(),
                             );
@@ -300,16 +287,12 @@ fn parse_row_description_message(
                     match name.as_deref() {
                         Some(b"pgsql.col.name") => {
                             col_names.push(
-                                String::from_utf8(
-                                    tshark_communication::element_attr_val(e, b"show").to_vec(),
-                                )
-                                .unwrap(),
+                                tshark_communication::element_attr_val_string(e, b"show").unwrap(),
                             );
                         }
                         Some(b"pgsql.oid.type") => {
                             col_types.push(parse_pg_oid_type(
-                                str::from_utf8(tshark_communication::element_attr_val(e, b"show"))
-                                    .unwrap(),
+                                &tshark_communication::element_attr_val_string(e, b"show").unwrap(),
                             ));
                         }
                         _ => {}
@@ -346,19 +329,14 @@ fn parse_data_row_message(
                     match name.as_deref() {
                         Some(b"pgsql.val.length") => {
                             col_lengths.push(
-                                str::from_utf8(tshark_communication::element_attr_val(e, b"show"))
-                                    .unwrap()
-                                    .parse()
-                                    .unwrap(),
+                                tshark_communication::element_attr_val_number(e, b"show").unwrap(),
                             );
                         }
                         Some(b"pgsql.val.data") => {
                             col_vals.push(
                                 hex_chars_to_string(
-                                    str::from_utf8(tshark_communication::element_attr_val(
-                                        e, b"show",
-                                    ))
-                                    .unwrap(),
+                                    &tshark_communication::element_attr_val_string(e, b"show")
+                                        .unwrap(),
                                 )
                                 .unwrap(),
                             );

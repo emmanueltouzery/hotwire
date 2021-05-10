@@ -39,36 +39,21 @@ pub fn parse_http_info(
                         .map(|kv| kv.unwrap().value);
                     match name.as_deref() {
                         Some(b"") => {
-                            first_line = String::from_utf8(
-                                tshark_communication::element_attr_val(e, b"show").to_vec(),
-                            )
-                            .ok();
+                            first_line = tshark_communication::element_attr_val_string(e, b"show")
                         }
                         Some(b"http.content_type") => {
-                            content_type = String::from_utf8(
-                                tshark_communication::element_attr_val(e, b"show").to_vec(),
-                            )
-                            .ok();
+                            content_type = tshark_communication::element_attr_val_string(e, b"show")
                         }
                         Some(b"http.host") => {
-                            http_host = String::from_utf8(
-                                tshark_communication::element_attr_val(e, b"show").to_vec(),
-                            )
-                            .ok();
+                            http_host = tshark_communication::element_attr_val_string(e, b"show")
                         }
                         Some(b"http.request.line") => {
                             other_lines.push(
-                                String::from_utf8(
-                                    tshark_communication::element_attr_val(e, b"show").to_vec(),
-                                )
-                                .unwrap(),
+                                tshark_communication::element_attr_val_string(e, b"show").unwrap(),
                             );
                         }
                         Some(b"http.file_data") => {
-                            body = String::from_utf8(
-                                tshark_communication::element_attr_val(e, b"show").to_vec(),
-                            )
-                            .ok();
+                            body = tshark_communication::element_attr_val_string(e, b"show")
                         }
                         _ => {}
                     }
