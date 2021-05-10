@@ -23,7 +23,7 @@ pub fn parse_http_info(
     xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
     buf: &mut Vec<u8>,
 ) -> TSharkHttp {
-    let mut http_type; // TODO
+    let mut http_type = None;
     let mut http_host = None;
     let mut first_line = None;
     let mut other_lines = vec![];
@@ -48,6 +48,13 @@ pub fn parse_http_info(
                             http_host = tshark_communication::element_attr_val_string(e, b"show")
                         }
                         Some(b"http.request.line") => {
+                            http_type = Some(HttpType::Request);
+                            other_lines.push(
+                                tshark_communication::element_attr_val_string(e, b"show").unwrap(),
+                            );
+                        }
+                        Some(b"http.response.line") => {
+                            http_type = Some(HttpType::Response);
                             other_lines.push(
                                 tshark_communication::element_attr_val_string(e, b"show").unwrap(),
                             );
@@ -62,7 +69,7 @@ pub fn parse_http_info(
             Ok(Event::End(ref e)) => {
                 if e.name() == b"proto" {
                     return TSharkHttp {
-                        http_type,
+                        http_type: http_type.unwrap(),
                         http_host,
                         first_line: first_line.unwrap_or_default(),
                         other_lines: other_lines.join(""),
