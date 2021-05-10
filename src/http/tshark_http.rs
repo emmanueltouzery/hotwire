@@ -31,6 +31,18 @@ pub fn parse_http_info(
     let mut content_type = None;
     loop {
         match xml_reader.read_event(buf) {
+            Ok(Event::Start(ref e)) => {
+                if e.name() == b"field" {
+                    let name = e
+                        .attributes()
+                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
+                        .map(|kv| kv.unwrap().value);
+                    if name.as_deref() == Some(b"") {
+                        first_line = tshark_communication::element_attr_val_string(e, b"show")
+                            .map(|t| t.trim_end_matches("\\r\\n").to_string())
+                    }
+                }
+            }
             Ok(Event::Empty(ref e)) => {
                 if e.name() == b"field" {
                     let name = e
@@ -38,9 +50,6 @@ pub fn parse_http_info(
                         .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                         .map(|kv| kv.unwrap().value);
                     match name.as_deref() {
-                        Some(b"") => {
-                            first_line = tshark_communication::element_attr_val_string(e, b"show")
-                        }
                         Some(b"http.content_type") => {
                             content_type = tshark_communication::element_attr_val_string(e, b"show")
                         }
