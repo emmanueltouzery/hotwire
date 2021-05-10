@@ -338,7 +338,8 @@ fn parse_data_row_message(
                                     &tshark_communication::element_attr_val_string(e, b"show")
                                         .unwrap(),
                                 )
-                                .unwrap(),
+                                // TODO the or_default is a workaround because we didn't code everything yet
+                                .unwrap_or_default(),
                             );
                         }
                         _ => {}
