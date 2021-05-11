@@ -180,7 +180,7 @@ pub fn parse_pdml_stream<B: BufRead>(
             Err(e) => return Err(Box::new(e)),
             _ => {}
         };
-        // buf.clear();
+        buf.clear();
     }
     Ok(r)
 }
