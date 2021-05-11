@@ -1,9 +1,7 @@
 use crate::tshark_communication;
 use quick_xml::events::Event;
 use std::fmt::Debug;
-use std::io::BufReader;
-use std::process::ChildStdout;
-use std::str;
+use std::io::BufRead;
 
 // if i have data over 2 http2 packets, tshark will often give me
 // the first part of the data in the first packet, then
@@ -44,8 +42,8 @@ pub struct TSharkHttp2Message {
     pub is_end_stream: bool,
 }
 
-pub fn parse_http2_info(
-    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
+pub fn parse_http2_info<B: BufRead>(
+    xml_reader: &mut quick_xml::Reader<B>,
     buf: &mut Vec<u8>,
 ) -> Vec<TSharkHttp2Message> {
     let mut streams = vec![];
@@ -75,8 +73,8 @@ pub fn parse_http2_info(
     }
 }
 
-fn parse_http2_stream(
-    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
+fn parse_http2_stream<B: BufRead>(
+    xml_reader: &mut quick_xml::Reader<B>,
     buf: &mut Vec<u8>,
 ) -> TSharkHttp2Message {
     let mut headers = vec![];
@@ -133,8 +131,8 @@ fn parse_http2_stream(
     }
 }
 
-fn parse_http2_headers(
-    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
+fn parse_http2_headers<B: BufRead>(
+    xml_reader: &mut quick_xml::Reader<B>,
     buf: &mut Vec<u8>,
 ) -> Vec<(String, String)> {
     let mut cur_name = None;

@@ -1,7 +1,6 @@
 use crate::tshark_communication;
 use quick_xml::events::Event;
-use std::io::BufReader;
-use std::process::ChildStdout;
+use std::io::BufRead;
 
 #[derive(Debug, Copy, Clone)]
 pub enum HttpType {
@@ -19,8 +18,8 @@ pub struct TSharkHttp {
     pub content_type: Option<String>,
 }
 
-pub fn parse_http_info(
-    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
+pub fn parse_http_info<B: BufRead>(
+    xml_reader: &mut quick_xml::Reader<B>,
     buf: &mut Vec<u8>,
 ) -> TSharkHttp {
     let mut http_type = None;

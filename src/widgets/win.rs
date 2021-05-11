@@ -19,10 +19,10 @@ use std::cmp::Reverse;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::io::BufRead;
 use std::io::BufReader;
 use std::path::Path;
 use std::path::PathBuf;
-use std::process::ChildStdout;
 use std::process::Command;
 use std::process::Stdio;
 use std::sync::mpsc;
@@ -130,13 +130,6 @@ enum RefreshRemoteIpsAndStreams {
     No,
 }
 
-#[derive(PartialEq, Eq)]
-pub enum TSharkMode {
-    // TODO obsolete
-    Json,
-    JsonRaw,
-}
-
 // it would be possible to ask tshark to "mix in" a keylog file
 // when opening the pcap file
 // (obtain the keylog file through `SSLKEYLOGFILE=browser_keylog.txt google-chrome` or firefox,
@@ -146,7 +139,6 @@ pub enum TSharkMode {
 // file. this is done through => editcap --inject-secrets tls,/path/to/keylog.txt ~/testtls.pcap ~/outtls.pcapng
 pub fn invoke_tshark(
     fname: &Path,
-    tshark_mode: TSharkMode,
     filters: &str,
 ) -> Result<Vec<tshark_communication::TSharkPacket>, Box<dyn std::error::Error>> {
     dbg!(&filters);
@@ -164,6 +156,12 @@ pub fn invoke_tshark(
         .stdout(Stdio::piped())
         .spawn()?;
     let buf_reader = BufReader::new(tshark_child.stdout.unwrap());
+    parse_pdml_stream(buf_reader)
+}
+
+pub fn parse_pdml_stream<B: BufRead>(
+    buf_reader: B,
+) -> Result<Vec<tshark_communication::TSharkPacket>, Box<dyn std::error::Error>> {
     let mut xml_reader = quick_xml::Reader::from_reader(buf_reader);
     let mut buf = vec![];
     let mut r = vec![];
@@ -661,8 +659,7 @@ impl Widget for Win {
         sender: relm::Sender<LoadedDataParams>,
         finished_tshark: relm::Sender<()>,
     ) {
-        let packets = invoke_tshark(&fname, TSharkMode::Json, "http || pgsql || http2")
-            .expect("tshark error");
+        let packets = invoke_tshark(&fname, "http || pgsql || http2").expect("tshark error");
         finished_tshark.send(()).unwrap();
         Self::handle_packets(fname, packets, sender)
     }

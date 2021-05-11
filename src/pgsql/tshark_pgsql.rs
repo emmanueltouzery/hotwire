@@ -1,8 +1,7 @@
 // https://www.postgresql.org/docs/12/protocol.html
 use crate::tshark_communication;
 use quick_xml::events::Event;
-use std::io::BufReader;
-use std::process::ChildStdout;
+use std::io::BufRead;
 use std::str;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -49,8 +48,8 @@ pub enum PostgresWireMessage {
     ReadyForQuery,
 }
 
-pub fn parse_pgsql_info(
-    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
+pub fn parse_pgsql_info<B: BufRead>(
+    xml_reader: &mut quick_xml::Reader<B>,
     buf: &mut Vec<u8>,
 ) -> Vec<PostgresWireMessage> {
     let mut result = vec![];
@@ -98,8 +97,8 @@ pub fn parse_pgsql_info(
     }
 }
 
-fn parse_startup_message(
-    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
+fn parse_startup_message<B: BufRead>(
+    xml_reader: &mut quick_xml::Reader<B>,
     buf: &mut Vec<u8>,
 ) -> PostgresWireMessage {
     let mut cur_param_name = None;
@@ -149,8 +148,8 @@ fn parse_startup_message(
     }
 }
 
-fn parse_parse_message(
-    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
+fn parse_parse_message<B: BufRead>(
+    xml_reader: &mut quick_xml::Reader<B>,
     buf: &mut Vec<u8>,
 ) -> PostgresWireMessage {
     let mut statement = None;
@@ -184,8 +183,8 @@ fn parse_parse_message(
     }
 }
 
-fn parse_bind_message(
-    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
+fn parse_bind_message<B: BufRead>(
+    xml_reader: &mut quick_xml::Reader<B>,
     buf: &mut Vec<u8>,
 ) -> PostgresWireMessage {
     let mut statement = None;
@@ -227,8 +226,8 @@ fn parse_bind_message(
     }
 }
 
-fn parse_parameter_values(
-    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
+fn parse_parameter_values<B: BufRead>(
+    xml_reader: &mut quick_xml::Reader<B>,
     buf: &mut Vec<u8>,
 ) -> Vec<String> {
     let mut param_lengths = vec![];
@@ -270,8 +269,8 @@ fn parse_parameter_values(
     }
 }
 
-fn parse_row_description_message(
-    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
+fn parse_row_description_message<B: BufRead>(
+    xml_reader: &mut quick_xml::Reader<B>,
     buf: &mut Vec<u8>,
 ) -> PostgresWireMessage {
     let mut col_names = vec![];
@@ -312,8 +311,8 @@ fn parse_row_description_message(
     }
 }
 
-fn parse_data_row_message(
-    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
+fn parse_data_row_message<B: BufRead>(
+    xml_reader: &mut quick_xml::Reader<B>,
     buf: &mut Vec<u8>,
 ) -> PostgresWireMessage {
     let mut col_lengths = vec![];

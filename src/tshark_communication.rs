@@ -4,8 +4,7 @@ use crate::pgsql::tshark_pgsql;
 use chrono::NaiveDateTime;
 use quick_xml::events::Event;
 use std::fmt::Debug;
-use std::io::BufReader;
-use std::process::ChildStdout;
+use std::io::BufRead;
 use std::str;
 use std::str::FromStr;
 
@@ -28,8 +27,8 @@ pub struct TSharkPacket {
     pub pgsql: Option<Vec<tshark_pgsql::PostgresWireMessage>>,
 }
 
-pub fn parse_packet(
-    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
+pub fn parse_packet<B: BufRead>(
+    xml_reader: &mut quick_xml::Reader<B>,
     buf: &mut Vec<u8>,
 ) -> Result<TSharkPacket, quick_xml::Error> {
     let mut frame_time = NaiveDateTime::from_timestamp(0, 0);
@@ -106,8 +105,8 @@ pub fn parse_packet(
     }
 }
 
-fn parse_frame_info(
-    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
+fn parse_frame_info<B: BufRead>(
+    xml_reader: &mut quick_xml::Reader<B>,
     buf: &mut Vec<u8>,
 ) -> NaiveDateTime {
     loop {
@@ -141,8 +140,8 @@ fn parse_frame_info(
     }
 }
 
-fn parse_ip_info(
-    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
+fn parse_ip_info<B: BufRead>(
+    xml_reader: &mut quick_xml::Reader<B>,
     buf: &mut Vec<u8>,
 ) -> (String, String) {
     let mut ip_src = None;
@@ -176,8 +175,8 @@ fn parse_ip_info(
     }
 }
 
-fn parse_tcp_info(
-    xml_reader: &mut quick_xml::Reader<BufReader<ChildStdout>>,
+fn parse_tcp_info<B: BufRead>(
+    xml_reader: &mut quick_xml::Reader<B>,
     buf: &mut Vec<u8>,
 ) -> (u32, u32, u32, u32) {
     let mut tcp_seq_number = 0;

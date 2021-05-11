@@ -17,10 +17,6 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 
 #[cfg(test)]
-use crate::pgsql::tshark_pgsql::TSharkPgsql;
-#[cfg(test)]
-use crate::tshark_communication::{TSharkFrameLayer, TSharkLayers, TSharkSource, TSharkTcpLayer};
-#[cfg(test)]
 use chrono::NaiveDate;
 
 pub struct Postgres;
