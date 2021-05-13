@@ -762,11 +762,9 @@ fn should_not_generate_queries_for_just_a_ready_message() {
     let parsed = Postgres {}
         .parse_stream(parse_test_xml(
             r#"
-        [
-          {
-             "pgsql.type": "Ready for query"
-          }
-        ]
+  <proto name="pgsql" showname="PostgreSQL" size="6" pos="239">
+    <field name="pgsql.type" showname="Type: Ready for query" size="1" pos="239" show="Ready for query" value="5a"/>
+  </proto>
         "#,
         ))
         .messages;
