@@ -435,7 +435,7 @@ impl MessageParser for Postgres {
     fn add_details_to_scroll(
         &self,
         parent: &gtk::ScrolledWindow,
-        overlay: Option<&gtk::Overlay>,
+        _overlay: Option<&gtk::Overlay>,
         bg_sender: mpsc::Sender<BgFunc>,
         win_msg_sender: relm::StreamHandle<win::Msg>,
     ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, MessageInfo)> {
@@ -529,40 +529,42 @@ pub struct PostgresMessageData {
 }
 
 #[cfg(test)]
-fn as_json_array(json: &str) -> Vec<TSharkCommunication> {
-    let items: Vec<TSharkPgsql> = serde_json::de::from_str(json).unwrap();
-    items
-        .into_iter()
-        .map(|p| TSharkCommunication {
-            source: TSharkSource {
-                layers: TSharkLayers {
-                    frame: TSharkFrameLayer {
-                        frame_time: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
-                    },
-                    ip: Some(TSharkIpLayer {
-                        ip_src: "127.0.0.1".to_string(),
-                        ip_dst: "127.0.0.1".to_string(),
-                    }),
-                    ipv6: None,
-                    tcp: Some(TSharkTcpLayer {
-                        seq_number: 0,
-                        stream: 0,
-                        port_src: 0,
-                        port_dst: 0,
-                    }),
-                    http: None,
-                    http2: None,
-                    pgsql: Some(p),
-                },
-            },
-        })
-        .collect()
+macro_rules! test_fmt_str {
+    () => {
+        r#"
+   <pdml>
+     <packet>
+       <proto name="frame">
+           <field name="frame.time" show="Mar  5, 2021 08:49:52.736275000 CET"/>
+       </proto>
+       <proto name="ip">
+           <field name="ip.src" show="10.215.215.9" />
+           <field name="ip.dst" show="10.215.215.9" />
+       </proto>
+       <proto name="tcp">
+           <field name="tcp.srcport" show="52796" value="ce3c"/>
+           <field name="tcp.dstport" show="5432" value="1538"/>
+           <field name="tcp.seq_raw" show="1963007432" value="75011dc8"/>
+           <field name="tcp.stream" show="4"/>
+       </proto>
+       <proto name="{}">
+           {}
+       </proto>
+     </packet>
+   </pdml>
+"#
+    };
+}
+
+#[cfg(test)]
+fn parse_test_xml(xml: &str) -> Vec<TSharkPacket> {
+    win::parse_pdml_stream(format!(test_fmt_str!(), "pgsql", xml).as_bytes()).unwrap()
 }
 
 #[test]
 fn should_parse_simple_query() {
     let parsed = Postgres {}
-        .parse_stream(as_json_array(
+        .parse_stream(parse_test_xml(
             r#"
         [
           {
@@ -617,7 +619,7 @@ fn should_parse_simple_query() {
 #[test]
 fn should_parse_prepared_statement() {
     let parsed = Postgres {}
-        .parse_stream(as_json_array(
+        .parse_stream(parse_test_xml(
             r#"
         [
           {
@@ -685,7 +687,7 @@ fn should_parse_prepared_statement() {
 #[test]
 fn should_parse_prepared_statement_with_parameters() {
     let parsed = Postgres {}
-        .parse_stream(as_json_array(
+        .parse_stream(parse_test_xml(
             r#"
         [
           {
@@ -764,7 +766,7 @@ fn should_parse_prepared_statement_with_parameters() {
 #[test]
 fn should_not_generate_queries_for_just_a_ready_message() {
     let parsed = Postgres {}
-        .parse_stream(as_json_array(
+        .parse_stream(parse_test_xml(
             r#"
         [
           {
@@ -781,7 +783,7 @@ fn should_not_generate_queries_for_just_a_ready_message() {
 #[test]
 fn should_parse_query_with_multiple_columns_and_nulls() {
     let parsed = Postgres {}
-        .parse_stream(as_json_array(
+        .parse_stream(parse_test_xml(
             r#"
         [
           {
@@ -853,7 +855,7 @@ fn should_parse_query_with_multiple_columns_and_nulls() {
 #[test]
 fn should_parse_query_with_no_parse_and_unknown_bind() {
     let parsed = Postgres {}
-        .parse_stream(as_json_array(
+        .parse_stream(parse_test_xml(
             r#"
         [
           {
