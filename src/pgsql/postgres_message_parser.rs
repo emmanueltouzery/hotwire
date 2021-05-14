@@ -615,42 +615,39 @@ fn should_parse_prepared_statement() {
     let parsed = Postgres {}
         .parse_stream(parse_test_xml(
             r#"
-        [
-          {
-             "pgsql.type": "Parse",
-             "pgsql.query": "select 1",
-             "pgsql.statement": "S_18"
-          },
-          {
-             "pgsql.type": "Bind",
-             "pgsql.statement": "S_18"
-          },
-          {
-             "pgsql.type": "Ready for query"
-          },
-          {
-             "pgsql.type": "Bind",
-             "pgsql.statement": "S_18"
-          },
-          {
-             "pgsql.type": "Data row",
-             "pgsql.field.count": "1",
-             "pgsql.field.count_tree": {
-                 "pgsql.val.length": "10",
-                 "pgsql.val.data": "50:6f:73:74:67:72:65:53:51:4c"
-             }
-          },
-          {
-             "pgsql.type": "Ready for query"
-          }
-        ]
+  <proto name="pgsql" showname="PostgreSQL" size="25" pos="66">
+    <field name="pgsql.type" showname="Type: Parse" size="1" pos="66" show="Parse" value="50"/>
+    <field name="pgsql.query" show="select 1" />
+    <field name="pgsql.statement" show="S_18"/>
+  </proto>
+  <proto name="pgsql" showname="PostgreSQL" size="13" pos="91">
+    <field name="pgsql.type" showname="Type: Bind" size="1" pos="91" show="Bind" value="42"/>
+    <field name="pgsql.statement" show="S_18" />
+  </proto>
+  <proto name="pgsql" showname="PostgreSQL" size="6" pos="239">
+    <field name="pgsql.type" showname="Type: Ready for query" size="1" pos="239" show="Ready for query" value="5a"/>
+  </proto>
+  <proto name="pgsql" showname="PostgreSQL" size="13" pos="91">
+    <field name="pgsql.type" showname="Type: Bind" size="1" pos="91" show="Bind" value="42"/>
+    <field name="pgsql.statement" show="S_18" />
+  </proto>
+  <proto name="pgsql" showname="PostgreSQL" size="116" pos="109">
+    <field name="pgsql.type" showname="Type: Data row" size="1" pos="109" show="Data row" value="44"/>
+    <field name="pgsql.field.count" showname="Field count: 1" size="2" pos="114" show="1" value="0001">
+      <field name="pgsql.val.length" showname="Column length: 10" size="4" pos="116" show="10" value="00000069"/>
+      <field name="pgsql.val.data" size="10" pos="120" show="50:6f:73:74:67:72:65:53:51:4c"/>
+    </field>
+  </proto>
+  <proto name="pgsql" showname="PostgreSQL" size="6" pos="239">
+    <field name="pgsql.type" showname="Type: Ready for query" size="1" pos="239" show="Ready for query" value="5a"/>
+  </proto>
         "#,
         ))
         .messages;
     let expected: Vec<MessageData> = vec![
         MessageData::Postgres(PostgresMessageData {
-            query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
-            result_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
+            query_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
+            result_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
             query: Some(Cow::Borrowed("select 1")),
             parameter_values: vec![],
             resultset_col_names: vec![],
