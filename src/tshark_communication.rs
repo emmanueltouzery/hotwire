@@ -40,7 +40,7 @@ pub fn parse_packet<B: BufRead>(
     let mut port_dst = 0;
     let mut http = None;
     let mut http2 = None;
-    let mut pgsql = None;
+    let mut pgsql = None::<Vec<tshark_pgsql::PostgresWireMessage>>;
     loop {
         match xml_reader.read_event(buf) {
             Ok(Event::Start(ref e)) => {
@@ -74,7 +74,13 @@ pub fn parse_packet<B: BufRead>(
                             http2 = Some(tshark_http2::parse_http2_info(xml_reader, buf));
                         }
                         Some(b"pgsql") => {
-                            pgsql = Some(tshark_pgsql::parse_pgsql_info(xml_reader, buf));
+                            let mut pgsql_packets = tshark_pgsql::parse_pgsql_info(xml_reader, buf);
+                            if let Some(mut sofar) = pgsql {
+                                sofar.append(&mut pgsql_packets);
+                                pgsql = Some(sofar);
+                            } else {
+                                pgsql = Some(pgsql_packets);
+                            }
                         }
                         _ => {}
                     }

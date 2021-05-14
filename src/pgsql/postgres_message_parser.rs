@@ -659,8 +659,8 @@ fn should_parse_prepared_statement() {
             resultset_string_cols: vec![],
         }),
         MessageData::Postgres(PostgresMessageData {
-            query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
-            result_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
+            query_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
+            result_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
             query: Some(Cow::Borrowed("select 1")),
             parameter_values: vec![],
             resultset_col_names: vec!["Col".to_string()],
