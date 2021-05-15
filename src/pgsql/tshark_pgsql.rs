@@ -295,15 +295,26 @@ fn parse_row_description_message<B: BufRead>(
                         .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                         .map(|kv| kv.unwrap().value);
                     match name.as_deref() {
-                        Some(b"pgsql.col.name") => {
-                            col_names.push(
-                                tshark_communication::element_attr_val_string(e, b"show").unwrap(),
-                            );
-                        }
                         Some(b"pgsql.oid.type") => {
                             col_types.push(parse_pg_oid_type(
                                 &tshark_communication::element_attr_val_string(e, b"show").unwrap(),
                             ));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Ok(Event::Start(ref e)) => {
+                if e.name() == b"field" {
+                    let name = e
+                        .attributes()
+                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
+                        .map(|kv| kv.unwrap().value);
+                    match name.as_deref() {
+                        Some(b"pgsql.col.name") => {
+                            col_names.push(
+                                tshark_communication::element_attr_val_string(e, b"show").unwrap(),
+                            );
                         }
                         _ => {}
                     }

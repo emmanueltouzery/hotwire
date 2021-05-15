@@ -776,38 +776,45 @@ fn should_parse_query_with_multiple_columns_and_nulls() {
     let parsed = Postgres {}
         .parse_stream(parse_test_xml(
             r#"
-        [
-          {
-             "pgsql.type": "Parse",
-             "pgsql.query": "select 1"
-          },
-          {
-             "pgsql.type": "Bind"
-          },
-          {
-             "pgsql.type": "Row description",
-             "pgsql.field.count_tree": {
-                  "pgsql.col.name": ["version", "col2", "col3", "col4"],
-                  "pgsql.col.name_tree": [
-                      {"pgsql.oid.type": "19"},
-                      {"pgsql.oid.type": "19"},
-                      {"pgsql.oid.type": "19"},
-                      {"pgsql.oid.type": "19"}
-                  ]
-              }
-          },
-          {
-             "pgsql.type": "Data row",
-             "pgsql.field.count": "4",
-             "pgsql.field.count_tree": {
-                 "pgsql.val.length": ["5", "-1", "0", "5"],
-                 "pgsql.val.data": ["50:6f:73:74:67", "72:65:53:51:4c"]
-             }
-          },
-          {
-             "pgsql.type": "Ready for query"
-          }
-        ]
+  <proto name="pgsql" showname="PostgreSQL" size="25" pos="66">
+    <field name="pgsql.type" showname="Type: Parse" size="1" pos="66" show="Parse" value="50"/>
+    <field name="pgsql.query" show="select 1" />
+  </proto>
+  <proto name="pgsql" showname="PostgreSQL" size="13" pos="91">
+    <field name="pgsql.type" showname="Type: Bind" size="1" pos="91" show="Bind" value="42"/>
+  </proto>
+  <proto name="pgsql" showname="PostgreSQL" size="33" pos="76">
+    <field name="pgsql.type" showname="Type: Row description" size="1" pos="76" show="Row description" value="54"/>
+    <field name="pgsql.length" showname="Length: 32" size="4" pos="77" show="32" value="00000020"/>
+    <field name="pgsql.frontend" showname="Frontend: False" hide="yes" size="0" pos="76" show="0"/>
+    <field name="pgsql.field.count" showname="Field count: 1" size="2" pos="81" show="1" value="0001">
+      <field name="pgsql.col.name" showname="Column name: version" size="8" pos="83" show="version" value="76657273696f6e00">
+        <field name="pgsql.oid.table" showname="Table OID: 0" size="4" pos="91" show="0" value="00000000"/>
+        <field name="pgsql.col.index" showname="Column index: 0" size="2" pos="95" show="0" value="0000"/>
+        <field name="pgsql.oid.type" showname="Type OID: 25" size="4" pos="97" show="25" value="00000019"/>
+        <field name="pgsql.val.length" showname="Column length: -1" size="2" pos="101" show="-1" value="ffff"/>
+        <field name="pgsql.col.typemod" showname="Type modifier: -1" size="4" pos="103" show="-1" value="ffffffff"/>
+        <field name="pgsql.format" showname="Format: Text (0)" size="2" pos="107" show="0" value="0000"/>
+      </field>
+    </field>
+  </proto>
+  <proto name="pgsql" showname="PostgreSQL" size="67" pos="87">
+    <field name="pgsql.type" showname="Type: Data row" size="1" pos="87" show="Data row" value="44"/>
+    <field name="pgsql.length" showname="Length: 66" size="4" pos="88" show="66" value="00000042"/>
+    <field name="pgsql.frontend" showname="Frontend: False" hide="yes" size="0" pos="87" show="0"/>
+    <field name="pgsql.field.count" showname="Field count: 4" size="2" pos="92" show="4" value="0004">
+      <field name="pgsql.val.length" showname="Column length: 4" size="4" pos="94" show="4" value="00000004"/>
+      <field name="pgsql.val.data" showname="Data: 0000001a" size="4" pos="98" show="00:00:00:1a" value="0000001a"/>
+      <field name="pgsql.val.length" showname="Column length: -1" size="4" pos="2255" show="-1" value="ffffffff"/>
+      <field name="pgsql.val.length" showname="Column length: 7" size="4" pos="102" show="7" value="00000007"/>
+      <field name="pgsql.val.data" showname="Data: 47454e4552414c" size="7" pos="106" show="47:45:4e:45:52:41:4c" value="47454e4552414c"/>
+      <field name="pgsql.val.length" showname="Column length: 20" size="4" pos="113" show="20" value="00000014"/>
+      <field name="pgsql.val.data" showname="Data: 4150504c49434154494f4e5f54494d455a4f4e45" size="20" pos="117" show="41:50:50:4c:49:43:41:54:49:4f:4e:5f:54:49:4d:45:5a:4f:4e:45" value="4150504c49434154494f4e5f54494d455a4f4e45"/>
+    </field>
+  </proto>
+  <proto name="pgsql" showname="PostgreSQL" size="6" pos="239">
+    <field name="pgsql.type" showname="Type: Ready for query" size="1" pos="239" show="Ready for query" value="5a"/>
+  </proto>
         "#,
         ))
         .messages;
@@ -816,28 +823,13 @@ fn should_parse_query_with_multiple_columns_and_nulls() {
         result_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
         query: Some(Cow::Borrowed("select 1")),
         parameter_values: vec![],
-        resultset_col_names: vec![
-            "version".to_string(),
-            "col2".to_string(),
-            "col3".to_string(),
-            "col4".to_string(),
-        ],
+        resultset_col_names: vec!["version".to_string()],
         resultset_row_count: 1,
-        resultset_col_types: vec![
-            PostgresColType::Name,
-            PostgresColType::Name,
-            PostgresColType::Name,
-            PostgresColType::Name,
-        ],
+        resultset_col_types: vec![PostgresColType::Text],
         resultset_int_cols: vec![],
         resultset_bigint_cols: vec![],
         resultset_bool_cols: vec![],
-        resultset_string_cols: vec![
-            vec![Some("Postg".to_string())],
-            vec![None],
-            vec![Some("".to_string())],
-            vec![Some("reSQL".to_string())],
-        ],
+        resultset_string_cols: vec![vec![Some("26".to_string())]],
     })];
     assert_eq!(expected, parsed);
 }
