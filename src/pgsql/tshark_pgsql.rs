@@ -202,6 +202,17 @@ fn parse_bind_message<B: BufRead>(
                             statement = tshark_communication::element_attr_val_string(e, b"show")
                                 .filter(|s| !s.is_empty());
                         }
+                        _ => {}
+                    }
+                }
+            }
+            Ok(Event::Start(ref e)) => {
+                if e.name() == b"field" {
+                    let name = e
+                        .attributes()
+                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
+                        .map(|kv| kv.unwrap().value);
+                    match name.as_deref() {
                         Some(b"") => {
                             let show =
                                 tshark_communication::element_attr_val_string(e, b"show").unwrap();
@@ -260,7 +271,7 @@ fn parse_parameter_values<B: BufRead>(
                 }
             }
             Ok(Event::End(ref e)) => {
-                if e.name() == b"proto" {
+                if e.name() == b"field" {
                     return add_cols(param_vals, param_lengths);
                 }
             }
