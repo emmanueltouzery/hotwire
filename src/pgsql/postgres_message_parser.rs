@@ -812,8 +812,8 @@ fn should_parse_query_with_multiple_columns_and_nulls() {
         ))
         .messages;
     let expected: Vec<MessageData> = vec![MessageData::Postgres(PostgresMessageData {
-        query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
-        result_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
+        query_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
+        result_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
         query: Some(Cow::Borrowed("select 1")),
         parameter_values: vec![],
         resultset_col_names: vec![
@@ -848,36 +848,40 @@ fn should_parse_query_with_no_parse_and_unknown_bind() {
     let parsed = Postgres {}
         .parse_stream(parse_test_xml(
             r#"
-        [
-          {
-             "pgsql.type": "Parse",
-             "pgsql.query": "select 1"
-          },
-          {
-             "pgsql.type": "Ready for query"
-          },
-          {
-             "pgsql.type": "Bind",
-             "pgsql.statement": "S_18"
-          },
-          {
-             "pgsql.type": "Data row",
-             "pgsql.field.count": "4",
-             "pgsql.field.count_tree": {
-                 "pgsql.val.length": ["5", "-1", "0", "5"],
-                 "pgsql.val.data": ["50:6f:73:74:67", "72:65:53:51:4c"]
-             }
-          },
-          {
-             "pgsql.type": "Ready for query"
-          }
-        ]
+  <proto name="pgsql" showname="PostgreSQL" size="25" pos="66">
+    <field name="pgsql.type" showname="Type: Parse" size="1" pos="66" show="Parse" value="50"/>
+    <field name="pgsql.query" show="select 1" />
+  </proto>
+  <proto name="pgsql" showname="PostgreSQL" size="6" pos="239">
+    <field name="pgsql.type" showname="Type: Ready for query" size="1" pos="239" show="Ready for query" value="5a"/>
+  </proto>
+  <proto name="pgsql" showname="PostgreSQL" size="13" pos="91">
+    <field name="pgsql.type" showname="Type: Bind" size="1" pos="91" show="Bind" value="42"/>
+    <field name="pgsql.statement" show="S_18" />
+  </proto>
+  <proto name="pgsql" showname="PostgreSQL" size="67" pos="87">
+    <field name="pgsql.type" showname="Type: Data row" size="1" pos="87" show="Data row" value="44"/>
+    <field name="pgsql.length" showname="Length: 66" size="4" pos="88" show="66" value="00000042"/>
+    <field name="pgsql.frontend" showname="Frontend: False" hide="yes" size="0" pos="87" show="0"/>
+    <field name="pgsql.field.count" showname="Field count: 4" size="2" pos="92" show="4" value="0004">
+      <field name="pgsql.val.length" showname="Column length: 4" size="4" pos="94" show="4" value="00000004"/>
+      <field name="pgsql.val.data" showname="Data: 0000001a" size="4" pos="98" show="00:00:00:1a" value="0000001a"/>
+      <field name="pgsql.val.length" showname="Column length: -1" size="4" pos="2255" show="-1" value="ffffffff"/>
+      <field name="pgsql.val.length" showname="Column length: 7" size="4" pos="102" show="7" value="00000007"/>
+      <field name="pgsql.val.data" showname="Data: 47454e4552414c" size="7" pos="106" show="47:45:4e:45:52:41:4c" value="47454e4552414c"/>
+      <field name="pgsql.val.length" showname="Column length: 20" size="4" pos="113" show="20" value="00000014"/>
+      <field name="pgsql.val.data" showname="Data: 4150504c49434154494f4e5f54494d455a4f4e45" size="20" pos="117" show="41:50:50:4c:49:43:41:54:49:4f:4e:5f:54:49:4d:45:5a:4f:4e:45" value="4150504c49434154494f4e5f54494d455a4f4e45"/>
+    </field>
+  </proto>
+  <proto name="pgsql" showname="PostgreSQL" size="6" pos="239">
+    <field name="pgsql.type" showname="Type: Ready for query" size="1" pos="239" show="Ready for query" value="5a"/>
+  </proto>
         "#,
         ))
         .messages;
     let expected: Vec<MessageData> = vec![MessageData::Postgres(PostgresMessageData {
-        query_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
-        result_timestamp: NaiveDate::from_ymd(2021, 3, 18).and_hms_nano(0, 0, 0, 0),
+        query_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
+        result_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
         query: Some(Cow::Borrowed("Unknown statement: S_18")),
         parameter_values: vec![],
         resultset_col_names: vec![
@@ -897,10 +901,10 @@ fn should_parse_query_with_no_parse_and_unknown_bind() {
         resultset_bigint_cols: vec![],
         resultset_bool_cols: vec![],
         resultset_string_cols: vec![
-            vec![Some("Postg".to_string())],
+            vec![Some("26".to_string())],
             vec![None],
-            vec![Some("".to_string())],
-            vec![Some("reSQL".to_string())],
+            vec![Some("GENERAL".to_string())],
+            vec![Some("APPLICATION_TIMEZONE".to_string())],
         ],
     })];
     assert_eq!(expected, parsed);
