@@ -378,21 +378,6 @@ fn parse_pg_oid_type(typ: &str) -> PostgresColType {
     }
 }
 
-fn as_string_array(val: &serde_json::Value) -> Option<Vec<&str>> {
-    val.as_array()
-        .and_then(|v| v.into_iter().map(|i| i.as_str()).collect())
-}
-
-fn parse_str_or_array<T>(val: &serde_json::Value, converter: impl Fn(&str) -> T) -> Vec<T> {
-    match val {
-        serde_json::Value::String(s) => {
-            vec![converter(s)]
-        }
-        serde_json::Value::Array(ar) => ar.iter().map(|v| converter(v.as_str().unwrap())).collect(),
-        _ => panic!(),
-    }
-}
-
 fn add_cols(mut raw_cols: Vec<String>, col_lengths: Vec<i32>) -> Vec<String> {
     raw_cols.reverse();
     let mut cols = vec![];

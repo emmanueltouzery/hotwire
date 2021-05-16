@@ -659,7 +659,7 @@ impl Widget for Win {
         sender: relm::Sender<LoadedDataParams>,
         finished_tshark: relm::Sender<()>,
     ) {
-        let packets = invoke_tshark(&fname, "http || pgsql || http2").expect("tshark error");
+        let packets = invoke_tshark(&fname, "http2").expect("tshark error");
         finished_tshark.send(()).unwrap();
         Self::handle_packets(fname, packets, sender)
     }
