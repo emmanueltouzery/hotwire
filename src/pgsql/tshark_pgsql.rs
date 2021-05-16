@@ -53,48 +53,45 @@ pub fn parse_pgsql_info<B: BufRead>(
     buf: &mut Vec<u8>,
 ) -> Vec<PostgresWireMessage> {
     let mut result = vec![];
-    loop {
-        match xml_reader.read_event(buf) {
-            Ok(Event::Empty(ref e)) => {
-                if e.name() == b"field" {
-                    let name = e
-                        .attributes()
-                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                        .map(|kv| kv.unwrap().value);
-                    match name.as_deref() {
-                        Some(b"pgsql.type") => {
-                            match tshark_communication::element_attr_val_string(e, b"show")
-                                .unwrap()
-                                .as_str()
-                            {
-                                "Startup message" => {
-                                    result.push(parse_startup_message(xml_reader, buf))
-                                }
-                                "Copy data" => result.push(PostgresWireMessage::CopyData),
-                                "Parse" => result.push(parse_parse_message(xml_reader, buf)),
-                                "Bind" => result.push(parse_bind_message(xml_reader, buf)),
-                                "Ready for query" => {
-                                    result.push(PostgresWireMessage::ReadyForQuery)
-                                }
-                                "Row description" => {
-                                    result.push(parse_row_description_message(xml_reader, buf))
-                                }
-                                "Data row" => result.push(parse_data_row_message(xml_reader, buf)),
-                                _ => {}
+    xml_event_loop!(xml_reader, buf,
+        Ok(Event::Empty(ref e)) => {
+            if e.name() == b"field" {
+                let name = e
+                    .attributes()
+                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
+                    .map(|kv| kv.unwrap().value);
+                match name.as_deref() {
+                    Some(b"pgsql.type") => {
+                        match tshark_communication::element_attr_val_string(e, b"show")
+                            .unwrap()
+                            .as_str()
+                        {
+                            "Startup message" => {
+                                result.push(parse_startup_message(xml_reader, buf))
                             }
+                            "Copy data" => result.push(PostgresWireMessage::CopyData),
+                            "Parse" => result.push(parse_parse_message(xml_reader, buf)),
+                            "Bind" => result.push(parse_bind_message(xml_reader, buf)),
+                            "Ready for query" => {
+                                result.push(PostgresWireMessage::ReadyForQuery)
+                            }
+                            "Row description" => {
+                                result.push(parse_row_description_message(xml_reader, buf))
+                            }
+                            "Data row" => result.push(parse_data_row_message(xml_reader, buf)),
+                            _ => {}
                         }
-                        _ => {}
                     }
+                    _ => {}
                 }
             }
-            Ok(Event::End(ref e)) => {
-                if e.name() == b"proto" {
-                    return result;
-                }
-            }
-            _ => {}
         }
-    }
+        Ok(Event::End(ref e)) => {
+            if e.name() == b"proto" {
+                return result;
+            }
+        }
+    )
 }
 
 fn parse_startup_message<B: BufRead>(
@@ -105,47 +102,44 @@ fn parse_startup_message<B: BufRead>(
     let mut username = None;
     let mut database = None;
     let mut application = None;
-    loop {
-        match xml_reader.read_event(buf) {
-            Ok(Event::Empty(ref e)) => {
-                if e.name() == b"field" {
-                    let name = e
-                        .attributes()
-                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                        .map(|kv| kv.unwrap().value);
-                    let val = tshark_communication::element_attr_val_string(e, b"show");
-                    match name.as_deref() {
-                        Some(b"pgsql.parameter_name") => {
-                            cur_param_name = val;
-                        }
-                        Some(b"pgsql.parameter_value") => match cur_param_name.as_deref() {
-                            Some("user") => {
-                                username = val;
-                            }
-                            Some("database") => {
-                                database = val;
-                            }
-                            Some("application_name") => {
-                                application = val;
-                            }
-                            _ => {}
-                        },
-                        _ => {}
+    xml_event_loop!(xml_reader, buf,
+        Ok(Event::Empty(ref e)) => {
+            if e.name() == b"field" {
+                let name = e
+                    .attributes()
+                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
+                    .map(|kv| kv.unwrap().value);
+                let val = tshark_communication::element_attr_val_string(e, b"show");
+                match name.as_deref() {
+                    Some(b"pgsql.parameter_name") => {
+                        cur_param_name = val;
                     }
+                    Some(b"pgsql.parameter_value") => match cur_param_name.as_deref() {
+                        Some("user") => {
+                            username = val;
+                        }
+                        Some("database") => {
+                            database = val;
+                        }
+                        Some("application_name") => {
+                            application = val;
+                        }
+                        _ => {}
+                    },
+                    _ => {}
                 }
             }
-            Ok(Event::End(ref e)) => {
-                if e.name() == b"proto" {
-                    return PostgresWireMessage::Startup {
-                        username,
-                        database,
-                        application,
-                    };
-                }
-            }
-            _ => {}
         }
-    }
+        Ok(Event::End(ref e)) => {
+            if e.name() == b"proto" {
+                return PostgresWireMessage::Startup {
+                    username,
+                    database,
+                    application,
+                };
+            }
+        }
+    )
 }
 
 fn parse_parse_message<B: BufRead>(
@@ -154,33 +148,31 @@ fn parse_parse_message<B: BufRead>(
 ) -> PostgresWireMessage {
     let mut statement = None;
     let mut query = None;
-    loop {
-        match xml_reader.read_event(buf) {
-            Ok(Event::Empty(ref e)) => {
-                if e.name() == b"field" {
-                    let name = e
-                        .attributes()
-                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                        .map(|kv| kv.unwrap().value);
-                    match name.as_deref() {
-                        Some(b"pgsql.statement") => {
-                            statement = tshark_communication::element_attr_val_string(e, b"show")
-                        }
-                        Some(b"pgsql.query") => {
-                            query = tshark_communication::element_attr_val_string(e, b"show")
-                        }
-                        _ => {}
+    xml_event_loop!(xml_reader, buf,
+        Ok(Event::Empty(ref e)) => {
+            if e.name() == b"field" {
+                let name = e
+                    .attributes()
+                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
+                    .map(|kv| kv.unwrap().value);
+                match name.as_deref() {
+                    Some(b"pgsql.statement") => {
+                        statement = tshark_communication::element_attr_val_string(e, b"show")
                     }
+                    Some(b"pgsql.query") => {
+                        query = tshark_communication::element_attr_val_string(e, b"show")
+                    }
+                    _ => {}
                 }
             }
-            Ok(Event::End(ref e)) => {
-                if e.name() == b"proto" {
-                    return PostgresWireMessage::Parse { statement, query };
-                }
-            }
-            _ => {}
         }
-    }
+        Ok(Event::End(ref e)) => {
+            if e.name() == b"proto" {
+                return PostgresWireMessage::Parse { statement, query };
+            }
+        }
+        _ => {}
+    )
 }
 
 fn parse_bind_message<B: BufRead>(
@@ -189,52 +181,49 @@ fn parse_bind_message<B: BufRead>(
 ) -> PostgresWireMessage {
     let mut statement = None;
     let mut parameter_values = vec![];
-    loop {
-        match xml_reader.read_event(buf) {
-            Ok(Event::Empty(ref e)) => {
-                if e.name() == b"field" {
-                    let name = e
-                        .attributes()
-                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                        .map(|kv| kv.unwrap().value);
-                    match name.as_deref() {
-                        Some(b"pgsql.statement") => {
-                            statement = tshark_communication::element_attr_val_string(e, b"show")
-                                .filter(|s| !s.is_empty());
-                        }
-                        _ => {}
+    xml_event_loop!(xml_reader, buf,
+        Ok(Event::Empty(ref e)) => {
+            if e.name() == b"field" {
+                let name = e
+                    .attributes()
+                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
+                    .map(|kv| kv.unwrap().value);
+                match name.as_deref() {
+                    Some(b"pgsql.statement") => {
+                        statement = tshark_communication::element_attr_val_string(e, b"show")
+                            .filter(|s| !s.is_empty());
                     }
+                    _ => {}
                 }
             }
-            Ok(Event::Start(ref e)) => {
-                if e.name() == b"field" {
-                    let name = e
-                        .attributes()
-                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                        .map(|kv| kv.unwrap().value);
-                    match name.as_deref() {
-                        Some(b"") => {
-                            let show =
-                                tshark_communication::element_attr_val_string(e, b"show").unwrap();
-                            if show.starts_with("Parameter values") {
-                                parameter_values = parse_parameter_values(xml_reader, buf);
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            Ok(Event::End(ref e)) => {
-                if e.name() == b"proto" {
-                    return PostgresWireMessage::Bind {
-                        statement,
-                        parameter_values,
-                    };
-                }
-            }
-            _ => {}
         }
-    }
+        Ok(Event::Start(ref e)) => {
+            if e.name() == b"field" {
+                let name = e
+                    .attributes()
+                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
+                    .map(|kv| kv.unwrap().value);
+                match name.as_deref() {
+                    Some(b"") => {
+                        let show =
+                            tshark_communication::element_attr_val_string(e, b"show").unwrap();
+                        if show.starts_with("Parameter values") {
+                            parameter_values = parse_parameter_values(xml_reader, buf);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(Event::End(ref e)) => {
+            if e.name() == b"proto" {
+                return PostgresWireMessage::Bind {
+                    statement,
+                    parameter_values,
+                };
+            }
+        }
+    )
 }
 
 fn parse_parameter_values<B: BufRead>(
@@ -243,41 +232,38 @@ fn parse_parameter_values<B: BufRead>(
 ) -> Vec<String> {
     let mut param_lengths = vec![];
     let mut param_vals = vec![];
-    loop {
-        match xml_reader.read_event(buf) {
-            Ok(Event::Empty(ref e)) => {
-                if e.name() == b"field" {
-                    let name = e
-                        .attributes()
-                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                        .map(|kv| kv.unwrap().value);
-                    match name.as_deref() {
-                        Some(b"pgsql.val.length") => {
-                            param_lengths.push(
-                                tshark_communication::element_attr_val_number(e, b"show").unwrap(),
-                            );
-                        }
-                        Some(b"pgsql.val.data") => {
-                            param_vals.push(
-                                hex_chars_to_string(
-                                    &tshark_communication::element_attr_val_string(e, b"show")
-                                        .unwrap(),
-                                )
-                                .unwrap(),
-                            );
-                        }
-                        _ => {}
+    xml_event_loop!(xml_reader, buf,
+        Ok(Event::Empty(ref e)) => {
+            if e.name() == b"field" {
+                let name = e
+                    .attributes()
+                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
+                    .map(|kv| kv.unwrap().value);
+                match name.as_deref() {
+                    Some(b"pgsql.val.length") => {
+                        param_lengths.push(
+                            tshark_communication::element_attr_val_number(e, b"show").unwrap(),
+                        );
                     }
+                    Some(b"pgsql.val.data") => {
+                        param_vals.push(
+                            hex_chars_to_string(
+                                &tshark_communication::element_attr_val_string(e, b"show")
+                                    .unwrap(),
+                            )
+                            .unwrap_or_default(), // TODO
+                        );
+                    }
+                    _ => {}
                 }
             }
-            Ok(Event::End(ref e)) => {
-                if e.name() == b"field" {
-                    return add_cols(param_vals, param_lengths);
-                }
-            }
-            _ => {}
         }
-    }
+        Ok(Event::End(ref e)) => {
+            if e.name() == b"field" {
+                return add_cols(param_vals, param_lengths);
+            }
+        }
+    )
 }
 
 fn parse_row_description_message<B: BufRead>(
@@ -286,51 +272,48 @@ fn parse_row_description_message<B: BufRead>(
 ) -> PostgresWireMessage {
     let mut col_names = vec![];
     let mut col_types = vec![];
-    loop {
-        match xml_reader.read_event(buf) {
-            Ok(Event::Empty(ref e)) => {
-                if e.name() == b"field" {
-                    let name = e
-                        .attributes()
-                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                        .map(|kv| kv.unwrap().value);
-                    match name.as_deref() {
-                        Some(b"pgsql.oid.type") => {
-                            col_types.push(parse_pg_oid_type(
-                                &tshark_communication::element_attr_val_string(e, b"show").unwrap(),
-                            ));
-                        }
-                        _ => {}
+    xml_event_loop!(xml_reader, buf,
+        Ok(Event::Empty(ref e)) => {
+            if e.name() == b"field" {
+                let name = e
+                    .attributes()
+                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
+                    .map(|kv| kv.unwrap().value);
+                match name.as_deref() {
+                    Some(b"pgsql.oid.type") => {
+                        col_types.push(parse_pg_oid_type(
+                            &tshark_communication::element_attr_val_string(e, b"show").unwrap(),
+                        ));
                     }
+                    _ => {}
                 }
             }
-            Ok(Event::Start(ref e)) => {
-                if e.name() == b"field" {
-                    let name = e
-                        .attributes()
-                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                        .map(|kv| kv.unwrap().value);
-                    match name.as_deref() {
-                        Some(b"pgsql.col.name") => {
-                            col_names.push(
-                                tshark_communication::element_attr_val_string(e, b"show").unwrap(),
-                            );
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            Ok(Event::End(ref e)) => {
-                if e.name() == b"proto" {
-                    return PostgresWireMessage::RowDescription {
-                        col_names,
-                        col_types,
-                    };
-                }
-            }
-            _ => {}
         }
-    }
+        Ok(Event::Start(ref e)) => {
+            if e.name() == b"field" {
+                let name = e
+                    .attributes()
+                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
+                    .map(|kv| kv.unwrap().value);
+                match name.as_deref() {
+                    Some(b"pgsql.col.name") => {
+                        col_names.push(
+                            tshark_communication::element_attr_val_string(e, b"show").unwrap(),
+                        );
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(Event::End(ref e)) => {
+            if e.name() == b"proto" {
+                return PostgresWireMessage::RowDescription {
+                    col_names,
+                    col_types,
+                };
+            }
+        }
+    )
 }
 
 fn parse_data_row_message<B: BufRead>(
@@ -339,43 +322,40 @@ fn parse_data_row_message<B: BufRead>(
 ) -> PostgresWireMessage {
     let mut col_lengths = vec![];
     let mut col_vals = vec![];
-    loop {
-        match xml_reader.read_event(buf) {
-            Ok(Event::Empty(ref e)) => {
-                if e.name() == b"field" {
-                    let name = e
-                        .attributes()
-                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                        .map(|kv| kv.unwrap().value);
-                    match name.as_deref() {
-                        Some(b"pgsql.val.length") => {
-                            col_lengths.push(
-                                tshark_communication::element_attr_val_number(e, b"show").unwrap(),
-                            );
-                        }
-                        Some(b"pgsql.val.data") => {
-                            col_vals.push(
-                                hex_chars_to_string(
-                                    &tshark_communication::element_attr_val_string(e, b"show")
-                                        .unwrap(),
-                                )
-                                // TODO the or_default is a workaround because we didn't code everything yet
-                                .unwrap_or_default(),
-                            );
-                        }
-                        _ => {}
+    xml_event_loop!(xml_reader, buf,
+        Ok(Event::Empty(ref e)) => {
+            if e.name() == b"field" {
+                let name = e
+                    .attributes()
+                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
+                    .map(|kv| kv.unwrap().value);
+                match name.as_deref() {
+                    Some(b"pgsql.val.length") => {
+                        col_lengths.push(
+                            tshark_communication::element_attr_val_number(e, b"show").unwrap(),
+                        );
                     }
+                    Some(b"pgsql.val.data") => {
+                        col_vals.push(
+                            hex_chars_to_string(
+                                &tshark_communication::element_attr_val_string(e, b"show")
+                                    .unwrap(),
+                            )
+                            // TODO the or_default is a workaround because we didn't code everything yet
+                            .unwrap_or_default(),
+                        );
+                    }
+                    _ => {}
                 }
             }
-            Ok(Event::End(ref e)) => {
-                if e.name() == b"proto" {
-                    let cols = add_cols(col_vals, col_lengths);
-                    return PostgresWireMessage::ResultSetRow { cols };
-                }
-            }
-            _ => {}
         }
-    }
+        Ok(Event::End(ref e)) => {
+            if e.name() == b"field" {
+                let cols = add_cols(col_vals, col_lengths);
+                return PostgresWireMessage::ResultSetRow { cols };
+            }
+        }
+    );
 }
 
 /// select * from postgres.pg_catalog.pg_type

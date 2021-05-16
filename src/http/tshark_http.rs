@@ -28,65 +28,62 @@ pub fn parse_http_info<B: BufRead>(
     let mut other_lines = vec![];
     let mut body = None;
     let mut content_type = None;
-    loop {
-        match xml_reader.read_event(buf) {
-            Ok(Event::Start(ref e)) => {
-                if e.name() == b"field" {
-                    let name = e
-                        .attributes()
-                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                        .map(|kv| kv.unwrap().value);
-                    if name.as_deref() == Some(b"") {
-                        first_line = tshark_communication::element_attr_val_string(e, b"show")
-                            .map(|t| t.trim_end_matches("\\r\\n").to_string())
-                    }
+    xml_event_loop!(xml_reader, buf,
+        Ok(Event::Start(ref e)) => {
+            if e.name() == b"field" {
+                let name = e
+                    .attributes()
+                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
+                    .map(|kv| kv.unwrap().value);
+                if name.as_deref() == Some(b"") {
+                    first_line = tshark_communication::element_attr_val_string(e, b"show")
+                        .map(|t| t.trim_end_matches("\\r\\n").to_string())
                 }
             }
-            Ok(Event::Empty(ref e)) => {
-                if e.name() == b"field" {
-                    let name = e
-                        .attributes()
-                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                        .map(|kv| kv.unwrap().value);
-                    match name.as_deref() {
-                        Some(b"http.content_type") => {
-                            content_type = tshark_communication::element_attr_val_string(e, b"show")
-                        }
-                        Some(b"http.host") => {
-                            http_host = tshark_communication::element_attr_val_string(e, b"show")
-                        }
-                        Some(b"http.request.line") => {
-                            http_type = Some(HttpType::Request);
-                            other_lines.push(
-                                tshark_communication::element_attr_val_string(e, b"show").unwrap(),
-                            );
-                        }
-                        Some(b"http.response.line") => {
-                            http_type = Some(HttpType::Response);
-                            other_lines.push(
-                                tshark_communication::element_attr_val_string(e, b"show").unwrap(),
-                            );
-                        }
-                        Some(b"http.file_data") => {
-                            body = tshark_communication::element_attr_val_string(e, b"show")
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            Ok(Event::End(ref e)) => {
-                if e.name() == b"proto" {
-                    return TSharkHttp {
-                        http_type: http_type.unwrap(),
-                        http_host,
-                        first_line: first_line.unwrap_or_default(),
-                        other_lines: other_lines.join(""),
-                        body,
-                        content_type,
-                    };
-                }
-            }
-            _ => {}
         }
-    }
+        Ok(Event::Empty(ref e)) => {
+            if e.name() == b"field" {
+                let name = e
+                    .attributes()
+                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
+                    .map(|kv| kv.unwrap().value);
+                match name.as_deref() {
+                    Some(b"http.content_type") => {
+                        content_type = tshark_communication::element_attr_val_string(e, b"show")
+                    }
+                    Some(b"http.host") => {
+                        http_host = tshark_communication::element_attr_val_string(e, b"show")
+                    }
+                    Some(b"http.request.line") => {
+                        http_type = Some(HttpType::Request);
+                        other_lines.push(
+                            tshark_communication::element_attr_val_string(e, b"show").unwrap(),
+                        );
+                    }
+                    Some(b"http.response.line") => {
+                        http_type = Some(HttpType::Response);
+                        other_lines.push(
+                            tshark_communication::element_attr_val_string(e, b"show").unwrap(),
+                        );
+                    }
+                    Some(b"http.file_data") => {
+                        body = tshark_communication::element_attr_val_string(e, b"show")
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(Event::End(ref e)) => {
+            if e.name() == b"proto" {
+                return TSharkHttp {
+                    http_type: http_type.unwrap(),
+                    http_host,
+                    first_line: first_line.unwrap_or_default(),
+                    other_lines: other_lines.join(""),
+                    body,
+                    content_type,
+                };
+            }
+        }
+    )
 }

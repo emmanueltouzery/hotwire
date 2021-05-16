@@ -47,30 +47,27 @@ pub fn parse_http2_info<B: BufRead>(
     buf: &mut Vec<u8>,
 ) -> Vec<TSharkHttp2Message> {
     let mut streams = vec![];
-    loop {
-        match xml_reader.read_event(buf) {
-            Ok(Event::Empty(ref e)) => {
-                if e.name() == b"field" {
-                    let name = e
-                        .attributes()
-                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                        .map(|kv| kv.unwrap().value);
-                    match name.as_deref() {
-                        Some(b"http2.stream") => {
-                            streams.push(parse_http2_stream(xml_reader, buf));
-                        }
-                        _ => {}
+    xml_event_loop!(xml_reader, buf,
+        Ok(Event::Empty(ref e)) => {
+            if e.name() == b"field" {
+                let name = e
+                    .attributes()
+                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
+                    .map(|kv| kv.unwrap().value);
+                match name.as_deref() {
+                    Some(b"http2.stream") => {
+                        streams.push(parse_http2_stream(xml_reader, buf));
                     }
+                    _ => {}
                 }
             }
-            Ok(Event::End(ref e)) => {
-                if e.name() == b"proto" {
-                    return streams;
-                }
-            }
-            _ => {}
         }
-    }
+        Ok(Event::End(ref e)) => {
+            if e.name() == b"proto" {
+                return streams;
+            }
+        }
+    )
 }
 
 fn parse_http2_stream<B: BufRead>(
@@ -81,54 +78,51 @@ fn parse_http2_stream<B: BufRead>(
     let mut data = None;
     let mut stream_id = 0;
     let mut is_end_stream = false;
-    loop {
-        match xml_reader.read_event(buf) {
-            Ok(Event::Empty(ref e)) => {
-                if e.name() == b"field" {
-                    let name = e
-                        .attributes()
-                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                        .map(|kv| kv.unwrap().value);
-                    match name.as_deref() {
-                        Some(b"http2.streamid") => {
-                            stream_id =
-                                tshark_communication::element_attr_val_number(e, b"show").unwrap();
-                        }
-                        Some(b"http2.header") => {
-                            headers = parse_http2_headers(xml_reader, buf);
-                        }
-                        Some(b"http2.flags.end_stream") => {
-                            is_end_stream =
-                                tshark_communication::element_attr_val_number(e, b"show")
-                                    == Some(1);
-                        }
-                        Some(b"http2.data.data") => {
-                            // TODO diff basic/recomposed data relevant in pdml?
-                            data = hex::decode(
-                                tshark_communication::element_attr_val_string(e, b"show")
-                                    .unwrap()
-                                    .replace(':', ""),
-                            )
-                            .ok()
-                            .map(Http2Data::RecomposedData);
-                        }
-                        _ => {}
+    xml_event_loop!(xml_reader, buf,
+        Ok(Event::Empty(ref e)) => {
+            if e.name() == b"field" {
+                let name = e
+                    .attributes()
+                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
+                    .map(|kv| kv.unwrap().value);
+                match name.as_deref() {
+                    Some(b"http2.streamid") => {
+                        stream_id =
+                            tshark_communication::element_attr_val_number(e, b"show").unwrap();
                     }
+                    Some(b"http2.header") => {
+                        headers = parse_http2_headers(xml_reader, buf);
+                    }
+                    Some(b"http2.flags.end_stream") => {
+                        is_end_stream =
+                            tshark_communication::element_attr_val_number(e, b"show")
+                                == Some(1);
+                    }
+                    Some(b"http2.data.data") => {
+                        // TODO diff basic/recomposed data relevant in pdml?
+                        data = hex::decode(
+                            tshark_communication::element_attr_val_string(e, b"show")
+                                .unwrap()
+                                .replace(':', ""),
+                        )
+                        .ok()
+                        .map(Http2Data::RecomposedData);
+                    }
+                    _ => {}
                 }
             }
-            Ok(Event::End(ref e)) => {
-                if e.name() == b"field" {
-                    return TSharkHttp2Message {
-                        headers,
-                        data,
-                        stream_id,
-                        is_end_stream,
-                    };
-                }
-            }
-            _ => {}
         }
-    }
+        Ok(Event::End(ref e)) => {
+            if e.name() == b"field" {
+                return TSharkHttp2Message {
+                    headers,
+                    data,
+                    stream_id,
+                    is_end_stream,
+                };
+            }
+        }
+    )
 }
 
 fn parse_http2_headers<B: BufRead>(
@@ -137,34 +131,31 @@ fn parse_http2_headers<B: BufRead>(
 ) -> Vec<(String, String)> {
     let mut cur_name = None;
     let mut headers = vec![];
-    loop {
-        match xml_reader.read_event(buf) {
-            Ok(Event::Empty(ref e)) => {
-                if e.name() == b"field" {
-                    let name = e
-                        .attributes()
-                        .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                        .map(|kv| kv.unwrap().value);
-                    match name.as_deref() {
-                        Some(b"http2.header.name") => {
-                            cur_name = tshark_communication::element_attr_val_string(e, b"show");
-                        }
-                        Some(b"http2.header.value") => {
-                            headers.push((
-                                cur_name.take().unwrap(),
-                                tshark_communication::element_attr_val_string(e, b"show").unwrap(),
-                            ));
-                        }
-                        _ => {}
+    xml_event_loop!(xml_reader, buf,
+        Ok(Event::Empty(ref e)) => {
+            if e.name() == b"field" {
+                let name = e
+                    .attributes()
+                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
+                    .map(|kv| kv.unwrap().value);
+                match name.as_deref() {
+                    Some(b"http2.header.name") => {
+                        cur_name = tshark_communication::element_attr_val_string(e, b"show");
                     }
+                    Some(b"http2.header.value") => {
+                        headers.push((
+                            cur_name.take().unwrap(),
+                            tshark_communication::element_attr_val_string(e, b"show").unwrap(),
+                        ));
+                    }
+                    _ => {}
                 }
             }
-            Ok(Event::End(ref e)) => {
-                if e.name() == b"field" {
-                    return headers;
-                }
-            }
-            _ => {}
         }
-    }
+        Ok(Event::End(ref e)) => {
+            if e.name() == b"field" {
+                return headers;
+            }
+        }
+    )
 }
