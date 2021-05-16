@@ -48,7 +48,7 @@ pub fn parse_http2_info<B: BufRead>(
 ) -> Vec<TSharkHttp2Message> {
     let mut streams = vec![];
     xml_event_loop!(xml_reader, buf,
-        Ok(Event::Empty(ref e)) => {
+        Ok(Event::Start(ref e)) => {
             if e.name() == b"field" {
                 let name = e
                     .attributes()
@@ -74,6 +74,7 @@ fn parse_http2_stream<B: BufRead>(
     xml_reader: &mut quick_xml::Reader<B>,
     buf: &mut Vec<u8>,
 ) -> TSharkHttp2Message {
+    let mut field_depth = 0;
     let mut headers = vec![];
     let mut data = None;
     let mut stream_id = 0;
@@ -89,9 +90,6 @@ fn parse_http2_stream<B: BufRead>(
                     Some(b"http2.streamid") => {
                         stream_id =
                             tshark_communication::element_attr_val_number(e, b"show").unwrap();
-                    }
-                    Some(b"http2.header") => {
-                        headers = parse_http2_headers(xml_reader, buf);
                     }
                     Some(b"http2.flags.end_stream") => {
                         is_end_stream =
@@ -112,14 +110,35 @@ fn parse_http2_stream<B: BufRead>(
                 }
             }
         }
+        Ok(Event::Start(ref e)) => {
+            if e.name() == b"field" {
+                field_depth += 1;
+                dbg!(field_depth);
+                let name = e
+                    .attributes()
+                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
+                    .map(|kv| kv.unwrap().value);
+                match name.as_deref() {
+                    Some(b"http2.header") => {
+                        headers.append(&mut parse_http2_headers(xml_reader, buf));
+                        field_depth -= 1; // assume the function parsed the </field>
+                    }
+                    _ => {}
+                }
+            }
+        }
         Ok(Event::End(ref e)) => {
             if e.name() == b"field" {
-                return TSharkHttp2Message {
-                    headers,
-                    data,
-                    stream_id,
-                    is_end_stream,
-                };
+                field_depth -= 1;
+                dbg!(field_depth);
+                if field_depth < 0 {
+                    return TSharkHttp2Message {
+                        headers,
+                        data,
+                        stream_id,
+                        is_end_stream,
+                    };
+                }
             }
         }
     )

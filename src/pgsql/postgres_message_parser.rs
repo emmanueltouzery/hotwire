@@ -17,6 +17,8 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 
 #[cfg(test)]
+use crate::tshark_communication::parse_test_xml;
+#[cfg(test)]
 use chrono::NaiveDate;
 
 pub struct Postgres;
@@ -526,37 +528,6 @@ pub struct PostgresMessageData {
     pub resultset_bool_cols: Vec<Vec<Option<bool>>>,
     pub resultset_int_cols: Vec<Vec<Option<i32>>>,
     pub resultset_bigint_cols: Vec<Vec<Option<i64>>>,
-}
-
-#[cfg(test)]
-macro_rules! test_fmt_str {
-    () => {
-        r#"
-   <pdml>
-     <packet>
-       <proto name="frame">
-           <field name="frame.time" show="Mar  5, 2021 08:49:52.736275000 CET"/>
-       </proto>
-       <proto name="ip">
-           <field name="ip.src" show="10.215.215.9" />
-           <field name="ip.dst" show="10.215.215.9" />
-       </proto>
-       <proto name="tcp">
-           <field name="tcp.srcport" show="52796" value="ce3c"/>
-           <field name="tcp.dstport" show="5432" value="1538"/>
-           <field name="tcp.seq_raw" show="1963007432" value="75011dc8"/>
-           <field name="tcp.stream" show="4"/>
-       </proto>
-       {}
-     </packet>
-   </pdml>
-"#
-    };
-}
-
-#[cfg(test)]
-fn parse_test_xml(xml: &str) -> Vec<TSharkPacket> {
-    win::parse_pdml_stream(format!(test_fmt_str!(), xml).as_bytes()).unwrap()
 }
 
 #[test]

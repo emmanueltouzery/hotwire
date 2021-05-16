@@ -1,6 +1,7 @@
 use crate::http::tshark_http;
 use crate::http2::tshark_http2;
 use crate::pgsql::tshark_pgsql;
+use crate::widgets::win;
 use chrono::NaiveDateTime;
 use quick_xml::events::Event;
 use std::fmt::Debug;
@@ -27,9 +28,11 @@ macro_rules! xml_event_loop {
 //         // println!("Start loop at position {}", p);
 //         loop {
 //             let evt = $reader.read_event($buf);
-//             if p >= 945409200 {
+//             // if p >= 945409200 {
+//             if !matches!(evt, Result::Ok(Event::Text(_))) {
 //                 dbg!(&evt);
 //             }
+//             // }
 //             match evt {
 //                 $($tts)*
 //                 Ok(Event::Eof) => panic!("Unexpected EOF"),
@@ -71,7 +74,7 @@ pub fn parse_packet<B: BufRead>(
     let mut port_src = 0;
     let mut port_dst = 0;
     let mut http = None;
-    let mut http2 = None;
+    let mut http2 = None::<Vec<tshark_http2::TSharkHttp2Message>>;
     let mut pgsql = None::<Vec<tshark_pgsql::PostgresWireMessage>>;
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Start(ref e)) => {
@@ -99,10 +102,19 @@ pub fn parse_packet<B: BufRead>(
                         port_dst = tcp_info.3;
                     }
                     Some(b"http") => {
+                        if http.is_some() {
+                            panic!("http already there");
+                        }
                         http = Some(tshark_http::parse_http_info(xml_reader, buf));
                     }
                     Some(b"http2") => {
-                        http2 = Some(tshark_http2::parse_http2_info(xml_reader, buf));
+                        let mut http2_packets = tshark_http2::parse_http2_info(xml_reader, buf);
+                        if let Some(mut sofar) = http2 {
+                            sofar.append(&mut http2_packets);
+                            http2 = Some(sofar);
+                        } else {
+                            http2 = Some(http2_packets);
+                        }
                     }
                     Some(b"pgsql") => {
                         let mut pgsql_packets = tshark_pgsql::parse_pgsql_info(xml_reader, buf);
@@ -277,4 +289,35 @@ pub fn element_attr_val_string<'a>(
             .to_vec(),
     )
     .ok()
+}
+
+#[cfg(test)]
+macro_rules! test_fmt_str {
+    () => {
+        r#"
+   <pdml>
+     <packet>
+       <proto name="frame">
+           <field name="frame.time" show="Mar  5, 2021 08:49:52.736275000 CET"/>
+       </proto>
+       <proto name="ip">
+           <field name="ip.src" show="10.215.215.9" />
+           <field name="ip.dst" show="10.215.215.9" />
+       </proto>
+       <proto name="tcp">
+           <field name="tcp.srcport" show="52796" value="ce3c"/>
+           <field name="tcp.dstport" show="5432" value="1538"/>
+           <field name="tcp.seq_raw" show="1963007432" value="75011dc8"/>
+           <field name="tcp.stream" show="4"/>
+       </proto>
+       {}
+     </packet>
+   </pdml>
+"#
+    };
+}
+
+#[cfg(test)]
+pub fn parse_test_xml(xml: &str) -> Vec<TSharkPacket> {
+    win::parse_pdml_stream(format!(test_fmt_str!(), xml).as_bytes()).unwrap()
 }
