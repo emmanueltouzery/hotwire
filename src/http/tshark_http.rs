@@ -35,7 +35,7 @@ pub fn parse_http_info<B: BufRead>(
                     .attributes()
                     .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                     .map(|kv| kv.unwrap().value);
-                if name.as_deref() == Some(b"") {
+                if name.as_deref() == Some(b"") && first_line.is_none() {
                     first_line = tshark_communication::element_attr_val_string(e, b"show")
                         .map(|t| t.trim_end_matches("\\r\\n").to_string())
                 }
