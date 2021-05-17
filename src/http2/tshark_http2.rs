@@ -56,7 +56,10 @@ pub fn parse_http2_info<B: BufRead>(
                     .map(|kv| kv.unwrap().value);
                 match name.as_deref() {
                     Some(b"http2.stream") => {
-                        streams.push(parse_http2_stream(xml_reader, buf));
+                        let msg = parse_http2_stream(xml_reader, buf);
+                        if !msg.headers.is_empty() || matches!(&msg.data, Some(v) if !v.is_empty()) {
+                            streams.push(msg);
+                        }
                     }
                     _ => {}
                 }
