@@ -16,6 +16,7 @@ use relm::ContainerWidget;
 use std::borrow::Cow;
 use std::io::prelude::*;
 use std::path::PathBuf;
+use std::str;
 use std::sync::mpsc;
 
 pub struct Http;
@@ -322,7 +323,6 @@ pub enum HttpBody {
     // TODO the whole binary vs text stuff is possibly obsolete due to content encodings..
     Text(String),
     Binary(Vec<u8>),
-    BinaryUnknownContents,
     Missing,
 }
 
@@ -402,24 +402,12 @@ struct ReqRespInfo {
     host: Option<String>,
 }
 
-fn parse_body(body: Option<String>, headers: &[(String, String)]) -> HttpBody {
-    body.map(|b| {
-        // heuristic to find out whether the body is binary or text:
-        // if it's binary its length as a string will be shorter than content-length
-        // due to \0s in the string
-        // TODO this is very fishy.
-        let content_length =
-            get_http_header_value(&headers, "Content-Length").and_then(|l| l.parse::<usize>().ok());
-        let body_length = b.len();
-        // dbg!(&content_length);
-        // dbg!(&body_length);
-        let is_binary_heuristic = matches!((content_length, body_length),
-                    (Some(cl), bl) if bl + 2 < cl); // btw I've seen content-length==body-length+2 for non-binary
-        if is_binary_heuristic {
-            HttpBody::BinaryUnknownContents
-        } else {
-            HttpBody::Text(b)
-        }
+fn parse_body(body: Option<Vec<u8>>, headers: &[(String, String)]) -> HttpBody {
+    body.map(|d| {
+        str::from_utf8(&d)
+            .ok()
+            .map(|s| HttpBody::Text(s.to_string()))
+            .unwrap_or_else(|| HttpBody::Binary(d))
     })
     .unwrap_or(HttpBody::Missing)
 }

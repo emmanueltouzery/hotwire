@@ -30,7 +30,6 @@ pub struct SavedBodyData {
 #[derive(Msg, Debug)]
 pub enum Msg {
     FormatCodeChanged(bool),
-    GotImage(Vec<u8>, u32),
     RequestResponseChanged(Option<HttpRequestResponseData>, PathBuf),
     SaveBinaryContents,
 }
@@ -41,10 +40,6 @@ pub struct Model {
     format_code: bool,
     data: Option<HttpRequestResponseData>,
     file_path: Option<PathBuf>,
-    bg_sender: mpsc::Sender<BgFunc>,
-
-    _got_image_channel: relm::Channel<(Vec<u8>, u32)>,
-    got_image_sender: relm::Sender<(Vec<u8>, u32)>,
 
     _saved_body_channel: relm::Channel<SavedBodyData>,
     saved_body_sender: relm::Sender<SavedBodyData>,
@@ -57,10 +52,6 @@ impl Widget for HttpBodyWidget {
         params: (relm::StreamHandle<win::Msg>, mpsc::Sender<BgFunc>),
     ) -> Model {
         let (win_msg_sender, bg_sender) = params;
-        let (_got_image_channel, got_image_sender) = {
-            let stream = relm.stream().clone();
-            relm::Channel::new(move |d: (Vec<u8>, u32)| stream.emit(Msg::GotImage(d.0, d.1)))
-        };
         let (_saved_body_channel, saved_body_sender) = {
             let win_stream = win_msg_sender.clone();
             relm::Channel::new(move |d: SavedBodyData| {
@@ -73,11 +64,8 @@ impl Widget for HttpBodyWidget {
         Model {
             win_msg_sender,
             format_code: true,
-            bg_sender,
             data: None,
             file_path: None,
-            _got_image_channel,
-            got_image_sender,
             _saved_body_channel,
             saved_body_sender,
         }
@@ -122,11 +110,6 @@ impl Widget for HttpBodyWidget {
                             .contents_stack
                             .set_visible_child_name(TEXT_CONTENTS_STACK_NAME);
                     }
-                }
-            }
-            Msg::GotImage(bytes, seq_no) => {
-                if self.model.data.as_ref().map(|d| d.tcp_seq_number) == Some(seq_no) {
-                    self.display_image(&bytes);
                 }
             }
             Msg::SaveBinaryContents => {

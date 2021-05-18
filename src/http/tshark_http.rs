@@ -14,7 +14,7 @@ pub struct TSharkHttp {
     pub http_host: Option<String>,
     pub first_line: String,
     pub other_lines: String,
-    pub body: Option<String>,
+    pub body: Option<Vec<u8>>,
     pub content_type: Option<String>,
 }
 
@@ -67,7 +67,14 @@ pub fn parse_http_info<B: BufRead>(
                         );
                     }
                     Some(b"http.file_data") => {
-                        body = tshark_communication::element_attr_val_string(e, b"show")
+                        // binary will be in "value", text in "show"
+                        body = hex::decode(
+                            tshark_communication::element_attr_val_string(e, b"value")
+                                .or_else(|| tshark_communication::element_attr_val_string(e, b"show"))
+                                .unwrap()
+                                .replace(':', ""),
+                        )
+                        .ok();
                     }
                     _ => {}
                 }
