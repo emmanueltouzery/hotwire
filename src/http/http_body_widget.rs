@@ -151,14 +151,16 @@ impl Widget for HttpBodyWidget {
     fn display_image(&self, bytes: &[u8]) {
         println!("loading image: {}", bytes.len());
         let loader = gdk_pixbuf::PixbufLoader::new();
-        loader.write(bytes).unwrap();
+        let r = loader.write(bytes);
         loader.close().unwrap();
-        self.widgets
-            .body_image
-            .set_from_pixbuf(loader.get_pixbuf().as_ref());
-        self.widgets
-            .contents_stack
-            .set_visible_child_name(IMAGE_CONTENTS_STACK_NAME);
+        if r.is_ok() {
+            self.widgets
+                .body_image
+                .set_from_pixbuf(loader.get_pixbuf().as_ref());
+            self.widgets
+                .contents_stack
+                .set_visible_child_name(IMAGE_CONTENTS_STACK_NAME);
+        }
     }
 
     fn body_save_filename(&self) -> String {
