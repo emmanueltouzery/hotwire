@@ -279,16 +279,14 @@ pub fn element_attr_val_string<'a>(
     e: &'a quick_xml::events::BytesStart<'a>,
     attr_name: &'static [u8],
 ) -> Option<String> {
-    String::from_utf8(
-        e.attributes()
-            .find(|kv| kv.as_ref().unwrap().key == attr_name)
-            .unwrap()
-            .unwrap()
-            .unescaped_value()
-            .unwrap()
-            .to_vec(),
-    )
-    .ok()
+    e.attributes()
+        .find(|kv| kv.as_ref().unwrap().key == attr_name)
+        .and_then(|v| v.ok())
+        .and_then(|v| {
+            let st = v.unescaped_value().ok();
+            st.map(|v| v.to_vec())
+        })
+        .and_then(|v| String::from_utf8(v).ok())
 }
 
 #[cfg(test)]
