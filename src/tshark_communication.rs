@@ -64,7 +64,6 @@ pub struct TSharkPacket {
 
 pub fn parse_packet<B: BufRead>(
     xml_reader: &mut quick_xml::Reader<B>,
-    buf: &mut Vec<u8>,
 ) -> Result<TSharkPacket, quick_xml::Error> {
     let mut frame_time = NaiveDateTime::from_timestamp(0, 0);
     let mut ip_src = None;
@@ -76,6 +75,7 @@ pub fn parse_packet<B: BufRead>(
     let mut http = None;
     let mut http2 = None::<Vec<tshark_http2::TSharkHttp2Message>>;
     let mut pgsql = None::<Vec<tshark_pgsql::PostgresWireMessage>>;
+    let buf = &mut vec![];
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Start(ref e)) => {
             if e.name() == b"proto" {
@@ -85,17 +85,20 @@ pub fn parse_packet<B: BufRead>(
                     .map(|kv| kv.unwrap().value);
                 match name.as_deref() {
                     Some(b"frame") => {
-                        frame_time = parse_frame_info(xml_reader, buf);
+                        frame_time = parse_frame_info(xml_reader);
                     }
                     Some(b"ip") => {
-                        let ip_info = parse_ip_info(xml_reader, buf);
+                        if ip_src.is_some() {
+                            panic!("Unexpected IP at position {}", xml_reader.buffer_position());
+                        }
+                        let ip_info = parse_ip_info(xml_reader);
                         ip_src = Some(ip_info.0);
                         ip_dst = Some(ip_info.1);
                     }
                     // TODO ipv6
                     Some(b"tcp") => {
                         // waiting for https://github.com/rust-lang/rust/issues/71126
-                        let tcp_info = parse_tcp_info(xml_reader, buf);
+                        let tcp_info = parse_tcp_info(xml_reader);
                         tcp_seq_number = tcp_info.0;
                         tcp_stream_id = tcp_info.1;
                         port_src = tcp_info.2;
@@ -105,10 +108,10 @@ pub fn parse_packet<B: BufRead>(
                         if http.is_some() {
                             panic!("http already there");
                         }
-                        http = Some(tshark_http::parse_http_info(xml_reader, buf));
+                        http = Some(tshark_http::parse_http_info(xml_reader));
                     }
                     Some(b"http2") => {
-                        let mut http2_packets = tshark_http2::parse_http2_info(xml_reader, buf);
+                        let mut http2_packets = tshark_http2::parse_http2_info(xml_reader);
                         if let Some(mut sofar) = http2 {
                             sofar.append(&mut http2_packets);
                             http2 = Some(sofar);
@@ -117,7 +120,7 @@ pub fn parse_packet<B: BufRead>(
                         }
                     }
                     Some(b"pgsql") => {
-                        let mut pgsql_packets = tshark_pgsql::parse_pgsql_info(xml_reader, buf);
+                        let mut pgsql_packets = tshark_pgsql::parse_pgsql_info(xml_reader);
                         if let Some(mut sofar) = pgsql {
                             sofar.append(&mut pgsql_packets);
                             pgsql = Some(sofar);
@@ -182,12 +185,10 @@ fn parse_frame_info<B: BufRead>(
     )
 }
 
-fn parse_ip_info<B: BufRead>(
-    xml_reader: &mut quick_xml::Reader<B>,
-    buf: &mut Vec<u8>,
-) -> (String, String) {
+fn parse_ip_info<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> (String, String) {
     let mut ip_src = None;
     let mut ip_dst = None;
+    let buf = &mut vec![];
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Empty(ref e)) => {
             if e.name() == b"field" {
@@ -214,14 +215,12 @@ fn parse_ip_info<B: BufRead>(
     )
 }
 
-fn parse_tcp_info<B: BufRead>(
-    xml_reader: &mut quick_xml::Reader<B>,
-    buf: &mut Vec<u8>,
-) -> (u32, u32, u32, u32) {
+fn parse_tcp_info<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> (u32, u32, u32, u32) {
     let mut tcp_seq_number = 0;
     let mut tcp_stream_id = 0;
     let mut port_src = 0;
     let mut port_dst = 0;
+    let buf = &mut vec![];
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Empty(ref e)) => {
             if e.name() == b"field" {

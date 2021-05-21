@@ -18,16 +18,14 @@ pub struct TSharkHttp {
     pub content_type: Option<String>,
 }
 
-pub fn parse_http_info<B: BufRead>(
-    xml_reader: &mut quick_xml::Reader<B>,
-    buf: &mut Vec<u8>,
-) -> TSharkHttp {
+pub fn parse_http_info<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> TSharkHttp {
     let mut http_type = None;
     let mut http_host = None;
     let mut first_line = None;
     let mut other_lines = vec![];
     let mut body = None;
     let mut content_type = None;
+    let buf = &mut vec![];
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Start(ref e)) => {
             if e.name() == b"field" {

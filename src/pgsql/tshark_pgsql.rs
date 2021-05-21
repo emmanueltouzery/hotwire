@@ -50,9 +50,9 @@ pub enum PostgresWireMessage {
 
 pub fn parse_pgsql_info<B: BufRead>(
     xml_reader: &mut quick_xml::Reader<B>,
-    buf: &mut Vec<u8>,
 ) -> Vec<PostgresWireMessage> {
     let mut result = vec![];
+    let buf = &mut vec![];
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Empty(ref e)) => {
             if e.name() == b"field" {
@@ -67,18 +67,20 @@ pub fn parse_pgsql_info<B: BufRead>(
                             .as_str()
                         {
                             "Startup message" => {
-                                result.push(parse_startup_message(xml_reader, buf))
+                                return vec![parse_startup_message(xml_reader)];
                             }
                             "Copy data" => result.push(PostgresWireMessage::CopyData),
-                            "Parse" => result.push(parse_parse_message(xml_reader, buf)),
-                            "Bind" => result.push(parse_bind_message(xml_reader, buf)),
+                            "Parse" => {
+                                return vec![parse_parse_message(xml_reader)];
+                            },
+                            "Bind" => return vec![parse_bind_message(xml_reader)],
                             "Ready for query" => {
-                                result.push(PostgresWireMessage::ReadyForQuery)
+                                return vec![PostgresWireMessage::ReadyForQuery];
                             }
                             "Row description" => {
-                                result.push(parse_row_description_message(xml_reader, buf))
+                                return vec![parse_row_description_message(xml_reader)];
                             }
-                            "Data row" => result.push(parse_data_row_message(xml_reader, buf)),
+                            "Data row" => return vec![parse_data_row_message(xml_reader)],
                             _ => {}
                         }
                     }
@@ -88,20 +90,19 @@ pub fn parse_pgsql_info<B: BufRead>(
         }
         Ok(Event::End(ref e)) => {
             if e.name() == b"proto" {
-                return result;
+                return vec![];
             }
         }
     )
 }
 
-fn parse_startup_message<B: BufRead>(
-    xml_reader: &mut quick_xml::Reader<B>,
-    buf: &mut Vec<u8>,
-) -> PostgresWireMessage {
+fn parse_startup_message<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> PostgresWireMessage {
     let mut cur_param_name = None;
     let mut username = None;
     let mut database = None;
     let mut application = None;
+    let buf = &mut vec![];
+
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Empty(ref e)) => {
             if e.name() == b"field" {
@@ -142,12 +143,10 @@ fn parse_startup_message<B: BufRead>(
     )
 }
 
-fn parse_parse_message<B: BufRead>(
-    xml_reader: &mut quick_xml::Reader<B>,
-    buf: &mut Vec<u8>,
-) -> PostgresWireMessage {
+fn parse_parse_message<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> PostgresWireMessage {
     let mut statement = None;
     let mut query = None;
+    let buf = &mut vec![];
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Empty(ref e)) => {
             if e.name() == b"field" {
@@ -175,12 +174,10 @@ fn parse_parse_message<B: BufRead>(
     )
 }
 
-fn parse_bind_message<B: BufRead>(
-    xml_reader: &mut quick_xml::Reader<B>,
-    buf: &mut Vec<u8>,
-) -> PostgresWireMessage {
+fn parse_bind_message<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> PostgresWireMessage {
     let mut statement = None;
     let mut parameter_values = vec![];
+    let buf = &mut vec![];
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Empty(ref e)) => {
             if e.name() == b"field" {
@@ -208,7 +205,7 @@ fn parse_bind_message<B: BufRead>(
                         let show =
                             tshark_communication::element_attr_val_string(e, b"show").unwrap();
                         if show.starts_with("Parameter values") {
-                            parameter_values = parse_parameter_values(xml_reader, buf);
+                            parameter_values = parse_parameter_values(xml_reader);
                         }
                     }
                     _ => {}
@@ -226,12 +223,10 @@ fn parse_bind_message<B: BufRead>(
     )
 }
 
-fn parse_parameter_values<B: BufRead>(
-    xml_reader: &mut quick_xml::Reader<B>,
-    buf: &mut Vec<u8>,
-) -> Vec<String> {
+fn parse_parameter_values<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> Vec<String> {
     let mut param_lengths = vec![];
     let mut param_vals = vec![];
+    let buf = &mut vec![];
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Empty(ref e)) => {
             if e.name() == b"field" {
@@ -268,10 +263,10 @@ fn parse_parameter_values<B: BufRead>(
 
 fn parse_row_description_message<B: BufRead>(
     xml_reader: &mut quick_xml::Reader<B>,
-    buf: &mut Vec<u8>,
 ) -> PostgresWireMessage {
     let mut col_names = vec![];
     let mut col_types = vec![];
+    let buf = &mut vec![];
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Empty(ref e)) => {
             if e.name() == b"field" {
@@ -318,10 +313,10 @@ fn parse_row_description_message<B: BufRead>(
 
 fn parse_data_row_message<B: BufRead>(
     xml_reader: &mut quick_xml::Reader<B>,
-    buf: &mut Vec<u8>,
 ) -> PostgresWireMessage {
     let mut col_lengths = vec![];
     let mut col_vals = vec![];
+    let buf = &mut vec![];
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Empty(ref e)) => {
             if e.name() == b"field" {

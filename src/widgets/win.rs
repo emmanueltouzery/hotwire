@@ -169,9 +169,7 @@ pub fn parse_pdml_stream<B: BufRead>(
         match xml_reader.read_event(&mut buf) {
             Ok(Event::Start(ref e)) => {
                 if e.name() == b"packet" {
-                    if let Some(packet) =
-                        tshark_communication::parse_packet(&mut xml_reader, &mut buf).ok()
-                    {
+                    if let Some(packet) = tshark_communication::parse_packet(&mut xml_reader).ok() {
                         r.push(packet);
                     }
                 }

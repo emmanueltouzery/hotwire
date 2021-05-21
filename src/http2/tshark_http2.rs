@@ -44,9 +44,9 @@ pub struct TSharkHttp2Message {
 
 pub fn parse_http2_info<B: BufRead>(
     xml_reader: &mut quick_xml::Reader<B>,
-    buf: &mut Vec<u8>,
 ) -> Vec<TSharkHttp2Message> {
     let mut streams = vec![];
+    let buf = &mut vec![];
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Start(ref e)) => {
             if e.name() == b"field" {
@@ -56,7 +56,7 @@ pub fn parse_http2_info<B: BufRead>(
                     .map(|kv| kv.unwrap().value);
                 match name.as_deref() {
                     Some(b"http2.stream") => {
-                        let msg = parse_http2_stream(xml_reader, buf);
+                        let msg = parse_http2_stream(xml_reader);
                         if !msg.headers.is_empty() || matches!(&msg.data, Some(v) if !v.is_empty()) {
                             streams.push(msg);
                         }
@@ -73,15 +73,13 @@ pub fn parse_http2_info<B: BufRead>(
     )
 }
 
-fn parse_http2_stream<B: BufRead>(
-    xml_reader: &mut quick_xml::Reader<B>,
-    buf: &mut Vec<u8>,
-) -> TSharkHttp2Message {
+fn parse_http2_stream<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> TSharkHttp2Message {
     let mut field_depth = 0;
     let mut headers = vec![];
     let mut data = None;
     let mut stream_id = 0;
     let mut is_end_stream = false;
+    let buf = &mut vec![];
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Empty(ref e)) => {
             if e.name() == b"field" {
@@ -123,7 +121,7 @@ fn parse_http2_stream<B: BufRead>(
                     .map(|kv| kv.unwrap().value);
                 match name.as_deref() {
                     Some(b"http2.header") => {
-                        headers.append(&mut parse_http2_headers(xml_reader, buf));
+                        headers.append(&mut parse_http2_headers(xml_reader));
                         field_depth -= 1; // assume the function parsed the </field>
                     }
                     _ => {}
@@ -147,12 +145,10 @@ fn parse_http2_stream<B: BufRead>(
     )
 }
 
-fn parse_http2_headers<B: BufRead>(
-    xml_reader: &mut quick_xml::Reader<B>,
-    buf: &mut Vec<u8>,
-) -> Vec<(String, String)> {
+fn parse_http2_headers<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> Vec<(String, String)> {
     let mut cur_name = None;
     let mut headers = vec![];
+    let buf = &mut vec![];
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Empty(ref e)) => {
             if e.name() == b"field" {
