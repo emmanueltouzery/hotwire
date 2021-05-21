@@ -62,9 +62,9 @@ impl MessageParser for Postgres {
                             application,
                         } => {
                             if !set_correct_server_info {
-                                server_ip = comm.basic_info.ip_src.to_string(); // TODO i think i can drop the to_string()
-                                client_ip = comm.basic_info.ip_dst.to_string(); // TODO i think i can drop the to_string()
-                                server_port = comm.basic_info.port_src;
+                                server_ip = comm.basic_info.ip_dst.to_string(); // TODO i think i can drop the to_string()
+                                client_ip = comm.basic_info.ip_src.to_string(); // TODO i think i can drop the to_string()
+                                server_port = comm.basic_info.port_dst;
                                 set_correct_server_info = true;
                             }
                             messages.push(MessageData::Postgres(PostgresMessageData {
