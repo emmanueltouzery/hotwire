@@ -153,10 +153,8 @@ pub fn parse_packet<B: BufRead>(
     )
 }
 
-fn parse_frame_info<B: BufRead>(
-    xml_reader: &mut quick_xml::Reader<B>,
-    buf: &mut Vec<u8>,
-) -> NaiveDateTime {
+fn parse_frame_info<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> NaiveDateTime {
+    let buf = &mut vec![];
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Empty(ref e)) => {
             if e.name() == b"field"
