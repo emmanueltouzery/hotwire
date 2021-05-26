@@ -5,19 +5,21 @@ use crate::http::http_message_parser::Http;
 use crate::http2::http2_message_parser::Http2;
 use crate::message_parser::{MessageInfo, MessageParser};
 use crate::pgsql::postgres_message_parser::Postgres;
+use crate::tshark_communication;
 use crate::widgets::comm_target_card::SummaryDetails;
 use crate::BgFunc;
-use crate::TSharkCommunication;
 use gdk::prelude::*;
 use glib::translate::ToGlib;
 use gtk::prelude::*;
 use itertools::Itertools;
+use quick_xml::events::Event;
 use relm::{Component, ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
 use std::cmp::Reverse;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::io::BufRead;
 use std::io::BufReader;
 use std::path::Path;
 use std::path::PathBuf;
@@ -128,12 +130,6 @@ enum RefreshRemoteIpsAndStreams {
     No,
 }
 
-#[derive(PartialEq, Eq)]
-pub enum TSharkMode {
-    Json,
-    JsonRaw,
-}
-
 // it would be possible to ask tshark to "mix in" a keylog file
 // when opening the pcap file
 // (obtain the keylog file through `SSLKEYLOGFILE=browser_keylog.txt google-chrome` or firefox,
@@ -141,25 +137,17 @@ pub enum TSharkMode {
 // but we get in flatpak limitations (can only access the file that the user opened
 // due to the sandbox) => better to just mix in the secrets manually and open a single
 // file. this is done through => editcap --inject-secrets tls,/path/to/keylog.txt ~/testtls.pcap ~/outtls.pcapng
-pub fn invoke_tshark<T>(
+pub fn invoke_tshark(
     fname: &Path,
-    tshark_mode: TSharkMode,
     filters: &str,
-) -> Result<Vec<T>, Box<dyn std::error::Error>>
-where
-    T: serde::de::DeserializeOwned,
-{
+) -> Result<Vec<tshark_communication::TSharkPacket>, Box<dyn std::error::Error>> {
+    dbg!(&filters);
     // piping from tshark, not to load the entire JSON in ram...
     let tshark_child = Command::new("tshark")
         .args(&[
             "-r",
             fname.to_str().expect("invalid filename"),
-            if tshark_mode == TSharkMode::Json {
-                "-Tjson"
-            } else {
-                "-Tjsonraw"
-            },
-            "--no-duplicate-keys",
+            "-Tpdml",
             // "-o",
             // "ssl.keylog_file:/home/emmanuel/chrome_keylog.txt",
             filters,
@@ -167,8 +155,32 @@ where
         ])
         .stdout(Stdio::piped())
         .spawn()?;
-    let reader = BufReader::new(tshark_child.stdout.unwrap());
-    Ok(serde_json::de::from_reader(reader)?)
+    let buf_reader = BufReader::new(tshark_child.stdout.unwrap());
+    parse_pdml_stream(buf_reader)
+}
+
+pub fn parse_pdml_stream<B: BufRead>(
+    buf_reader: B,
+) -> Result<Vec<tshark_communication::TSharkPacket>, Box<dyn std::error::Error>> {
+    let mut xml_reader = quick_xml::Reader::from_reader(buf_reader);
+    let mut buf = vec![];
+    let mut r = vec![];
+    loop {
+        match xml_reader.read_event(&mut buf) {
+            Ok(Event::Start(ref e)) => {
+                if e.name() == b"packet" {
+                    if let Some(packet) = tshark_communication::parse_packet(&mut xml_reader).ok() {
+                        r.push(packet);
+                    }
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(e) => return Err(Box::new(e)),
+            _ => {}
+        };
+        buf.clear();
+    }
+    Ok(r)
 }
 
 #[derive(Debug)]
@@ -645,26 +657,20 @@ impl Widget for Win {
         sender: relm::Sender<LoadedDataParams>,
         finished_tshark: relm::Sender<()>,
     ) {
-        let packets = invoke_tshark::<TSharkCommunication>(
-            &fname,
-            TSharkMode::Json,
-            "http || pgsql || http2",
-        )
-        .expect("tshark error");
+        let packets = invoke_tshark(&fname, "http || pgsql || http2").expect("tshark error");
         finished_tshark.send(()).unwrap();
         Self::handle_packets(fname, packets, sender)
     }
 
     fn handle_packets(
         fname: PathBuf,
-        packets: Vec<TSharkCommunication>,
+        packets: Vec<tshark_communication::TSharkPacket>,
         sender: relm::Sender<LoadedDataParams>,
     ) {
         let by_stream = {
             let mut by_stream: Vec<_> = packets
                 .into_iter()
-                // .filter(|p| p.source.layers.http.is_some())
-                .map(|p| (p.source.layers.tcp.as_ref().map(|t| t.stream), p))
+                .map(|p| (p.basic_info.tcp_stream_id, p))
                 .into_group_map()
                 .into_iter()
                 .collect();
@@ -757,7 +763,7 @@ impl Widget for Win {
             .map(|(_parser, id, srv_ip, client_ip, card_key, pstream)| {
                 (
                     StreamInfo {
-                        stream_id: id.unwrap(),
+                        stream_id: id,
                         target_ip: card_key.0,
                         target_port: card_key.1,
                         source_ip: client_ip,

@@ -76,7 +76,7 @@ impl Widget for HttpCommEntry {
     }
 
     fn update(&mut self, event: Msg) {
-        dbg!(&event);
+        // dbg!(&event);
         match event {
             Msg::DisplayDetails(
                 bg_sender,

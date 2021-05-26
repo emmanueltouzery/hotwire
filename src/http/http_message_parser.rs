@@ -4,10 +4,10 @@ use crate::colors;
 use crate::http::tshark_http::HttpType;
 use crate::icons::Icon;
 use crate::message_parser::{MessageInfo, MessageParser, StreamData};
+use crate::tshark_communication::TSharkPacket;
 use crate::widgets::comm_remote_server::MessageData;
 use crate::widgets::win;
 use crate::BgFunc;
-use crate::TSharkCommunication;
 use chrono::NaiveDateTime;
 use flate2::read::GzDecoder;
 use gtk::prelude::*;
@@ -16,31 +16,24 @@ use relm::ContainerWidget;
 use std::borrow::Cow;
 use std::io::prelude::*;
 use std::path::PathBuf;
+use std::str;
 use std::sync::mpsc;
 
 pub struct Http;
 
 impl MessageParser for Http {
-    fn is_my_message(&self, msg: &TSharkCommunication) -> bool {
-        msg.source.layers.http.is_some()
+    fn is_my_message(&self, msg: &TSharkPacket) -> bool {
+        msg.http.is_some()
     }
 
     fn protocol_icon(&self) -> Icon {
         Icon::HTTP
     }
 
-    fn parse_stream(&self, stream: Vec<TSharkCommunication>) -> StreamData {
-        let mut client_ip = stream.first().unwrap().source.layers.ip_src().clone();
-        let mut server_ip = stream.first().unwrap().source.layers.ip_dst().clone();
-        let mut server_port = stream
-            .first()
-            .unwrap()
-            .source
-            .layers
-            .tcp
-            .as_ref()
-            .unwrap()
-            .port_dst;
+    fn parse_stream(&self, stream: Vec<TSharkPacket>) -> StreamData {
+        let mut client_ip = stream.first().unwrap().basic_info.ip_src.clone();
+        let mut server_ip = stream.first().unwrap().basic_info.ip_dst.clone();
+        let mut server_port = stream.first().unwrap().basic_info.port_dst;
         let mut cur_request = None;
         let mut messages = vec![];
         let mut summary_details = None;
@@ -330,7 +323,6 @@ pub enum HttpBody {
     // TODO the whole binary vs text stuff is possibly obsolete due to content encodings..
     Text(String),
     Binary(Vec<u8>),
-    BinaryUnknownContents,
     Missing,
 }
 
@@ -410,72 +402,57 @@ struct ReqRespInfo {
     host: Option<String>,
 }
 
-fn parse_body(body: Option<String>, headers: &[(String, String)]) -> HttpBody {
-    body.map(|b| {
-        // heuristic to find out whether the body is binary or text:
-        // if it's binary its length as a string will be shorter than content-length
-        // due to \0s in the string
-        // TODO this is very fishy.
-        let content_length =
-            get_http_header_value(&headers, "Content-Length").and_then(|l| l.parse::<usize>().ok());
-        let body_length = b.len();
-        // dbg!(&content_length);
-        // dbg!(&body_length);
-        let is_binary_heuristic = matches!((content_length, body_length),
-                    (Some(cl), bl) if bl + 2 < cl); // btw I've seen content-length==body-length+2 for non-binary
-        if is_binary_heuristic {
-            HttpBody::BinaryUnknownContents
-        } else {
-            HttpBody::Text(b)
-        }
+fn parse_body(body: Option<Vec<u8>>, headers: &[(String, String)]) -> HttpBody {
+    body.map(|d| {
+        str::from_utf8(&d)
+            .ok()
+            .map(|s| HttpBody::Text(s.to_string()))
+            .unwrap_or_else(|| HttpBody::Binary(d))
     })
     .unwrap_or(HttpBody::Missing)
 }
 
-fn parse_request_response(comm: TSharkCommunication) -> ReqRespInfo {
-    let http = comm.source.layers.http;
+fn parse_request_response(comm: TSharkPacket) -> ReqRespInfo {
+    let http = comm.http;
     let http_headers = http.as_ref().map(|h| parse_headers(&h.other_lines));
-    let ipv4 = comm.source.layers.ip.map(|ip| (ip.ip_src, ip.ip_dst));
-    let ipv6 = comm.source.layers.ipv6.map(|ip| (ip.ip_src, ip.ip_dst));
-    let ip = ipv4.or(ipv6).unwrap();
-    let ip_src = ip.0;
-    let ip_dst = ip.1;
+    let ip_src = comm.basic_info.ip_src;
+    let ip_dst = comm.basic_info.ip_dst;
     match http.map(|h| (h.http_type, h, http_headers)) {
         Some((HttpType::Request, h, Some(headers))) => ReqRespInfo {
             req_resp: RequestOrResponseOrOther::Request(HttpRequestResponseData {
-                tcp_stream_no: comm.source.layers.tcp.as_ref().unwrap().stream,
-                tcp_seq_number: comm.source.layers.tcp.as_ref().unwrap().seq_number,
-                timestamp: comm.source.layers.frame.frame_time,
+                tcp_stream_no: comm.basic_info.tcp_stream_id,
+                tcp_seq_number: comm.basic_info.tcp_seq_number,
+                timestamp: comm.basic_info.frame_time,
                 body: parse_body(h.body, &headers),
                 first_line: h.first_line,
                 headers,
                 content_type: h.content_type,
                 content_encoding: ContentEncoding::Plain, // not sure whether maybe tshark decodes before us...
             }),
-            port_dst: comm.source.layers.tcp.as_ref().unwrap().port_dst,
+            port_dst: comm.basic_info.port_dst,
             ip_dst,
             ip_src,
             host: h.http_host,
         },
         Some((HttpType::Response, h, Some(headers))) => ReqRespInfo {
             req_resp: RequestOrResponseOrOther::Response(HttpRequestResponseData {
-                tcp_stream_no: comm.source.layers.tcp.as_ref().unwrap().stream,
-                tcp_seq_number: comm.source.layers.tcp.as_ref().unwrap().seq_number,
-                timestamp: comm.source.layers.frame.frame_time,
+                tcp_stream_no: comm.basic_info.tcp_stream_id,
+                tcp_seq_number: comm.basic_info.tcp_seq_number,
+                timestamp: comm.basic_info.frame_time,
                 body: parse_body(h.body, &headers),
                 first_line: h.first_line,
                 headers,
                 content_type: h.content_type,
                 content_encoding: ContentEncoding::Plain, // not sure whether maybe tshark decodes before us...
             }),
-            port_dst: comm.source.layers.tcp.as_ref().unwrap().port_src,
+            port_dst: comm.basic_info.port_src,
             ip_dst: ip_src,
             ip_src: ip_dst,
             host: h.http_host,
         },
         _ => ReqRespInfo {
             req_resp: RequestOrResponseOrOther::Other,
-            port_dst: comm.source.layers.tcp.as_ref().unwrap().port_dst,
+            port_dst: comm.basic_info.port_dst,
             ip_dst,
             ip_src,
             host: None,

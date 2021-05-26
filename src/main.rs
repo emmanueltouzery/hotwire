@@ -1,4 +1,3 @@
-use crate::tshark_communication::TSharkCommunication;
 use relm::Widget;
 use std::sync::mpsc;
 use std::thread;
@@ -6,8 +5,8 @@ use std::thread;
 pub mod colors;
 pub mod icons;
 pub mod message_parser;
+#[macro_use]
 mod tshark_communication;
-mod tshark_communication_raw;
 mod widgets;
 
 pub mod http;

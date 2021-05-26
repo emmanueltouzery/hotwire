@@ -1,7 +1,6 @@
-use serde::de;
-use serde::Deserialize;
-use serde::Deserializer;
-use serde_json::Value;
+use crate::tshark_communication;
+use quick_xml::events::Event;
+use std::io::BufRead;
 
 #[derive(Debug, Copy, Clone)]
 pub enum HttpType {
@@ -15,77 +14,81 @@ pub struct TSharkHttp {
     pub http_host: Option<String>,
     pub first_line: String,
     pub other_lines: String,
-    pub body: Option<String>,
+    pub body: Option<Vec<u8>>,
     pub content_type: Option<String>,
 }
 
-fn extract_first_line(http_map: &serde_json::Map<String, Value>, key_name: &str) -> String {
-    http_map
-        .iter()
-        .find(|(_k, v)| {
-            matches!(v, serde_json::Value::Object(fields) if fields.contains_key(key_name))
-        })
-        .map(|(k, _v)| k.as_str())
-        .unwrap_or("")
-        .trim_end_matches("\\r\\n")
-        .to_string()
-}
-
-impl<'de> Deserialize<'de> for TSharkHttp {
-    fn deserialize<D>(deserializer: D) -> Result<TSharkHttp, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s: Value = de::Deserialize::deserialize(deserializer)?;
-        let http_map = s.as_object().unwrap();
-        let body = http_map
-            .get("http.file_data")
-            .and_then(|v| v.as_str())
-            .map(|v| v.trim().to_string());
-        if let Some(req_line) = http_map.get("http.request.line") {
-            let other_lines_vec: Vec<_> = req_line
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|v| v.as_str().unwrap())
-                .collect();
-            return Ok(TSharkHttp {
-                http_type: HttpType::Request,
-                first_line: extract_first_line(http_map, "http.request.method"),
-                other_lines: other_lines_vec.join(""),
-                http_host: http_map
-                    .get("http.host")
-                    .and_then(|c| c.as_str())
-                    .map(|c| c.to_string()),
-                content_type: http_map
-                    .get("http.content_type")
-                    .and_then(|c| c.as_str())
-                    .map(|c| c.to_string()),
-                body,
-            });
+pub fn parse_http_info<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> TSharkHttp {
+    let mut http_type = None;
+    let mut http_host = None;
+    let mut first_line = None;
+    let mut other_lines = vec![];
+    let mut body = None;
+    let mut content_type = None;
+    let buf = &mut vec![];
+    xml_event_loop!(xml_reader, buf,
+        Ok(Event::Start(ref e)) => {
+            if e.name() == b"field" {
+                let name = e
+                    .attributes()
+                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
+                    .map(|kv| kv.unwrap().value);
+                if name.as_deref() == Some(b"") && first_line.is_none() {
+                    first_line = tshark_communication::element_attr_val_string(e, b"show")
+                        .map(|t| t.trim_end_matches("\\r\\n").to_string())
+                }
+            }
         }
-        if let Some(resp_line) = http_map.get("http.response.line") {
-            let other_lines_vec: Vec<_> = resp_line
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|v| v.as_str().unwrap())
-                .collect();
-            return Ok(TSharkHttp {
-                http_type: HttpType::Response,
-                first_line: extract_first_line(http_map, "http.response.code"),
-                other_lines: other_lines_vec.join(""),
-                http_host: http_map
-                    .get("http.host")
-                    .and_then(|c| c.as_str())
-                    .map(|c| c.to_string()),
-                content_type: http_map
-                    .get("http.content_type")
-                    .and_then(|c| c.as_str())
-                    .map(|c| c.to_string()),
-                body,
-            });
+        Ok(Event::Empty(ref e)) => {
+            if e.name() == b"field" {
+                let name = e
+                    .attributes()
+                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
+                    .map(|kv| kv.unwrap().value);
+                match name.as_deref() {
+                    Some(b"http.content_type") => {
+                        content_type = tshark_communication::element_attr_val_string(e, b"show")
+                    }
+                    Some(b"http.host") => {
+                        http_host = tshark_communication::element_attr_val_string(e, b"show")
+                    }
+                    Some(b"http.request.line") => {
+                        http_type = Some(HttpType::Request);
+                        other_lines.push(
+                            tshark_communication::element_attr_val_string(e, b"show").unwrap(),
+                        );
+                    }
+                    Some(b"http.response.line") => {
+                        http_type = Some(HttpType::Response);
+                        other_lines.push(
+                            tshark_communication::element_attr_val_string(e, b"show").unwrap(),
+                        );
+                    }
+                    Some(b"http.file_data") => {
+                        // binary will be in "value", text in "show"
+                        body = hex::decode(
+                            tshark_communication::element_attr_val_string(e, b"value")
+                                .or_else(|| tshark_communication::element_attr_val_string(e, b"show"))
+                                .unwrap()
+                                .replace(':', ""),
+                        )
+                        .ok();
+                    }
+                    _ => {}
+                }
+            }
         }
-        Err(de::Error::custom("invalid http contents"))
-    }
+        Ok(Event::End(ref e)) => {
+            if e.name() == b"proto" {
+                return TSharkHttp {
+                    http_type: http_type.unwrap(),
+                    http_host,
+                    first_line: first_line.unwrap_or_default(),
+                    other_lines: other_lines.join(""),
+                    body,
+                    content_type,
+                };
+            }
+        }
+    )
 }

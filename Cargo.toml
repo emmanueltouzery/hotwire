@@ -14,8 +14,6 @@ includedir_codegen = "0.6.0"
 serde = "1.0.123"
 serde_json = "1.0.64"
 itertools = "0.10.0"
-serde_derive = "1.0.124"
-serde-aux = "2.1.1"
 
 # relm: take in style_class after 0.21
 relm = { git = "https://github.com/antoyo/relm", rev = "1e4dee58f2536857420756b533f0673e60beffa7" }
@@ -32,6 +30,7 @@ regex = "1.4.5"
 xmlparser = "0.13.3"
 brotli = "3.3.0"
 flate2 = "1.0.20"
+quick-xml = "0.22.0"
 
 [dependencies.gtk]
 version = "0.9.2"
