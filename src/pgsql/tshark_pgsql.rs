@@ -50,8 +50,7 @@ pub enum PostgresWireMessage {
 
 pub fn parse_pgsql_info<B: BufRead>(
     xml_reader: &mut quick_xml::Reader<B>,
-) -> Vec<PostgresWireMessage> {
-    let mut result = vec![];
+) -> Option<PostgresWireMessage> {
     let buf = &mut vec![];
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Empty(ref e)) => {
@@ -67,20 +66,20 @@ pub fn parse_pgsql_info<B: BufRead>(
                             .as_str()
                         {
                             "Startup message" => {
-                                return vec![parse_startup_message(xml_reader)];
+                                return Some(parse_startup_message(xml_reader));
                             }
-                            "Copy data" => result.push(PostgresWireMessage::CopyData),
+                            "Copy data" => return Some(PostgresWireMessage::CopyData),
                             "Parse" => {
-                                return vec![parse_parse_message(xml_reader)];
+                                return Some(parse_parse_message(xml_reader));
                             },
-                            "Bind" => return vec![parse_bind_message(xml_reader)],
+                            "Bind" => return Some(parse_bind_message(xml_reader)),
                             "Ready for query" => {
-                                return vec![PostgresWireMessage::ReadyForQuery];
+                                return Some(PostgresWireMessage::ReadyForQuery);
                             }
                             "Row description" => {
-                                return vec![parse_row_description_message(xml_reader)];
+                                return Some(parse_row_description_message(xml_reader));
                             }
-                            "Data row" => return vec![parse_data_row_message(xml_reader)],
+                            "Data row" => return Some(parse_data_row_message(xml_reader)),
                             _ => {}
                         }
                     }
@@ -90,7 +89,7 @@ pub fn parse_pgsql_info<B: BufRead>(
         }
         Ok(Event::End(ref e)) => {
             if e.name() == b"proto" {
-                return vec![];
+                return None;
             }
         }
     )

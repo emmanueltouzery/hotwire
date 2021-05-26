@@ -120,12 +120,13 @@ pub fn parse_packet<B: BufRead>(
                         }
                     }
                     Some(b"pgsql") => {
-                        let mut pgsql_packets = tshark_pgsql::parse_pgsql_info(xml_reader);
-                        if let Some(mut sofar) = pgsql {
-                            sofar.append(&mut pgsql_packets);
-                            pgsql = Some(sofar);
-                        } else {
-                            pgsql = Some(pgsql_packets);
+                        if let Some(pgsql_packets) = tshark_pgsql::parse_pgsql_info(xml_reader) {
+                            if let Some(mut sofar) = pgsql {
+                                sofar.push(pgsql_packets);
+                                pgsql = Some(sofar);
+                            } else {
+                                pgsql = Some(vec![pgsql_packets]);
+                            }
                         }
                     }
                     _ => {}
