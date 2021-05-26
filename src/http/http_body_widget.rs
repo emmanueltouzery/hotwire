@@ -72,7 +72,7 @@ impl Widget for HttpBodyWidget {
     }
 
     fn update(&mut self, event: Msg) {
-        dbg!(&event);
+        // dbg!(&event);
         match event {
             Msg::FormatCodeChanged(format_code) => {
                 self.model.format_code = format_code;
