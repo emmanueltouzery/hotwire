@@ -3,6 +3,7 @@ use super::comm_target_card::{CommTargetCard, CommTargetCardData};
 use crate::colors;
 use crate::http::http_message_parser::Http;
 use crate::http2::http2_message_parser::Http2;
+use crate::icons::Icon;
 use crate::message_parser::{MessageInfo, MessageParser};
 use crate::pgsql::postgres_message_parser::Postgres;
 use crate::tshark_communication;
@@ -55,6 +56,7 @@ pub enum InfobarOptions {
 #[derive(Msg, Debug)]
 pub enum Msg {
     OpenFile,
+    DisplayAbout,
 
     FinishedTShark,
     LoadedData(LoadedDataParams),
@@ -462,6 +464,9 @@ impl Widget for Win {
             }
         }
         match event {
+            Msg::DisplayAbout => {
+                self.display_about();
+            }
             Msg::OpenFile => {
                 self.open_file();
             }
@@ -620,6 +625,18 @@ impl Widget for Win {
                 allowed_ips,
                 allowed_stream_ids,
             ));
+    }
+
+    fn display_about(&mut self) {
+        let dlg = gtk::AboutDialogBuilder::new()
+            .name("Hotwire")
+            .version(env!("CARGO_PKG_VERSION"))
+            .logo_icon_name(Icon::APP_ICON.name())
+            .website("https://github.com/emmanueltouzery/hotwire/")
+            // .comments("...")
+            .build();
+        dlg.run();
+        dlg.close();
     }
 
     fn open_file(&mut self) {
@@ -960,6 +977,7 @@ impl Widget for Win {
                             gtk::Popover {
                                 visible: false,
                                 gtk::Box {
+                                    orientation: gtk::Orientation::Vertical,
                                     margin_top: 10,
                                     margin_start: 10,
                                     margin_end: 10,
@@ -968,6 +986,11 @@ impl Widget for Win {
                                         label: "Open",
                                         hexpand: true,
                                         clicked => Msg::OpenFile,
+                                    },
+                                    gtk::ModelButton {
+                                        label: "About Hotwire",
+                                        hexpand: true,
+                                        clicked => Msg::DisplayAbout,
                                     },
                                 }
                             }
