@@ -31,3 +31,8 @@
 .label {
   color: #777777;
 }
+
+.recent_file_folder {
+  color: gray;
+  font-size: 12px;
+}

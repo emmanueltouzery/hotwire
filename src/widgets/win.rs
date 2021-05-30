@@ -1,5 +1,6 @@
 use super::comm_remote_server::MessageData;
 use super::comm_target_card::{CommTargetCard, CommTargetCardData};
+use super::recent_file_item::RecentFileItem;
 use crate::colors;
 use crate::http::http_message_parser::Http;
 use crate::http2::http2_message_parser::Http2;
@@ -56,6 +57,7 @@ pub enum InfobarOptions {
 #[derive(Msg, Debug)]
 pub enum Msg {
     OpenFile,
+    OpenRecentFile(usize),
     DisplayAbout,
 
     FinishedTShark,
@@ -102,6 +104,7 @@ pub struct Model {
 
     window_subtitle: Option<String>,
     current_file_path: Option<PathBuf>,
+    recent_files: Vec<PathBuf>,
 
     infobar_spinner: gtk::Spinner,
     infobar_label: gtk::Label,
@@ -121,6 +124,7 @@ pub struct Model {
     loaded_data_sender: relm::Sender<LoadedDataParams>,
 
     _comm_targets_components: Vec<Component<CommTargetCard>>,
+    _recent_file_item_components: Vec<Component<RecentFileItem>>,
 
     details_component_emitters: Vec<Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, MessageInfo)>>,
     details_adjustments: Vec<gtk::Adjustment>,
@@ -235,8 +239,43 @@ impl Widget for Win {
 
         self.init_remote_ip_streams_tv();
 
-        self.refresh_comm_targets();
-        self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
+        self.widgets
+            .recent_files_list
+            .set_header_func(Some(Box::new(|row, _h| {
+                row.set_header(Some(&gtk::SeparatorBuilder::new().build()));
+            })));
+
+        self.refresh_recent_files();
+
+        // self.refresh_comm_targets();
+        // self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
+    }
+
+    fn refresh_recent_files(&mut self) {
+        for child in self.widgets.recent_files_list.get_children() {
+            self.widgets.recent_files_list.remove(&child);
+        }
+        self.model.recent_files.clear();
+        self.model._recent_file_item_components.clear();
+        let rm = gtk::RecentManager::get_default().unwrap();
+        rm.get_items()
+            .into_iter()
+            .filter(|fi| {
+                fi.get_mime_type()
+                    .filter(|m| m.as_str() == "application/vnd.tcpdump.pcap")
+                    .is_some()
+            })
+            .take(5)
+            .flat_map(|fi| fi.get_uri())
+            .map(|gs| PathBuf::from(gs.as_str()))
+            .for_each(|pb| {
+                self.model.recent_files.push(pb.clone());
+                self.model._recent_file_item_components.push(
+                    self.widgets
+                        .recent_files_list
+                        .add_widget::<RecentFileItem>(pb),
+                );
+            });
     }
 
     fn add_message_parser_grid_and_pane(
@@ -440,6 +479,8 @@ impl Widget for Win {
                 .build(),
             infobar_label: gtk::LabelBuilder::new().build(),
             _comm_targets_components: vec![],
+            _recent_file_item_components: vec![],
+            recent_files: vec![],
             selected_card: None,
             comm_remote_servers_treeviews: vec![],
             details_component_emitters: vec![],
@@ -469,6 +510,10 @@ impl Widget for Win {
             }
             Msg::OpenFile => {
                 self.open_file();
+            }
+            Msg::OpenRecentFile(idx) => {
+                let path = self.model.recent_files[idx].clone();
+                self.gui_load_file(path);
             }
             Msg::FinishedTShark => {
                 self.widgets.loading_tshark_label.set_visible(false);
@@ -651,22 +696,41 @@ impl Widget for Win {
         dialog.set_filter(&filter);
         if dialog.run() == gtk::ResponseType::Accept {
             if let Some(fname) = dialog.get_filename() {
-                self.widgets.loading_spinner.start();
-                self.widgets.loading_parsing_label.set_visible(false);
-                self.widgets.loading_tshark_label.set_visible(true);
-                self.widgets
-                    .root_stack
-                    .set_visible_child_name(LOADING_STACK_NAME);
-                let s = self.model.loaded_data_sender.clone();
-                let t = self.model.finished_tshark_sender.clone();
-                self.model
-                    .bg_sender
-                    .send(BgFunc::new(move || {
-                        Self::load_file(fname.clone(), s.clone(), t.clone());
-                    }))
-                    .unwrap();
+                self.gui_load_file(fname);
             }
         }
+    }
+
+    fn gui_load_file(&mut self, fname: PathBuf) {
+        self.widgets.open_btn.set_active(false);
+        let rm = gtk::RecentManager::get_default().unwrap();
+        if let Some(fname_str) = fname.to_str() {
+            let recent_data = gtk::RecentData {
+                display_name: None,
+                description: None,
+                mime_type: "application/vnd.tcpdump.pcap".to_string(),
+                app_name: "hotwire".to_string(),
+                app_exec: "hotwire".to_string(),
+                groups: vec![],
+                is_private: false,
+            };
+            rm.add_full(fname_str, &recent_data);
+        }
+        self.widgets.loading_spinner.start();
+        self.widgets.loading_parsing_label.set_visible(false);
+        self.widgets.loading_tshark_label.set_visible(true);
+        self.widgets
+            .root_stack
+            .set_visible_child_name(LOADING_STACK_NAME);
+        let s = self.model.loaded_data_sender.clone();
+        let t = self.model.finished_tshark_sender.clone();
+        self.model
+            .bg_sender
+            .send(BgFunc::new(move || {
+                Self::load_file(fname.clone(), s.clone(), t.clone());
+            }))
+            .unwrap();
+        self.refresh_recent_files();
     }
 
     fn load_file(
@@ -967,6 +1031,44 @@ impl Widget for Win {
                     show_close_button: true,
                     title: Some("Hotwire"),
                     subtitle: self.model.window_subtitle.as_deref(),
+                    #[name="open_btn"]
+                    gtk::MenuButton {
+                        image: Some(&gtk::Image::from_icon_name(Some("pan-down-symbolic"), gtk::IconSize::Menu)),
+                        image_position: gtk::PositionType::Right,
+                        label: "Open",
+                        always_show_image: true,
+                        active: false,
+                        popover: view! {
+                            gtk::Popover {
+                                property_width_request: 450,
+                                visible: false,
+                                gtk::Box {
+                                    orientation: gtk::Orientation::Vertical,
+                                    margin_top: 10,
+                                    margin_start: 10,
+                                    margin_end: 10,
+                                    margin_bottom: 10,
+                                    spacing: 10,
+                                    gtk::Frame {
+                                        #[name="recent_files_list"]
+                                        gtk::ListBox {
+                                            // no selection: i dont want the blue background on the first recent file by default,
+                                            // it doesn't look good. I tried preventing it by focusing the "Other documents" button, but failed.
+                                            selection_mode: gtk::SelectionMode::None,
+                                            activate_on_single_click: true,
+                                            row_activated(_, row) =>
+                                                Msg::OpenRecentFile(row.get_index() as usize)
+                                        },
+                                    },
+                                    gtk::Button {
+                                        label: "Other Documents...",
+                                        hexpand: true,
+                                        clicked => Msg::OpenFile,
+                                    }
+                                }
+                            }
+                        },
+                    },
                     gtk::MenuButton {
                         image: Some(&gtk::Image::from_icon_name(Some("open-menu-symbolic"), gtk::IconSize::Menu)),
                         child: {
@@ -982,11 +1084,6 @@ impl Widget for Win {
                                     margin_start: 10,
                                     margin_end: 10,
                                     margin_bottom: 10,
-                                    gtk::ModelButton {
-                                        label: "Open",
-                                        hexpand: true,
-                                        clicked => Msg::OpenFile,
-                                    },
                                     gtk::ModelButton {
                                         label: "About Hotwire",
                                         hexpand: true,
