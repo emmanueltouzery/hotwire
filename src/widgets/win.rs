@@ -1,5 +1,9 @@
 use super::comm_remote_server::MessageData;
 use super::comm_target_card::{CommTargetCard, CommTargetCardData};
+use super::headerbar_search::HeaderbarSearch;
+use super::headerbar_search::Msg as HeaderbarSearchMsg;
+use super::headerbar_search::Msg::SearchActiveChanged as HbsMsgSearchActiveChanged;
+use super::headerbar_search::Msg::SearchTextChanged as HbsMsgSearchTextChanged;
 use super::recent_file_item::RecentFileItem;
 use crate::colors;
 use crate::http::http_message_parser::Http;
@@ -59,6 +63,10 @@ pub enum Msg {
     OpenFile,
     OpenRecentFile(usize),
     DisplayAbout,
+
+    KeyPress(gdk::EventKey),
+    SearchActiveChanged(bool),
+    SearchTextChanged(String),
 
     FinishedTShark,
     LoadedData(LoadedDataParams),
@@ -511,6 +519,11 @@ impl Widget for Win {
             Msg::OpenFile => {
                 self.open_file();
             }
+            Msg::KeyPress(e) => {
+                self.handle_keypress(e);
+            }
+            Msg::SearchActiveChanged(is_active) => {}
+            Msg::SearchTextChanged(txt) => {}
             Msg::OpenRecentFile(idx) => {
                 let path = self.model.recent_files[idx].clone();
                 self.gui_load_file(path);
@@ -628,6 +641,60 @@ impl Widget for Win {
             }
             Msg::Quit => gtk::main_quit(),
         }
+    }
+
+    fn handle_keypress(&self, e: gdk::EventKey) {
+        if e.get_keyval() == gdk::keys::constants::Escape {
+            self.components
+                .headerbar_search
+                .emit(HeaderbarSearchMsg::SearchActiveChanged(false));
+        }
+        if let Some(k) = e.get_keyval().to_unicode() {
+            if Self::is_plaintext_key(&e) {
+                // we don't want to trigger the global search if the
+                // note search text entry is focused.
+                if self
+                    .widgets
+                    .window
+                    .get_focus()
+                    // is an entry focused?
+                    .and_then(|w| w.downcast::<gtk::Entry>().ok())
+                    // is it visible? (because when global search is off,
+                    // the global search entry can be focused but invisible)
+                    .filter(|w| w.get_visible())
+                    .is_some()
+                {
+                    // the focused widget is a visible entry, and
+                    // we're not in search mode => don't grab this
+                    // key event, this is likely a note search
+                    return;
+                }
+
+                // self.model
+                //     .relm
+                //     .stream()
+                //     .emit(Msg::SearchActiveChanged(true));
+                // self.components
+                //     .headerbar_search
+                //     .emit(SearchViewMsg::FilterChanged(Some(k.to_string())));
+                self.components.headerbar_search.emit(
+                    HeaderbarSearchMsg::SearchTextChangedFromElsewhere((k.to_string(), e)),
+                );
+            }
+        }
+    }
+
+    fn is_plaintext_key(e: &gdk::EventKey) -> bool {
+        // return false if control and others were pressed
+        // (then the state won't be empty)
+        // could be ctrl-c on notes for instance
+        // whitelist MOD2 (num lock) and LOCK (shift or caps lock)
+        let mut state = e.get_state();
+        state.remove(gdk::ModifierType::MOD2_MASK);
+        state.remove(gdk::ModifierType::LOCK_MASK);
+        state.is_empty()
+            && e.get_keyval() != gdk::keys::constants::Return
+            && e.get_keyval() != gdk::keys::constants::KP_Enter
     }
 
     fn refresh_remote_ip_stream(&mut self, paths: &mut [gtk::TreePath]) {
@@ -1100,6 +1167,14 @@ impl Widget for Win {
                             }
                         },
                     },
+                    #[name="headerbar_search"]
+                    HeaderbarSearch {
+                        child: {
+                            pack_type: gtk::PackType::End,
+                        },
+                        HbsMsgSearchActiveChanged(is_active) => Msg::SearchActiveChanged(is_active),
+                        HbsMsgSearchTextChanged(ref txt) => Msg::SearchTextChanged(txt.clone()),
+                    },
                 }
             },
             #[name="root_stack"]
@@ -1181,6 +1256,7 @@ impl Widget for Win {
                     }
                 },
             },
+            key_press_event(_, event) => (Msg::KeyPress(event.clone()), Inhibit(false)),
             delete_event(_, _) => (Msg::Quit, Inhibit(false)),
         }
     }
