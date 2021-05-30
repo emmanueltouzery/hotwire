@@ -673,13 +673,20 @@ impl Widget for Win {
     }
 
     fn display_about(&mut self) {
+        let tshark_version = Command::new("tshark")
+            .args(&["--version"])
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .unwrap_or_else(|| "Failed running tshark".to_string());
         let dlg = gtk::AboutDialogBuilder::new()
             .name("Hotwire")
             .version(env!("CARGO_PKG_VERSION"))
             .logo_icon_name(Icon::APP_ICON.name())
             .website("https://github.com/emmanueltouzery/hotwire/")
-            // .comments("...")
+            .comments("Explore the contents of network capture files")
             .build();
+        dlg.add_credit_section("tshark", &[&tshark_version]);
         dlg.run();
         dlg.close();
     }
