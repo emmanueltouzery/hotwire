@@ -250,6 +250,33 @@ impl MessageParser for Http {
         tv.set_model(Some(&model_sort));
     }
 
+    fn matches_filter(&self, filter: &str, model: &gtk::TreeModel, iter: &gtk::TreeIter) -> bool {
+        model
+            .get_value(iter, 0) // req info
+            .get::<&str>()
+            .unwrap()
+            .unwrap()
+            .contains(filter)
+            || model
+                .get_value(iter, 1) // resp info
+                .get::<&str>()
+                .unwrap()
+                .unwrap()
+                .contains(filter)
+            || model
+                .get_value(iter, 8) // req content type
+                .get::<&str>()
+                .unwrap()
+                .unwrap_or("")
+                .contains(filter)
+            || model
+                .get_value(iter, 9) // resp content type
+                .get::<&str>()
+                .unwrap()
+                .unwrap_or("")
+                .contains(filter)
+    }
+
     fn requests_details_overlay(&self) -> bool {
         true
     }

@@ -430,6 +430,15 @@ impl MessageParser for Postgres {
         tv.set_model(Some(&model_sort));
     }
 
+    fn matches_filter(&self, filter: &str, model: &gtk::TreeModel, iter: &gtk::TreeIter) -> bool {
+        model
+            .get_value(iter, 0)
+            .get::<&str>()
+            .unwrap()
+            .unwrap()
+            .contains(filter)
+    }
+
     fn requests_details_overlay(&self) -> bool {
         false
     }

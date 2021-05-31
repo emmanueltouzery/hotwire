@@ -163,6 +163,10 @@ impl MessageParser for Http2 {
     fn end_populate_treeview(&self, tv: &gtk::TreeView, ls: &gtk::ListStore) {
         http_message_parser::Http.end_populate_treeview(tv, ls);
     }
+
+    fn matches_filter(&self, filter: &str, model: &gtk::TreeModel, iter: &gtk::TreeIter) -> bool {
+        http_message_parser::Http.matches_filter(filter, model, iter)
+    }
 }
 
 enum MsgType {

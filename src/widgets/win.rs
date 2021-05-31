@@ -522,8 +522,14 @@ impl Widget for Win {
             Msg::KeyPress(e) => {
                 self.handle_keypress(e);
             }
-            Msg::SearchActiveChanged(is_active) => {}
-            Msg::SearchTextChanged(txt) => {}
+            Msg::SearchActiveChanged(is_active) => {
+                if let Some((protocol_index, tv, model_sort)) = self.get_model_sort() {
+                    tv.set_model(Some(&model_sort));
+                }
+            }
+            Msg::SearchTextChanged(txt) => {
+                self.search_text_changed(txt);
+            }
             Msg::OpenRecentFile(idx) => {
                 let path = self.model.recent_files[idx].clone();
                 self.gui_load_file(path);
@@ -681,6 +687,45 @@ impl Widget for Win {
                     HeaderbarSearchMsg::SearchTextChangedFromElsewhere((k.to_string(), e)),
                 );
             }
+        }
+    }
+
+    fn get_model_sort(&self) -> Option<(usize, &gtk::TreeView, gtk::TreeModelSort)> {
+        if let Some(card) = self.model.selected_card.as_ref() {
+            let (ref tv, ref _signals) = &self
+                .model
+                .comm_remote_servers_treeviews
+                .get(card.protocol_index)
+                .unwrap();
+            let model_sort = tv
+                .get_model()
+                .unwrap()
+                .dynamic_cast::<gtk::TreeModelSort>()
+                .unwrap_or_else(|_| {
+                    tv.get_model()
+                        .unwrap()
+                        .dynamic_cast::<gtk::TreeModelFilter>()
+                        .unwrap()
+                        .get_model()
+                        .unwrap()
+                        .dynamic_cast::<gtk::TreeModelSort>()
+                        .unwrap()
+                });
+            Some((card.protocol_index, tv, model_sort))
+        } else {
+            None
+        }
+    }
+
+    fn search_text_changed(&mut self, txt: String) {
+        if let Some((protocol_index, tv, model_sort)) = self.get_model_sort() {
+            let parsers = get_message_parsers();
+            let new_model_filter = gtk::TreeModelFilter::new(&model_sort, None);
+            new_model_filter.set_visible_func(move |model, iter| {
+                let mp = parsers.get(protocol_index).unwrap();
+                mp.matches_filter(&txt, model, iter)
+            });
+            tv.set_model(Some(&new_model_filter));
         }
     }
 

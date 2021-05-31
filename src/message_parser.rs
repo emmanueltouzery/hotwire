@@ -33,6 +33,7 @@ pub trait MessageParser {
     );
     fn end_populate_treeview(&self, tv: &gtk::TreeView, ls: &gtk::ListStore);
     fn requests_details_overlay(&self) -> bool;
+    fn matches_filter(&self, filter: &str, model: &gtk::TreeModel, iter: &gtk::TreeIter) -> bool;
     fn add_details_to_scroll(
         &self,
         parent: &gtk::ScrolledWindow,
