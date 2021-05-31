@@ -257,6 +257,10 @@ impl Widget for Win {
 
         // self.refresh_comm_targets();
         // self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
+        let path = self.model.current_file_path.as_ref().map(|p| p.clone());
+        if let Some(p) = path {
+            self.gui_load_file(p.clone());
+        }
     }
 
     fn refresh_recent_files(&mut self) {
@@ -459,7 +463,8 @@ impl Widget for Win {
         Ok(())
     }
 
-    fn model(relm: &relm::Relm<Self>, bg_sender: mpsc::Sender<BgFunc>) -> Model {
+    fn model(relm: &relm::Relm<Self>, params: (mpsc::Sender<BgFunc>, Option<PathBuf>)) -> Model {
+        let (bg_sender, current_file_path) = params;
         gtk::IconTheme::get_default()
             .unwrap()
             .add_resource_path("/icons");
@@ -500,7 +505,7 @@ impl Widget for Win {
             sidebar_selection_change_signal_id: None,
             comm_target_cards: vec![],
             streams: vec![],
-            current_file_path: None,
+            current_file_path,
             window_subtitle: None,
         }
     }

@@ -1,4 +1,5 @@
 use relm::Widget;
+use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
 
@@ -39,6 +40,8 @@ fn main() {
     thread::spawn(move || {
         rx.into_iter().for_each(|fun| (fun.0)());
     });
+    let mut args = std::env::args();
+    args.next();
 
-    widgets::win::Win::run(tx).unwrap();
+    widgets::win::Win::run((tx, args.next().map(PathBuf::from))).unwrap();
 }
