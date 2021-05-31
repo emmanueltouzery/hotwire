@@ -436,7 +436,8 @@ impl MessageParser for Postgres {
             .get::<&str>()
             .unwrap()
             .unwrap()
-            .contains(filter)
+            .to_lowercase()
+            .contains(&filter.to_lowercase())
     }
 
     fn requests_details_overlay(&self) -> bool {
