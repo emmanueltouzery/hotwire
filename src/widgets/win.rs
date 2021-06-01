@@ -757,6 +757,7 @@ impl Widget for Win {
         state.is_empty()
             && e.get_keyval() != gdk::keys::constants::Return
             && e.get_keyval() != gdk::keys::constants::KP_Enter
+            && e.get_keyval() != gdk::keys::constants::Escape
     }
 
     fn refresh_remote_ip_stream(&mut self, paths: &mut [gtk::TreePath]) {
