@@ -3,6 +3,7 @@ use gtk::prelude::*;
 use relm::Widget;
 use relm_derive::{widget, Msg};
 use std::collections::BTreeSet;
+use std::net::IpAddr;
 
 #[derive(Msg)]
 pub enum Msg {}
@@ -13,7 +14,7 @@ pub struct SummaryDetails {
 }
 
 impl SummaryDetails {
-    pub fn new(details: &str, ip: &str, port: u32) -> Option<SummaryDetails> {
+    pub fn new(details: &str, ip: IpAddr, port: u32) -> Option<SummaryDetails> {
         // meant to avoid for http to have ip+port repeated for ip+port display,
         // and then again for the details, which is the hostname, in case the hostname
         // was just the IP
@@ -29,7 +30,7 @@ impl SummaryDetails {
 
 #[derive(Clone, Debug)]
 pub struct CommTargetCardData {
-    pub ip: String,
+    pub ip: IpAddr,
     pub port: u32,
     pub protocol_index: usize,
     pub remote_hosts: BTreeSet<String>,
@@ -51,10 +52,10 @@ impl Widget for CommTargetCard {
     fn update(&mut self, _event: Msg) {}
 
     fn server_ip_port_display(data: &CommTargetCardData) -> String {
-        Self::server_ip_port_display_format(&data.ip, data.port)
+        Self::server_ip_port_display_format(data.ip, data.port)
     }
 
-    fn server_ip_port_display_format(ip: &str, port: u32) -> String {
+    fn server_ip_port_display_format(ip: IpAddr, port: u32) -> String {
         format!("{}:{}", ip, port)
     }
 

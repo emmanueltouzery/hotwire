@@ -15,6 +15,7 @@ use itertools::Itertools; // collect_tuple
 use relm::ContainerWidget;
 use std::borrow::Cow;
 use std::io::prelude::*;
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::str;
 use std::sync::mpsc;
@@ -31,8 +32,8 @@ impl MessageParser for Http {
     }
 
     fn parse_stream(&self, stream: Vec<TSharkPacket>) -> StreamData {
-        let mut client_ip = stream.first().unwrap().basic_info.ip_src.clone();
-        let mut server_ip = stream.first().unwrap().basic_info.ip_dst.clone();
+        let mut client_ip = stream.first().unwrap().basic_info.ip_src;
+        let mut server_ip = stream.first().unwrap().basic_info.ip_dst;
         let mut server_port = stream.first().unwrap().basic_info.port_dst;
         let mut cur_request = None;
         let mut messages = vec![];
@@ -296,7 +297,7 @@ impl MessageParser for Http {
         let component = Box::leak(Box::new(parent.add_widget::<HttpCommEntry>((
             win_msg_sender,
             0,
-            "".to_string(),
+            "0.0.0.0".parse().unwrap(),
             HttpMessageData {
                 request: None,
                 response: None,
@@ -428,9 +429,9 @@ impl RequestOrResponseOrOther {
 
 struct ReqRespInfo {
     req_resp: RequestOrResponseOrOther,
-    ip_src: String,
+    ip_src: IpAddr,
     port_dst: u32,
-    ip_dst: String,
+    ip_dst: IpAddr,
     host: Option<String>,
 }
 

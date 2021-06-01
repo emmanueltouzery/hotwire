@@ -3,6 +3,7 @@ use crate::tshark_communication::TSharkPacket;
 use crate::widgets::comm_remote_server::MessageData;
 use crate::widgets::win;
 use crate::BgFunc;
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::mpsc;
 
@@ -11,9 +12,9 @@ pub struct StreamData {
     // that the first message that was capture is from the
     // client contacting the server, or the server responding
     // to the client
-    pub server_ip: String,
+    pub server_ip: IpAddr,
     pub server_port: u32,
-    pub client_ip: String,
+    pub client_ip: IpAddr,
     pub messages: Vec<MessageData>,
     pub summary_details: Option<String>,
 }
@@ -46,6 +47,6 @@ pub trait MessageParser {
 #[derive(Debug)]
 pub struct MessageInfo {
     pub stream_id: u32,
-    pub client_ip: String,
+    pub client_ip: IpAddr,
     pub message_data: MessageData,
 }

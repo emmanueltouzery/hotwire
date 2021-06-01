@@ -1,11 +1,11 @@
 use crate::http::tshark_http;
 use crate::http2::tshark_http2;
 use crate::pgsql::tshark_pgsql;
-use crate::widgets::win;
 use chrono::NaiveDateTime;
 use quick_xml::events::Event;
 use std::fmt::Debug;
 use std::io::BufRead;
+use std::net::IpAddr;
 use std::str;
 use std::str::FromStr;
 
@@ -46,8 +46,8 @@ macro_rules! xml_event_loop {
 #[derive(Debug)]
 pub struct TSharkPacketBasicInfo {
     pub frame_time: NaiveDateTime,
-    pub ip_src: String, // v4 or v6
-    pub ip_dst: String, // v4 or v6
+    pub ip_src: IpAddr,
+    pub ip_dst: IpAddr,
     pub tcp_seq_number: u32,
     pub tcp_stream_id: u32,
     pub port_src: u32,
@@ -138,8 +138,8 @@ pub fn parse_packet<B: BufRead>(
                 return Ok(TSharkPacket {
                     basic_info: TSharkPacketBasicInfo {
                         frame_time,
-                        ip_src: ip_src.unwrap_or_default(),
-                        ip_dst: ip_dst.unwrap_or_default(),
+                        ip_src: ip_src.unwrap(),
+                        ip_dst: ip_dst.unwrap(),
                         tcp_seq_number,
                         tcp_stream_id,
                         port_src,
@@ -184,7 +184,7 @@ fn parse_frame_info<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> NaiveD
     )
 }
 
-fn parse_ip_info<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> (String, String) {
+fn parse_ip_info<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> (IpAddr, IpAddr) {
     let mut ip_src = None;
     let mut ip_dst = None;
     let buf = &mut vec![];
@@ -197,10 +197,10 @@ fn parse_ip_info<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> (String, 
                     .map(|kv| kv.unwrap().value);
                 match name.as_deref() {
                     Some(b"ip.src") => {
-                        ip_src = element_attr_val_string(e, b"show");
+                        ip_src = element_attr_val_string(e, b"show").and_then(|s| s.parse().ok());
                     }
                     Some(b"ip.dst") => {
-                        ip_dst = element_attr_val_string(e, b"show");
+                        ip_dst = element_attr_val_string(e, b"show").and_then(|s| s.parse().ok());
                     }
                     _ => {}
                 }
@@ -208,7 +208,7 @@ fn parse_ip_info<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> (String, 
         }
         Ok(Event::End(ref e)) => {
             if e.name() == b"proto" {
-                return (ip_src.unwrap_or_default(), ip_dst.unwrap_or_default());
+                return (ip_src.unwrap(), ip_dst.unwrap());
             }
         }
     )

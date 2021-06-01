@@ -27,6 +27,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io::BufRead;
 use std::io::BufReader;
+use std::net::IpAddr;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
@@ -77,7 +78,7 @@ pub enum Msg {
     InfoBarShow(Option<String>, InfobarOptions),
     InfoBarEvent(gtk::ResponseType),
 
-    SelectCardFromRemoteIpsAndStreams(CommTargetCardData, Vec<String>, Vec<u32>),
+    SelectCardFromRemoteIpsAndStreams(CommTargetCardData, Vec<IpAddr>, Vec<u32>),
 
     DisplayDetails(u32, u32),
 
@@ -87,9 +88,9 @@ pub enum Msg {
 #[derive(Debug)]
 pub struct StreamInfo {
     stream_id: u32,
-    target_ip: String,
+    target_ip: IpAddr,
     target_port: u32,
-    source_ip: String,
+    source_ip: IpAddr,
 }
 
 // when we reload treeview, tons of selection change signals
@@ -655,7 +656,7 @@ impl Widget for Win {
                             self.model.current_file_path.as_ref().unwrap().clone(),
                             MessageInfo {
                                 stream_id: stream_info.stream_id,
-                                client_ip: stream_info.source_ip.clone(),
+                                client_ip: stream_info.source_ip,
                                 message_data: msg_data.clone(),
                             },
                         );
@@ -779,8 +780,11 @@ impl Widget for Win {
                 x if x.len() == 1 => {
                     // remote ip
                     if let Some(iter) = remote_ips_streams_tree_store.get_iter(&path) {
-                        let remote_ip = remote_ips_streams_tree_store.get_value(&iter, 0);
-                        allowed_ips.push(remote_ip.get().unwrap().unwrap());
+                        let remote_ip: Option<String> = remote_ips_streams_tree_store
+                            .get_value(&iter, 0)
+                            .get()
+                            .unwrap();
+                        allowed_ips.push(remote_ip.unwrap().parse::<IpAddr>().unwrap());
                     }
                 }
                 x if x.len() == 2 => {
@@ -932,7 +936,7 @@ impl Widget for Win {
         let comm_target_cards = parsed_streams
             .iter()
             .fold(
-                HashMap::<(String, u32), CommTargetCardData>::new(),
+                HashMap::<(IpAddr, u32), CommTargetCardData>::new(),
                 |mut sofar, (parser, _stream_id, srv_ip, client_ip, card_key, items)| {
                     if let Some(target_card) = sofar.get_mut(&card_key) {
                         target_card.remote_hosts.insert(client_ip.to_string());
@@ -941,7 +945,7 @@ impl Widget for Win {
                         {
                             target_card.summary_details = SummaryDetails::new(
                                 items.summary_details.as_deref().unwrap(),
-                                &target_card.ip,
+                                target_card.ip,
                                 target_card.port,
                             );
                         }
@@ -954,7 +958,7 @@ impl Widget for Win {
                             .position(|p| p.protocol_icon() == parser.protocol_icon())
                             .unwrap();
                         sofar.insert(
-                            card_key.clone(),
+                            *card_key,
                             CommTargetCardData {
                                 ip: card_key.0.clone(),
                                 protocol_index,
@@ -965,7 +969,7 @@ impl Widget for Win {
                                 summary_details: items
                                     .summary_details
                                     .as_ref()
-                                    .and_then(|d| SummaryDetails::new(d, &card_key.0, card_key.1)),
+                                    .and_then(|d| SummaryDetails::new(d, card_key.0, card_key.1)),
                             },
                         );
                     }
@@ -1017,7 +1021,7 @@ impl Widget for Win {
     fn refresh_remote_ips_streams_tree(
         &mut self,
         card: &CommTargetCardData,
-        remote_ips: &HashSet<String>,
+        remote_ips: &HashSet<IpAddr>,
     ) {
         let remote_ips_streams_tree_store = gtk::TreeStore::new(&[
             String::static_type(),
@@ -1044,7 +1048,7 @@ impl Widget for Win {
                 None,
                 &[0, 1],
                 &[
-                    &remote_ip.to_value(),
+                    &remote_ip.to_string().to_value(),
                     &pango::Weight::Normal.to_glib().to_value(),
                 ],
             );
@@ -1083,7 +1087,7 @@ impl Widget for Win {
     fn refresh_remote_servers(
         &mut self,
         refresh_remote_ips_and_streams: RefreshRemoteIpsAndStreams,
-        constrain_remote_ips: &[String],
+        constrain_remote_ips: &[IpAddr],
         constrain_stream_ids: &[u32],
     ) {
         self.setup_selection_signals(RefreshOngoing::Yes);
@@ -1141,10 +1145,7 @@ impl Widget for Win {
             }
             mp.end_populate_treeview(tv, &ls);
             if refresh_remote_ips_and_streams == RefreshRemoteIpsAndStreams::Yes {
-                let ip_hash = by_remote_ip
-                    .keys()
-                    .map(|c| c.to_string())
-                    .collect::<HashSet<_>>();
+                let ip_hash = by_remote_ip.keys().map(|k| *k).collect::<HashSet<_>>();
                 self.refresh_remote_ips_streams_tree(&card, &ip_hash);
             }
         }

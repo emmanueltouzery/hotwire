@@ -12,6 +12,7 @@ use gtk::prelude::*;
 use itertools::Itertools;
 use relm::Widget;
 use relm_derive::{widget, Msg};
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::mpsc;
 
@@ -25,7 +26,7 @@ pub struct Model {
     win_msg_sender: relm::StreamHandle<win::Msg>,
     bg_sender: mpsc::Sender<BgFunc>,
     stream_id: u32,
-    client_ip: String,
+    client_ip: IpAddr,
     data: HttpMessageData,
 
     format_request_response: bool,
@@ -38,7 +39,7 @@ impl Widget for HttpCommEntry {
         params: (
             relm::StreamHandle<win::Msg>,
             u32,
-            String,
+            IpAddr,
             HttpMessageData,
             gtk::Overlay,
             mpsc::Sender<BgFunc>,

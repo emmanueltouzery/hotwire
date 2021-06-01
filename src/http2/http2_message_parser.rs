@@ -79,11 +79,11 @@ impl MessageParser for Http2 {
                             }
                             let msg_server_ip = &cur_msg.ip_dst;
                             if *msg_server_ip != server_ip {
-                                server_ip = msg_server_ip.to_string();
+                                server_ip = *msg_server_ip;
                             }
                             let msg_client_ip = &cur_msg.ip_src;
                             if *msg_client_ip != client_ip {
-                                client_ip = msg_client_ip.to_string();
+                                client_ip = *msg_client_ip;
                             }
                             server_port = cur_msg.port_dst;
                             cur_request = Some(http_msg);
@@ -91,11 +91,11 @@ impl MessageParser for Http2 {
                         MsgType::Response => {
                             let msg_server_ip = &cur_msg.ip_src;
                             if *msg_server_ip != server_ip {
-                                server_ip = msg_server_ip.to_string();
+                                server_ip = *msg_server_ip;
                             }
                             let msg_client_ip = &cur_msg.ip_dst;
                             if *msg_client_ip != client_ip {
-                                client_ip = msg_client_ip.to_string();
+                                client_ip = *msg_client_ip;
                             }
                             server_port = cur_msg.port_src;
                             messages.push(MessageData::Http(HttpMessageData {

@@ -15,6 +15,7 @@ use std::borrow::Cow;
 use std::fs::File;
 use std::io::BufWriter;
 use std::io::Write;
+use std::net::IpAddr;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -23,7 +24,7 @@ pub struct Model {
     bg_sender: mpsc::Sender<BgFunc>,
     win_msg_sender: relm::StreamHandle<win::Msg>,
     stream_id: u32,
-    client_ip: String,
+    client_ip: IpAddr,
     data: PostgresMessageData,
     list_store: Option<gtk::ListStore>,
     syntax_highlight: Vec<(Regex, String)>,
@@ -46,7 +47,7 @@ impl Widget for PostgresCommEntry {
         _relm: &relm::Relm<Self>,
         params: (
             u32,
-            String,
+            IpAddr,
             PostgresMessageData,
             relm::StreamHandle<win::Msg>,
             mpsc::Sender<BgFunc>,
@@ -156,7 +157,7 @@ impl Widget for PostgresCommEntry {
                 self.model.data = msg;
                 self.streams
                     .comm_info_header
-                    .emit(comm_info_header::Msg::Update(client_ip.clone(), stream_id));
+                    .emit(comm_info_header::Msg::Update(client_ip, stream_id));
                 self.model.stream_id = stream_id;
                 self.model.client_ip = client_ip;
 
