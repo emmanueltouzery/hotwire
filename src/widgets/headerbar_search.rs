@@ -78,6 +78,7 @@ impl Widget for HeaderbarSearch {
     }
 
     view! {
+        #[style_class="linked"]
         gtk::Box {
             #[name="search_entry"]
             gtk::SearchEntry {
