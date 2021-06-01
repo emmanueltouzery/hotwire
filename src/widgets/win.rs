@@ -843,6 +843,9 @@ impl Widget for Win {
     }
 
     fn gui_load_file(&mut self, fname: PathBuf) {
+        self.components
+            .headerbar_search
+            .emit(HeaderbarSearchMsg::SearchActiveChanged(false));
         self.widgets.open_btn.set_active(false);
         let rm = gtk::RecentManager::get_default().unwrap();
         if let Some(fname_str) = fname.to_str() {

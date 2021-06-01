@@ -4,7 +4,6 @@ use relm_derive::{widget, Msg};
 
 #[derive(Msg)]
 pub enum Msg {
-    SearchEnable,
     SearchClicked,
     SearchActiveChanged(bool),
     SearchTextChanged(String),
@@ -41,10 +40,6 @@ impl Widget for HeaderbarSearch {
                     .relm
                     .stream()
                     .emit(Msg::SearchActiveChanged(new_visible));
-            }
-            Msg::SearchEnable => {
-                self.widgets.search_toggle.set_active(true);
-                self.model.relm.stream().emit(Msg::SearchClicked);
             }
             Msg::SearchActiveChanged(is_active) => {
                 self.widgets.search_toggle.set_active(is_active);
