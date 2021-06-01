@@ -305,16 +305,28 @@ impl Widget for Win {
             let tv = tv.clone();
             tv.get_selection().connect_changed(move |selection| {
                 if let Some((model, iter)) = selection.get_selected() {
-                    let modelsort = model.dynamic_cast::<gtk::TreeModelSort>().unwrap();
+                    let (modelsort, path) = if model.is::<gtk::TreeModelFilter>() {
+                        let modelfilter = model.dynamic_cast::<gtk::TreeModelFilter>().unwrap();
+                        let model = modelfilter.get_model().unwrap();
+                        (
+                            model.dynamic_cast::<gtk::TreeModelSort>().unwrap(),
+                            modelfilter
+                                .get_path(&iter)
+                                .and_then(|p| modelfilter.convert_path_to_child_path(&p)),
+                        )
+                    } else {
+                        let smodel = model.dynamic_cast::<gtk::TreeModelSort>().unwrap();
+                        let path = smodel.get_path(&iter);
+                        (smodel, path)
+                    };
                     let model = modelsort
                         .get_model()
                         .dynamic_cast::<gtk::ListStore>()
                         .unwrap();
-                    if let Some(path) = modelsort
-                        .get_path(&iter)
-                        .and_then(|p| modelsort.convert_path_to_child_path(&p))
+                    if let Some(childpath) =
+                        path.and_then(|p| modelsort.convert_path_to_child_path(&p))
                     {
-                        Self::row_selected(&model, &path, &rstream);
+                        Self::row_selected(&model, &childpath, &rstream);
                     }
                 }
             })
