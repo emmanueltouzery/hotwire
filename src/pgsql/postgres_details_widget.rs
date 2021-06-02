@@ -6,6 +6,7 @@ use crate::widgets::comm_info_header::CommInfoHeader;
 use crate::widgets::comm_remote_server::MessageData;
 use crate::widgets::win;
 use crate::BgFunc;
+use chrono::NaiveDateTime;
 use gtk::prelude::*;
 use itertools::Itertools;
 use regex::Regex;
@@ -274,6 +275,17 @@ impl Widget for PostgresCommEntry {
                         &str_val.as_deref().unwrap_or("null").to_value(),
                     );
                 },
+                |col_idx, datetime_val, _| {
+                    list_store.set_value(
+                        &iter,
+                        col_idx as u32,
+                        &datetime_val
+                            .map(|d| d.to_string())
+                            .as_deref()
+                            .unwrap_or("null")
+                            .to_value(),
+                    );
+                },
             );
         }
         self.widgets.resultset.set_model(Some(&list_store));
@@ -287,9 +299,11 @@ impl Widget for PostgresCommEntry {
         bool_value_cb: impl Fn(usize, Option<bool>, &mut D),
         int_value_cb: impl Fn(usize, Option<i64>, &mut D),
         string_value_cb: impl Fn(usize, Option<&str>, &mut D),
+        datetime_value_cb: impl Fn(usize, Option<NaiveDateTime>, &mut D),
     ) {
         let mut bool_idx = 0;
         let mut int_idx = 0;
+        let mut datetime_idx = 0;
         let mut bigint_idx = 0;
         let mut str_idx = 0;
         for (col_idx, col_type) in pg_message.resultset_col_types.iter().enumerate() {
@@ -310,7 +324,14 @@ impl Widget for PostgresCommEntry {
                     );
                     int_idx += 1;
                 }
-                // PostgresColType::Int8 | PostgresColType::Timestamp => {
+                PostgresColType::Timestamp => {
+                    datetime_value_cb(
+                        col_idx,
+                        pg_message.resultset_datetime_cols[datetime_idx][row_idx],
+                        data,
+                    );
+                    datetime_idx += 1;
+                }
                 PostgresColType::Int8 => {
                     int_value_cb(
                         col_idx,
@@ -369,6 +390,15 @@ impl Widget for PostgresCommEntry {
                 |col_idx, str_val, output| {
                     write_separator(output, col_idx);
                     output.push_str(str_val.unwrap_or("null"));
+                },
+                |col_idx, datetime_val, output| {
+                    write_separator(output, col_idx);
+                    output.push_str(
+                        datetime_val
+                            .map(|d| d.to_string())
+                            .as_deref()
+                            .unwrap_or("null"),
+                    );
                 },
             );
         }

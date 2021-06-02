@@ -45,6 +45,7 @@ impl MessageParser for Postgres {
         let mut cur_rs_bigint_cols: Vec<Vec<Option<i64>>> = vec![];
         let mut cur_rs_bool_cols: Vec<Vec<Option<bool>>> = vec![];
         let mut cur_rs_string_cols: Vec<Vec<Option<String>>> = vec![];
+        let mut cur_rs_datetime_cols: Vec<Vec<Option<NaiveDateTime>>> = vec![];
         let mut known_statements = HashMap::new();
         let mut cur_query_with_fallback = None;
         let mut was_bind = false;
@@ -83,6 +84,7 @@ impl MessageParser for Postgres {
                                 resultset_bigint_cols: vec![],
                                 resultset_bool_cols: vec![],
                                 resultset_string_cols: vec![],
+                                resultset_datetime_cols: vec![],
                                 resultset_col_types: vec![],
                             }));
                         }
@@ -153,6 +155,9 @@ impl MessageParser for Postgres {
                                     PostgresColType::Int2 | PostgresColType::Int4 => {
                                         cur_rs_int_cols.push(vec![]);
                                     }
+                                    PostgresColType::Timestamp => {
+                                        cur_rs_datetime_cols.push(vec![]);
+                                    }
                                     PostgresColType::Int8 => {
                                         cur_rs_bigint_cols.push(vec![]);
                                     }
@@ -171,6 +176,7 @@ impl MessageParser for Postgres {
                             }
                             cur_rs_row_count += 1;
                             let mut int_col_idx = 0;
+                            let mut datetime_col_idx = 0;
                             let mut bigint_col_idx = 0;
                             let mut bool_col_idx = 0;
                             let mut string_col_idx = 0;
@@ -209,9 +215,28 @@ impl MessageParser for Postgres {
                                         });
                                         int_col_idx += 1;
                                     }
-                                    // PostgresColType::Timestamp => {
-
-                                    // }
+                                    PostgresColType::Timestamp => {
+                                        cur_rs_datetime_cols[datetime_col_idx].push(
+                                            if val == "null" {
+                                                None
+                                            } else {
+                                                let parsed = NaiveDateTime::parse_from_str(
+                                                    &val,
+                                                    "%Y-%m-%d %H:%M:%S%.f",
+                                                )
+                                                .ok();
+                                                if parsed.is_some() {
+                                                    parsed
+                                                } else {
+                                                    return Err(format!(
+                                                        "expected datetime value: {}",
+                                                        val
+                                                    ));
+                                                }
+                                            },
+                                        );
+                                        datetime_col_idx += 1;
+                                    }
                                     PostgresColType::Int8 => {
                                         cur_rs_bigint_cols[bigint_col_idx].push(if val == "null" {
                                             None
@@ -255,6 +280,7 @@ impl MessageParser for Postgres {
                                     resultset_string_cols: cur_rs_string_cols,
                                     resultset_int_cols: cur_rs_int_cols,
                                     resultset_bigint_cols: cur_rs_bigint_cols,
+                                    resultset_datetime_cols: cur_rs_datetime_cols,
                                     resultset_col_types: cur_col_types,
                                 }));
                             }
@@ -268,6 +294,7 @@ impl MessageParser for Postgres {
                             cur_rs_string_cols = vec![];
                             cur_rs_int_cols = vec![];
                             cur_rs_bigint_cols = vec![];
+                            cur_rs_datetime_cols = vec![];
                             cur_col_types = vec![];
                             query_timestamp = None;
                         }
@@ -289,6 +316,7 @@ impl MessageParser for Postgres {
                                 resultset_bigint_cols: vec![],
                                 resultset_bool_cols: vec![],
                                 resultset_string_cols: vec![],
+                                resultset_datetime_cols: vec![],
                                 resultset_col_types: vec![],
                             }));
                         }
@@ -470,6 +498,7 @@ impl MessageParser for Postgres {
                 resultset_bigint_cols: vec![],
                 resultset_bool_cols: vec![],
                 resultset_string_cols: vec![],
+                resultset_datetime_cols: vec![],
                 resultset_col_types: vec![],
             },
             win_msg_sender,
@@ -543,6 +572,7 @@ pub struct PostgresMessageData {
     pub resultset_bool_cols: Vec<Vec<Option<bool>>>,
     pub resultset_int_cols: Vec<Vec<Option<i32>>>,
     pub resultset_bigint_cols: Vec<Vec<Option<i64>>>,
+    pub resultset_datetime_cols: Vec<Vec<Option<NaiveDateTime>>>,
 }
 
 #[test]
@@ -643,6 +673,7 @@ fn should_parse_prepared_statement() {
             resultset_bigint_cols: vec![],
             resultset_bool_cols: vec![],
             resultset_string_cols: vec![],
+            resultset_datetime_cols: vec![],
         }),
         MessageData::Postgres(PostgresMessageData {
             query_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
@@ -656,6 +687,7 @@ fn should_parse_prepared_statement() {
             resultset_bigint_cols: vec![],
             resultset_bool_cols: vec![],
             resultset_string_cols: vec![vec![Some("PostgreSQL".to_string())]],
+            resultset_datetime_cols: vec![],
         }),
     ];
     assert_eq!(expected, parsed);
@@ -720,6 +752,7 @@ fn should_parse_prepared_statement_with_parameters() {
             resultset_bigint_cols: vec![],
             resultset_bool_cols: vec![],
             resultset_string_cols: vec![],
+            resultset_datetime_cols: vec![],
         }),
         MessageData::Postgres(PostgresMessageData {
             query_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
@@ -737,6 +770,7 @@ fn should_parse_prepared_statement_with_parameters() {
             resultset_bigint_cols: vec![],
             resultset_bool_cols: vec![],
             resultset_string_cols: vec![vec![Some("PostgreSQL".to_string())]],
+            resultset_datetime_cols: vec![],
         }),
     ];
     assert_eq!(expected, parsed);
@@ -816,6 +850,7 @@ fn should_parse_query_with_multiple_columns_and_nulls() {
         resultset_bigint_cols: vec![],
         resultset_bool_cols: vec![],
         resultset_string_cols: vec![vec![Some("26".to_string())]],
+        resultset_datetime_cols: vec![],
     })];
     assert_eq!(expected, parsed);
 }
@@ -884,6 +919,7 @@ fn should_parse_query_with_no_parse_and_unknown_bind() {
             vec![Some("GENERAL".to_string())],
             vec![Some("APPLICATION_TIMEZONE".to_string())],
         ],
+        resultset_datetime_cols: vec![],
     })];
     assert_eq!(expected, parsed);
 }
