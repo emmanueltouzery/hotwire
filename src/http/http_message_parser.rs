@@ -31,7 +31,7 @@ impl MessageParser for Http {
         Icon::HTTP
     }
 
-    fn parse_stream(&self, stream: Vec<TSharkPacket>) -> StreamData {
+    fn parse_stream(&self, stream: Vec<TSharkPacket>) -> Result<StreamData, String> {
         let mut client_ip = stream.first().unwrap().basic_info.ip_src;
         let mut server_ip = stream.first().unwrap().basic_info.ip_dst;
         let mut server_port = stream.first().unwrap().basic_info.port_dst;
@@ -93,13 +93,13 @@ impl MessageParser for Http {
                 response: None,
             }));
         }
-        StreamData {
+        Ok(StreamData {
             client_ip,
             server_ip,
             server_port,
             messages,
             summary_details,
-        }
+        })
     }
 
     fn get_empty_liststore(&self) -> gtk::ListStore {

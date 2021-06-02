@@ -22,7 +22,7 @@ pub struct StreamData {
 pub trait MessageParser {
     fn is_my_message(&self, msg: &TSharkPacket) -> bool;
     fn protocol_icon(&self) -> Icon;
-    fn parse_stream(&self, stream: Vec<TSharkPacket>) -> StreamData;
+    fn parse_stream(&self, stream: Vec<TSharkPacket>) -> Result<StreamData, String>;
     fn prepare_treeview(&self, tv: &gtk::TreeView);
     fn get_empty_liststore(&self) -> gtk::ListStore;
     fn populate_treeview(

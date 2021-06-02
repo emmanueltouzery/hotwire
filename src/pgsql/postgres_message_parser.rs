@@ -32,7 +32,7 @@ impl MessageParser for Postgres {
         Icon::DATABASE
     }
 
-    fn parse_stream(&self, comms: Vec<TSharkPacket>) -> StreamData {
+    fn parse_stream(&self, comms: Vec<TSharkPacket>) -> Result<StreamData, String> {
         let mut client_ip = comms.first().as_ref().unwrap().basic_info.ip_src;
         let mut server_ip = comms.first().as_ref().unwrap().basic_info.ip_dst;
         let mut server_port = comms.first().as_ref().unwrap().basic_info.port_dst;
@@ -190,7 +190,9 @@ impl MessageParser for Postgres {
                                             "t" => Some(true),
                                             "null" => None,
                                             "f" => Some(false),
-                                            _ => panic!("unexpected bool value: {}", val),
+                                            _ => {
+                                                return Err(format!("expected bool value: {}", val))
+                                            }
                                         });
                                         bool_col_idx += 1;
                                     }
@@ -202,7 +204,7 @@ impl MessageParser for Postgres {
                                             if parsed.is_some() {
                                                 parsed
                                             } else {
-                                                panic!("unexpected int value: {}", val);
+                                                return Err(format!("expected int value: {}", val));
                                             }
                                         });
                                         int_col_idx += 1;
@@ -218,7 +220,10 @@ impl MessageParser for Postgres {
                                             if let Some(p) = parsed {
                                                 parsed
                                             } else {
-                                                panic!("unexpected int8 value: {}", val);
+                                                return Err(format!(
+                                                    "expected int8 value: {}",
+                                                    val
+                                                ));
                                             }
                                         });
                                         bigint_col_idx += 1;
@@ -291,13 +296,13 @@ impl MessageParser for Postgres {
                 }
             }
         }
-        StreamData {
+        Ok(StreamData {
             server_ip: server_ip,
             server_port,
             client_ip: client_ip,
             messages,
             summary_details: None,
-        }
+        })
     }
 
     fn prepare_treeview(&self, tv: &gtk::TreeView) {

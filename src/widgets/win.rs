@@ -45,11 +45,14 @@ pub fn get_message_parsers() -> Vec<Box<dyn MessageParser>> {
     vec![Box::new(Http), Box::new(Postgres), Box::new(Http2)]
 }
 
-pub type LoadedDataParams = (
-    PathBuf,
-    Vec<CommTargetCardData>,
-    Vec<(StreamInfo, Vec<MessageData>)>,
-);
+pub type LoadedDataParams = Result<
+    (
+        PathBuf,
+        Vec<CommTargetCardData>,
+        Vec<(StreamInfo, Vec<MessageData>)>,
+    ),
+    String,
+>;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum InfobarOptions {
@@ -584,7 +587,23 @@ impl Widget for Win {
                 self.widgets.infobar.set_visible(false);
             }
             Msg::InfoBarEvent(_) => {}
-            Msg::LoadedData((fname, comm_target_cards, streams)) => {
+            Msg::LoadedData(Err(msg)) => {
+                self.widgets.loading_spinner.stop();
+                self.widgets
+                    .root_stack
+                    .set_visible_child_name(WELCOME_STACK_NAME);
+                let dialog = gtk::MessageDialog::new(
+                    None::<&gtk::Window>,
+                    gtk::DialogFlags::all(),
+                    gtk::MessageType::Error,
+                    gtk::ButtonsType::Close,
+                    "Cannot load file",
+                );
+                dialog.set_property_secondary_text(Some(&msg));
+                let _r = dialog.run();
+                dialog.close();
+            }
+            Msg::LoadedData(Ok((fname, comm_target_cards, streams))) => {
                 self.widgets.loading_spinner.stop();
                 self.model.window_subtitle = Some(
                     fname
@@ -882,9 +901,17 @@ impl Widget for Win {
         sender: relm::Sender<LoadedDataParams>,
         finished_tshark: relm::Sender<()>,
     ) {
-        let packets = invoke_tshark(&fname, "http || pgsql || http2").expect("tshark error");
-        finished_tshark.send(()).unwrap();
-        Self::handle_packets(fname, packets, sender)
+        match invoke_tshark(&fname, "http || pgsql || http2") {
+            Ok(packets) => {
+                finished_tshark.send(()).unwrap();
+                Self::handle_packets(fname, packets, sender)
+            }
+            Err(e) => {
+                sender
+                    .send(Err(format!("error invoking tshark: {}", e)))
+                    .unwrap();
+            }
+        }
     }
 
     fn handle_packets(
@@ -916,25 +943,58 @@ impl Widget for Win {
                     parser
                         .map(|p| {
                             let stream_data = p.parse_stream(comms);
-                            let card_key = (stream_data.server_ip.clone(), stream_data.server_port);
-                            (
-                                p,
-                                id,
-                                stream_data.server_ip.clone(),
-                                stream_data.client_ip.clone(),
-                                card_key,
-                                stream_data,
-                            )
+                            (p, id, stream_data)
                         })
-                        .filter(|(_p, _id, _srv_ip, _client_ip, _card_key, stream_data)| {
-                            !stream_data.messages.is_empty()
+                        .filter(|(_p, _id, stream_data)| {
+                            stream_data.is_err()
+                                || !stream_data.as_ref().unwrap().messages.is_empty()
                         })
                 })
                 .collect();
-            parsed_streams
-                .sort_by_key(|(_parser, id, _srv_ip, _client_ip, _card_key, _pstream)| *id);
+            parsed_streams.sort_by_key(|(_parser, id, _pstream)| *id);
             parsed_streams
         };
+
+        if let Some((_parser, id, Err(error))) = parsed_streams
+            .iter()
+            .find(|(_parser, id, pstream)| pstream.is_err())
+        {
+            sender
+                .send(Err(format!(
+                    "Error parsing file, in stream {}: {}",
+                    id, error
+                )))
+                .unwrap();
+            return;
+        }
+        // now I know there are no errors
+        let parsed_streams: Vec<_> = parsed_streams
+            .into_iter()
+            .map(|(p, id, s)| {
+                let stream_data = s.unwrap();
+                let card_key = (stream_data.server_ip.clone(), stream_data.server_port);
+                (
+                    p,
+                    id,
+                    stream_data.server_ip.clone(),
+                    stream_data.client_ip.clone(),
+                    card_key,
+                    stream_data,
+                )
+            })
+            .collect();
+
+        if parsed_streams
+            .iter()
+            .all(|(_parser, _id, _sip, _cip, _ck, stream)| stream.messages.is_empty())
+        {
+            sender
+                .send(Err(
+                    "Hotwire doesn't know how to read any useful data from this file".to_string(),
+                ))
+                .unwrap();
+            return;
+        }
 
         let comm_target_cards = parsed_streams
             .iter()
@@ -998,7 +1058,9 @@ impl Widget for Win {
             })
             .collect();
 
-        sender.send((fname, comm_target_cards, streams)).unwrap();
+        sender
+            .send(Ok((fname, comm_target_cards, streams)))
+            .unwrap();
     }
 
     fn refresh_comm_targets(&mut self) {

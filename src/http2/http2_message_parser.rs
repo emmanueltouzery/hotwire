@@ -31,7 +31,7 @@ impl MessageParser for Http2 {
         icons::Icon::HTTP
     }
 
-    fn parse_stream(&self, stream: Vec<TSharkPacket>) -> StreamData {
+    fn parse_stream(&self, stream: Vec<TSharkPacket>) -> Result<StreamData, String> {
         dbg!(&stream);
         let mut server_ip = stream.first().unwrap().basic_info.ip_dst.clone();
         let mut client_ip = stream.first().unwrap().basic_info.ip_src.clone();
@@ -119,13 +119,13 @@ impl MessageParser for Http2 {
                 }));
             }
         }
-        StreamData {
+        Ok(StreamData {
             server_ip,
             server_port,
             client_ip,
             messages,
             summary_details,
-        }
+        })
     }
 
     fn populate_treeview(
