@@ -402,7 +402,7 @@ impl Widget for PostgresCommEntry {
                 },
             );
         }
-        file.write(output.as_bytes())?;
+        file.write_all(output.as_bytes())?;
         file.flush()?;
         Ok(())
     }

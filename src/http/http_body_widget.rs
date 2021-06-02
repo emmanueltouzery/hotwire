@@ -83,7 +83,7 @@ impl Widget for HttpBodyWidget {
                 // => need to reset the stack to display the "text"
                 // child after that, if needed.
                 self.model.data = http_data.clone();
-                self.model.file_path = Some(file_path.clone());
+                self.model.file_path = Some(file_path);
 
                 // need to try to decode as string.. the content-type may not be
                 // populated or be too exotic, and binary contents don't mean much

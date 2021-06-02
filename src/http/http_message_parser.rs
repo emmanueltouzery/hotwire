@@ -303,7 +303,7 @@ impl MessageParser for Http {
                 response: None,
             },
             overlay.unwrap().clone(),
-            bg_sender.clone(),
+            bg_sender,
         ))));
         Box::new(move |bg_sender, path, message_info| {
             component

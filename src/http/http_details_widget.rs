@@ -91,7 +91,7 @@ impl Widget for HttpCommEntry {
                 self.model.data = msg;
                 self.streams
                     .comm_info_header
-                    .emit(comm_info_header::Msg::Update(client_ip.clone(), stream_id));
+                    .emit(comm_info_header::Msg::Update(client_ip, stream_id));
                 self.model.stream_id = stream_id;
                 self.model.client_ip = client_ip;
                 self.streams

@@ -187,7 +187,7 @@ pub fn parse_pdml_stream<B: BufRead>(
         match xml_reader.read_event(&mut buf) {
             Ok(Event::Start(ref e)) => {
                 if e.name() == b"packet" {
-                    if let Some(packet) = tshark_communication::parse_packet(&mut xml_reader).ok() {
+                    if let Ok(packet) = tshark_communication::parse_packet(&mut xml_reader) {
                         r.push(packet);
                     }
                 }
@@ -261,9 +261,9 @@ impl Widget for Win {
 
         // self.refresh_comm_targets();
         // self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
-        let path = self.model.current_file_path.as_ref().map(|p| p.clone());
+        let path = self.model.current_file_path.as_ref().cloned();
         if let Some(p) = path {
-            self.gui_load_file(p.clone());
+            self.gui_load_file(p);
         }
     }
 
@@ -977,12 +977,12 @@ impl Widget for Win {
             .into_iter()
             .map(|(p, id, s)| {
                 let stream_data = s.unwrap();
-                let card_key = (stream_data.server_ip.clone(), stream_data.server_port);
+                let card_key = (stream_data.server_ip, stream_data.server_port);
                 (
                     p,
                     id,
-                    stream_data.server_ip.clone(),
-                    stream_data.client_ip.clone(),
+                    stream_data.server_ip,
+                    stream_data.client_ip,
                     card_key,
                     stream_data,
                 )
@@ -1028,7 +1028,7 @@ impl Widget for Win {
                         sofar.insert(
                             *card_key,
                             CommTargetCardData {
-                                ip: card_key.0.clone(),
+                                ip: card_key.0,
                                 protocol_index,
                                 protocol_icon: parser.protocol_icon(),
                                 port: card_key.1,
@@ -1109,7 +1109,7 @@ impl Widget for Win {
         //     None::<&gtk::TreeViewColumn>,
         //     false,
         // );
-        let target_ip = card.ip.clone();
+        let target_ip = card.ip;
         let target_port = card.port;
 
         for remote_ip in remote_ips {
@@ -1162,7 +1162,7 @@ impl Widget for Win {
     ) {
         self.setup_selection_signals(RefreshOngoing::Yes);
         if let Some(card) = self.model.selected_card.as_ref().cloned() {
-            let target_ip = card.ip.clone();
+            let target_ip = card.ip;
             let target_port = card.port;
             let mut by_remote_ip = HashMap::new();
             let parsers = get_message_parsers();
@@ -1181,7 +1181,7 @@ impl Widget for Win {
                     continue;
                 }
                 let remote_server_streams = by_remote_ip
-                    .entry(stream_info.source_ip.clone())
+                    .entry(stream_info.source_ip)
                     .or_insert_with(Vec::new);
                 remote_server_streams.push((stream_info.stream_id, messages));
             }
@@ -1215,7 +1215,7 @@ impl Widget for Win {
             }
             mp.end_populate_treeview(tv, &ls);
             if refresh_remote_ips_and_streams == RefreshRemoteIpsAndStreams::Yes {
-                let ip_hash = by_remote_ip.keys().map(|k| *k).collect::<HashSet<_>>();
+                let ip_hash = by_remote_ip.keys().copied().collect::<HashSet<_>>();
                 self.refresh_remote_ips_streams_tree(&card, &ip_hash);
             }
         }

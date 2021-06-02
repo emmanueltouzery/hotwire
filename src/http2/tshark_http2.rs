@@ -54,14 +54,11 @@ pub fn parse_http2_info<B: BufRead>(
                     .attributes()
                     .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                     .map(|kv| kv.unwrap().value);
-                match name.as_deref() {
-                    Some(b"http2.stream") => {
-                        let msg = parse_http2_stream(xml_reader);
-                        if !msg.headers.is_empty() || matches!(&msg.data, Some(v) if !v.is_empty()) {
-                            streams.push(msg);
-                        }
+                if name.as_deref() == Some(b"http2.stream")  {
+                    let msg = parse_http2_stream(xml_reader);
+                    if !msg.headers.is_empty() || matches!(&msg.data, Some(v) if !v.is_empty()) {
+                        streams.push(msg);
                     }
-                    _ => {}
                 }
             }
         }
@@ -119,12 +116,9 @@ fn parse_http2_stream<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> TSha
                     .attributes()
                     .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                     .map(|kv| kv.unwrap().value);
-                match name.as_deref() {
-                    Some(b"http2.header") => {
-                        headers.append(&mut parse_http2_headers(xml_reader));
-                        field_depth -= 1; // assume the function parsed the </field>
-                    }
-                    _ => {}
+                if name.as_deref() == Some(b"http2.header") {
+                    headers.append(&mut parse_http2_headers(xml_reader));
+                    field_depth -= 1; // assume the function parsed the </field>
                 }
             }
         }

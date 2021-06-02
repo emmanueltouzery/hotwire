@@ -1,4 +1,4 @@
-pub fn highlight_indent<'a>(do_format: bool, body: &str, content_type: Option<&str>) -> String {
+pub fn highlight_indent(do_format: bool, body: &str, content_type: Option<&str>) -> String {
     // support eg "application/xml;charset=UTF8"
     let content_type_first_part = content_type.map(|c| {
         if let Some(semicolon_index) = c.find(';') {
@@ -25,7 +25,7 @@ fn highlight_indent_xml(xml: &str) -> String {
         match token {
             Ok(xmlparser::Token::ElementStart { local, .. }) => {
                 if result.len() > 0 {
-                    result.push_str("\n");
+                    result.push('\n');
                     for _ in 0..indent {
                         result.push_str("  ");
                     }
@@ -42,13 +42,13 @@ fn highlight_indent_xml(xml: &str) -> String {
                 }
                 attrs_on_line += 1;
                 if attrs_on_line > 3 {
-                    result.push_str("\n");
+                    result.push('\n');
                     for _ in 0..(indent + 1) {
                         result.push_str("  ");
                     }
                     attrs_on_line = 0;
                 }
-                result.push_str(" ");
+                result.push(' ');
                 result.push_str(&span);
                 has_attributes = true;
             }
@@ -84,7 +84,7 @@ fn highlight_indent_xml(xml: &str) -> String {
                 // </name>
                 indent -= 1;
                 if !has_text {
-                    result.push_str("\n");
+                    result.push('\n');
                     for _ in 0..indent {
                         result.push_str("  ");
                     }

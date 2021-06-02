@@ -33,8 +33,8 @@ impl MessageParser for Http2 {
 
     fn parse_stream(&self, stream: Vec<TSharkPacket>) -> Result<StreamData, String> {
         dbg!(&stream);
-        let mut server_ip = stream.first().unwrap().basic_info.ip_dst.clone();
-        let mut client_ip = stream.first().unwrap().basic_info.ip_src.clone();
+        let mut server_ip = stream.first().unwrap().basic_info.ip_dst;
+        let mut client_ip = stream.first().unwrap().basic_info.ip_src;
         let mut server_port = stream.first().unwrap().basic_info.port_dst;
         let mut messages_per_stream = HashMap::new();
         let mut packet_infos = vec![];

@@ -59,31 +59,28 @@ pub fn parse_pgsql_info<B: BufRead>(
                     .attributes()
                     .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                     .map(|kv| kv.unwrap().value);
-                match name.as_deref() {
-                    Some(b"pgsql.type") => {
-                        match tshark_communication::element_attr_val_string(e, b"show")
-                            .unwrap()
-                            .as_str()
-                        {
-                            "Startup message" => {
-                                return Some(parse_startup_message(xml_reader));
-                            }
-                            "Copy data" => return Some(PostgresWireMessage::CopyData),
-                            "Parse" => {
-                                return Some(parse_parse_message(xml_reader));
-                            },
-                            "Bind" => return Some(parse_bind_message(xml_reader)),
-                            "Ready for query" => {
-                                return Some(PostgresWireMessage::ReadyForQuery);
-                            }
-                            "Row description" => {
-                                return Some(parse_row_description_message(xml_reader));
-                            }
-                            "Data row" => return Some(parse_data_row_message(xml_reader)),
-                            _ => {}
+                if name.as_deref() == Some(b"pgsql.type") {
+                    match tshark_communication::element_attr_val_string(e, b"show")
+                        .unwrap()
+                        .as_str()
+                    {
+                        "Startup message" => {
+                            return Some(parse_startup_message(xml_reader));
                         }
+                        "Copy data" => return Some(PostgresWireMessage::CopyData),
+                        "Parse" => {
+                            return Some(parse_parse_message(xml_reader));
+                        },
+                        "Bind" => return Some(parse_bind_message(xml_reader)),
+                        "Ready for query" => {
+                            return Some(PostgresWireMessage::ReadyForQuery);
+                        }
+                        "Row description" => {
+                            return Some(parse_row_description_message(xml_reader));
+                        }
+                        "Data row" => return Some(parse_data_row_message(xml_reader)),
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
         }
@@ -184,12 +181,9 @@ fn parse_bind_message<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> Post
                     .attributes()
                     .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                     .map(|kv| kv.unwrap().value);
-                match name.as_deref() {
-                    Some(b"pgsql.statement") => {
-                        statement = tshark_communication::element_attr_val_string(e, b"show")
-                            .filter(|s| !s.is_empty());
-                    }
-                    _ => {}
+                if name.as_deref() == Some(b"pgsql.statement") {
+                    statement = tshark_communication::element_attr_val_string(e, b"show")
+                        .filter(|s| !s.is_empty());
                 }
             }
         }
@@ -199,15 +193,12 @@ fn parse_bind_message<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> Post
                     .attributes()
                     .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                     .map(|kv| kv.unwrap().value);
-                match name.as_deref() {
-                    Some(b"") => {
-                        let show =
-                            tshark_communication::element_attr_val_string(e, b"show").unwrap();
-                        if show.starts_with("Parameter values") {
-                            parameter_values = parse_parameter_values(xml_reader);
-                        }
+                if name.as_deref() == Some(b"") {
+                    let show =
+                        tshark_communication::element_attr_val_string(e, b"show").unwrap();
+                    if show.starts_with("Parameter values") {
+                        parameter_values = parse_parameter_values(xml_reader);
                     }
-                    _ => {}
                 }
             }
         }
@@ -273,13 +264,10 @@ fn parse_row_description_message<B: BufRead>(
                     .attributes()
                     .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                     .map(|kv| kv.unwrap().value);
-                match name.as_deref() {
-                    Some(b"pgsql.oid.type") => {
-                        col_types.push(parse_pg_oid_type(
-                            &tshark_communication::element_attr_val_string(e, b"show").unwrap(),
-                        ));
-                    }
-                    _ => {}
+                if name.as_deref() == Some(b"pgsql.oid.type")  {
+                    col_types.push(parse_pg_oid_type(
+                        &tshark_communication::element_attr_val_string(e, b"show").unwrap(),
+                    ));
                 }
             }
         }
@@ -289,13 +277,10 @@ fn parse_row_description_message<B: BufRead>(
                     .attributes()
                     .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                     .map(|kv| kv.unwrap().value);
-                match name.as_deref() {
-                    Some(b"pgsql.col.name") => {
-                        col_names.push(
-                            tshark_communication::element_attr_val_string(e, b"show").unwrap(),
-                        );
-                    }
-                    _ => {}
+                if name.as_deref() == Some(b"pgsql.col.name") {
+                    col_names.push(
+                        tshark_communication::element_attr_val_string(e, b"show").unwrap(),
+                    );
                 }
             }
         }

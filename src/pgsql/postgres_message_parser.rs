@@ -325,9 +325,9 @@ impl MessageParser for Postgres {
             }
         }
         Ok(StreamData {
-            server_ip: server_ip,
+            server_ip,
             server_port,
-            client_ip: client_ip,
+            client_ip,
             messages,
             summary_details: None,
         })

@@ -1,5 +1,4 @@
 use flate2::read::GzDecoder;
-use includedir_codegen::Compression;
 use std::fs::*;
 use std::path::Path;
 use std::process::Command;
