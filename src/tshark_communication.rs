@@ -315,5 +315,5 @@ macro_rules! test_fmt_str {
 
 #[cfg(test)]
 pub fn parse_test_xml(xml: &str) -> Vec<TSharkPacket> {
-    win::parse_pdml_stream(format!(test_fmt_str!(), xml).as_bytes()).unwrap()
+    crate::widgets::win::parse_pdml_stream(format!(test_fmt_str!(), xml).as_bytes()).unwrap()
 }

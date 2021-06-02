@@ -606,7 +606,7 @@ fn should_parse_simple_query() {
   </proto>
         "#,
         ))
-        .messages;
+        .unwrap().messages;
     let expected: Vec<MessageData> = vec![MessageData::Postgres(PostgresMessageData {
         query_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
         result_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
@@ -617,6 +617,7 @@ fn should_parse_simple_query() {
         resultset_col_types: vec![PostgresColType::Text],
         resultset_int_cols: vec![],
         resultset_bigint_cols: vec![],
+        resultset_datetime_cols: vec![],
         resultset_bool_cols: vec![],
         resultset_string_cols: vec![vec![
             Some("PostgreSQL".to_string()),
@@ -659,7 +660,7 @@ fn should_parse_prepared_statement() {
   </proto>
         "#,
         ))
-        .messages;
+        .unwrap().messages;
     let expected: Vec<MessageData> = vec![
         MessageData::Postgres(PostgresMessageData {
             query_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
@@ -671,9 +672,9 @@ fn should_parse_prepared_statement() {
             resultset_col_types: vec![],
             resultset_int_cols: vec![],
             resultset_bigint_cols: vec![],
+            resultset_datetime_cols: vec![],
             resultset_bool_cols: vec![],
             resultset_string_cols: vec![],
-            resultset_datetime_cols: vec![],
         }),
         MessageData::Postgres(PostgresMessageData {
             query_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
@@ -685,9 +686,9 @@ fn should_parse_prepared_statement() {
             resultset_col_types: vec![PostgresColType::Text],
             resultset_int_cols: vec![],
             resultset_bigint_cols: vec![],
+            resultset_datetime_cols: vec![],
             resultset_bool_cols: vec![],
             resultset_string_cols: vec![vec![Some("PostgreSQL".to_string())]],
-            resultset_datetime_cols: vec![],
         }),
     ];
     assert_eq!(expected, parsed);
@@ -738,7 +739,7 @@ fn should_parse_prepared_statement_with_parameters() {
   </proto>
         "#,
         ))
-        .messages;
+        .unwrap().messages;
     let expected: Vec<MessageData> = vec![
         MessageData::Postgres(PostgresMessageData {
             query_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
@@ -750,9 +751,9 @@ fn should_parse_prepared_statement_with_parameters() {
             resultset_col_types: vec![],
             resultset_int_cols: vec![],
             resultset_bigint_cols: vec![],
+            resultset_datetime_cols: vec![],
             resultset_bool_cols: vec![],
             resultset_string_cols: vec![],
-            resultset_datetime_cols: vec![],
         }),
         MessageData::Postgres(PostgresMessageData {
             query_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
@@ -768,9 +769,9 @@ fn should_parse_prepared_statement_with_parameters() {
             resultset_col_types: vec![PostgresColType::Text],
             resultset_int_cols: vec![],
             resultset_bigint_cols: vec![],
+            resultset_datetime_cols: vec![],
             resultset_bool_cols: vec![],
             resultset_string_cols: vec![vec![Some("PostgreSQL".to_string())]],
-            resultset_datetime_cols: vec![],
         }),
     ];
     assert_eq!(expected, parsed);
@@ -786,7 +787,7 @@ fn should_not_generate_queries_for_just_a_ready_message() {
   </proto>
         "#,
         ))
-        .messages;
+        .unwrap().messages;
     let expected: Vec<MessageData> = vec![];
     assert_eq!(expected, parsed);
 }
@@ -837,7 +838,7 @@ fn should_parse_query_with_multiple_columns_and_nulls() {
   </proto>
         "#,
         ))
-        .messages;
+        .unwrap().messages;
     let expected: Vec<MessageData> = vec![MessageData::Postgres(PostgresMessageData {
         query_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
         result_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
@@ -848,9 +849,9 @@ fn should_parse_query_with_multiple_columns_and_nulls() {
         resultset_col_types: vec![PostgresColType::Text],
         resultset_int_cols: vec![],
         resultset_bigint_cols: vec![],
+        resultset_datetime_cols: vec![],
         resultset_bool_cols: vec![],
         resultset_string_cols: vec![vec![Some("26".to_string())]],
-        resultset_datetime_cols: vec![],
     })];
     assert_eq!(expected, parsed);
 }
@@ -891,7 +892,7 @@ fn should_parse_query_with_no_parse_and_unknown_bind() {
   </proto>
         "#,
         ))
-        .messages;
+        .unwrap().messages;
     let expected: Vec<MessageData> = vec![MessageData::Postgres(PostgresMessageData {
         query_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
         result_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
@@ -912,6 +913,7 @@ fn should_parse_query_with_no_parse_and_unknown_bind() {
         ],
         resultset_int_cols: vec![],
         resultset_bigint_cols: vec![],
+        resultset_datetime_cols: vec![],
         resultset_bool_cols: vec![],
         resultset_string_cols: vec![
             vec![Some("26".to_string())],
@@ -919,7 +921,6 @@ fn should_parse_query_with_no_parse_and_unknown_bind() {
             vec![Some("GENERAL".to_string())],
             vec![Some("APPLICATION_TIMEZONE".to_string())],
         ],
-        resultset_datetime_cols: vec![],
     })];
     assert_eq!(expected, parsed);
 }

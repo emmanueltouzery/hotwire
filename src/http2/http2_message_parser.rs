@@ -328,7 +328,7 @@ fn should_parse_simple_comm() {
   </proto>
     "#,
         ))
-        .messages;
+        .unwrap().messages;
     let expected = vec![MessageData::Http(HttpMessageData {
         request: Some(HttpRequestResponseData {
             tcp_stream_no: 4,
