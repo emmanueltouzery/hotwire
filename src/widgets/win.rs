@@ -592,6 +592,11 @@ impl Widget for Win {
                 self.widgets
                     .root_stack
                     .set_visible_child_name(WELCOME_STACK_NAME);
+                self.model.window_subtitle = None;
+                self.model.current_file_path = None;
+                self.model.streams = vec![];
+                self.refresh_comm_targets();
+                self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
                 let dialog = gtk::MessageDialog::new(
                     None::<&gtk::Window>,
                     gtk::DialogFlags::all(),
