@@ -3,6 +3,7 @@ use super::http_details_widget::HttpCommEntry;
 use crate::colors;
 use crate::http::tshark_http::HttpType;
 use crate::icons::Icon;
+use crate::message_parser::ClientServerInfo;
 use crate::message_parser::{MessageInfo, MessageParser, StreamData};
 use crate::tshark_communication::TSharkPacket;
 use crate::widgets::comm_remote_server::MessageData;
@@ -31,75 +32,78 @@ impl MessageParser for Http {
         Icon::HTTP
     }
 
-    fn parse_stream(&self, stream: Vec<TSharkPacket>) -> Result<StreamData, String> {
-        let mut client_ip = stream.first().unwrap().basic_info.ip_src;
-        let mut server_ip = stream.first().unwrap().basic_info.ip_dst;
-        let mut server_port = stream.first().unwrap().basic_info.port_dst;
-        let mut cur_request = None;
-        let mut messages = vec![];
-        let mut summary_details = None;
-        for msg in stream {
-            let rr = parse_request_response(msg);
-            if summary_details.is_none() {
-                match (
-                    rr.req_resp
-                        .data()
-                        .and_then(|d| get_http_header_value(&d.headers, "X-Forwarded-Server")),
-                    rr.host.as_ref(),
-                ) {
-                    (Some(fwd), _) => summary_details = Some(fwd.clone()),
-                    (_, Some(host)) => summary_details = Some(host.clone()),
-                    _ => {}
-                }
-            }
-            match rr {
-                ReqRespInfo {
-                    req_resp: RequestOrResponseOrOther::Request(r),
-                    port_dst: srv_port,
-                    ip_dst: srv_ip,
-                    ip_src: cl_ip,
-                    ..
-                } => {
-                    client_ip = cl_ip;
-                    server_ip = srv_ip;
-                    server_port = srv_port;
-                    cur_request = Some(r);
-                }
-                ReqRespInfo {
-                    req_resp: RequestOrResponseOrOther::Response(r),
-                    port_dst: srv_port,
-                    ip_dst: srv_ip,
-                    ip_src: cl_ip,
-                    ..
-                } => {
-                    client_ip = cl_ip;
-                    server_ip = srv_ip;
-                    server_port = srv_port;
-                    messages.push(MessageData::Http(HttpMessageData {
-                        request: cur_request,
-                        response: Some(r),
-                    }));
-                    cur_request = None;
-                }
-                ReqRespInfo {
-                    req_resp: RequestOrResponseOrOther::Other,
-                    ..
-                } => {}
+    fn add_to_stream(
+        &self,
+        stream: &mut StreamData,
+        new_packet: TSharkPacket,
+    ) -> Result<(), String> {
+        let rr = parse_request_response(new_packet);
+        if stream.summary_details.is_none() {
+            match (
+                rr.req_resp
+                    .data()
+                    .and_then(|d| get_http_header_value(&d.headers, "X-Forwarded-Server")),
+                rr.host.as_ref(),
+            ) {
+                (Some(fwd), _) => stream.summary_details = Some(fwd.clone()),
+                (_, Some(host)) => stream.summary_details = Some(host.clone()),
+                _ => {}
             }
         }
-        if let Some(r) = cur_request {
-            messages.push(MessageData::Http(HttpMessageData {
-                request: Some(r),
-                response: None,
-            }));
-        }
-        Ok(StreamData {
-            client_ip,
-            server_ip,
-            server_port,
-            messages,
-            summary_details,
-        })
+        match rr {
+            ReqRespInfo {
+                req_resp: RequestOrResponseOrOther::Request(r),
+                port_dst: srv_port,
+                ip_dst: srv_ip,
+                ip_src: cl_ip,
+                ..
+            } => {
+                if stream.client_server.is_none() {
+                    stream.client_server = Some(ClientServerInfo {
+                        client_ip: cl_ip,
+                        server_ip: srv_ip,
+                        server_port: srv_port,
+                    });
+                }
+                stream.messages.push(MessageData::Http(HttpMessageData {
+                    request: Some(r),
+                    response: None,
+                }));
+            }
+            ReqRespInfo {
+                req_resp: RequestOrResponseOrOther::Response(r),
+                port_dst: srv_port,
+                ip_dst: srv_ip,
+                ip_src: cl_ip,
+                ..
+            } => {
+                if stream.client_server.is_none() {
+                    stream.client_server = Some(ClientServerInfo {
+                        client_ip: cl_ip,
+                        server_ip: srv_ip,
+                        server_port: srv_port,
+                    });
+                }
+                match stream.messages.last() {
+                    Some(MessageData::Http(ref mut http))
+                        if http.request.is_some() && http.response.is_none() =>
+                    {
+                        http.response = Some(r);
+                    }
+                    _ => {
+                        stream.messages.push(MessageData::Http(HttpMessageData {
+                            request: None,
+                            response: Some(r),
+                        }));
+                    }
+                };
+            }
+            ReqRespInfo {
+                req_resp: RequestOrResponseOrOther::Other,
+                ..
+            } => {}
+        };
+        Ok(())
     }
 
     fn get_empty_liststore(&self) -> gtk::ListStore {

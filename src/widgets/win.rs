@@ -12,6 +12,7 @@ use crate::icons::Icon;
 use crate::message_parser::{MessageInfo, MessageParser};
 use crate::pgsql::postgres_message_parser::Postgres;
 use crate::tshark_communication;
+use crate::tshark_communication::TSharkPacket;
 use crate::widgets::comm_target_card::SummaryDetails;
 use crate::BgFunc;
 use gdk::prelude::*;
@@ -45,14 +46,13 @@ pub fn get_message_parsers() -> Vec<Box<dyn MessageParser>> {
     vec![Box::new(Http), Box::new(Postgres), Box::new(Http2)]
 }
 
-pub type LoadedDataParams = Result<
-    (
-        PathBuf,
-        Vec<CommTargetCardData>,
-        Vec<(StreamInfo, Vec<MessageData>)>,
-    ),
-    String,
->;
+#[derive(Debug)]
+pub enum InputStep {
+    Packet(TSharkPacket),
+    Eof,
+}
+
+pub type ParseInputStep = Result<InputStep, String>;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum InfobarOptions {
@@ -73,7 +73,7 @@ pub enum Msg {
     SearchTextChanged(String),
 
     FinishedTShark,
-    LoadedData(LoadedDataParams),
+    LoadedData(ParseInputStep),
 
     SelectCard(Option<usize>),
     SelectRemoteIpStream(gtk::TreeSelection),
@@ -132,8 +132,8 @@ pub struct Model {
     _finished_tshark_channel: relm::Channel<()>,
     finished_tshark_sender: relm::Sender<()>,
 
-    _loaded_data_channel: relm::Channel<LoadedDataParams>,
-    loaded_data_sender: relm::Sender<LoadedDataParams>,
+    _loaded_data_channel: relm::Channel<ParseInputStep>,
+    loaded_data_sender: relm::Sender<ParseInputStep>,
 
     _comm_targets_components: Vec<Component<CommTargetCard>>,
     _recent_file_item_components: Vec<Component<RecentFileItem>>,
@@ -148,6 +148,12 @@ enum RefreshRemoteIpsAndStreams {
     No,
 }
 
+#[derive(PartialEq, Eq)]
+pub enum TSharkInputType {
+    File,
+    Fifo,
+}
+
 // it would be possible to ask tshark to "mix in" a keylog file
 // when opening the pcap file
 // (obtain the keylog file through `SSLKEYLOGFILE=browser_keylog.txt google-chrome` or firefox,
@@ -156,14 +162,20 @@ enum RefreshRemoteIpsAndStreams {
 // due to the sandbox) => better to just mix in the secrets manually and open a single
 // file. this is done through => editcap --inject-secrets tls,/path/to/keylog.txt ~/testtls.pcap ~/outtls.pcapng
 pub fn invoke_tshark(
+    input_type: TSharkInputType,
     fname: &Path,
     filters: &str,
-) -> Result<Vec<tshark_communication::TSharkPacket>, Box<dyn std::error::Error>> {
+    sender: relm::Sender<ParseInputStep>,
+) {
     dbg!(&filters);
     // piping from tshark, not to load the entire JSON in ram...
     let tshark_child = Command::new("tshark")
         .args(&[
-            "-r",
+            if input_type == TSharkInputType::File {
+                "-r"
+            } else {
+                "-i"
+            },
             fname.to_str().expect("invalid filename"),
             "-Tpdml",
             // "-o",
@@ -174,31 +186,35 @@ pub fn invoke_tshark(
         .stdout(Stdio::piped())
         .spawn()?;
     let buf_reader = BufReader::new(tshark_child.stdout.unwrap());
-    parse_pdml_stream(buf_reader)
+    parse_pdml_stream(buf_reader, sender);
 }
 
-pub fn parse_pdml_stream<B: BufRead>(
-    buf_reader: B,
-) -> Result<Vec<tshark_communication::TSharkPacket>, Box<dyn std::error::Error>> {
+pub fn parse_pdml_stream<B: BufRead>(buf_reader: B, sender: relm::Sender<ParseInputStep>) {
     let mut xml_reader = quick_xml::Reader::from_reader(buf_reader);
     let mut buf = vec![];
-    let mut r = vec![];
     loop {
         match xml_reader.read_event(&mut buf) {
             Ok(Event::Start(ref e)) => {
                 if e.name() == b"packet" {
                     if let Ok(packet) = tshark_communication::parse_packet(&mut xml_reader) {
-                        r.push(packet);
+                        sender.send(Ok(InputStep::Packet(packet))).unwrap();
                     }
                 }
             }
-            Ok(Event::Eof) => break,
-            Err(e) => return Err(Box::new(e)),
+            Ok(Event::Eof) => {
+                sender.send(Ok(InputStep::Eof)).unwrap();
+                break;
+            }
+            Err(e) => {
+                sender
+                    .send(Err(format!("xml parsing error: {}", e)))
+                    .unwrap();
+                break;
+            }
             _ => {}
         };
         buf.clear();
     }
-    Ok(r)
 }
 
 #[derive(Debug)]
@@ -487,7 +503,7 @@ impl Widget for Win {
 
         let (_loaded_data_channel, loaded_data_sender) = {
             let stream = relm.stream().clone();
-            relm::Channel::new(move |ch_data: LoadedDataParams| {
+            relm::Channel::new(move |ch_data: ParseInputStep| {
                 stream.emit(Msg::LoadedData(ch_data));
             })
         };
@@ -608,7 +624,13 @@ impl Widget for Win {
                 let _r = dialog.run();
                 dialog.close();
             }
-            Msg::LoadedData(Ok((fname, comm_target_cards, streams))) => {
+            Msg::LoadedData(Ok(InputStep::Packet(p))) => {
+                self.model.comm_target_cards = comm_target_cards;
+                self.model.streams = streams;
+                self.refresh_comm_targets();
+                self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
+            }
+            Msg::LoadedData(Ok(InputStep::Eof)) => {
                 self.widgets.loading_spinner.stop();
                 self.model.window_subtitle = Some(
                     fname
@@ -617,10 +639,6 @@ impl Widget for Win {
                         .to_string(),
                 );
                 self.model.current_file_path = Some(fname);
-                self.model.comm_target_cards = comm_target_cards;
-                self.model.streams = streams;
-                self.refresh_comm_targets();
-                self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
                 self.widgets
                     .root_stack
                     .set_visible_child_name(NORMAL_STACK_NAME);
@@ -903,10 +921,10 @@ impl Widget for Win {
 
     fn load_file(
         fname: PathBuf,
-        sender: relm::Sender<LoadedDataParams>,
+        sender: relm::Sender<ParseInputStep>,
         finished_tshark: relm::Sender<()>,
     ) {
-        match invoke_tshark(&fname, "http || pgsql || http2") {
+        match invoke_tshark(&fname, "http || pgsql || http2", sender) {
             Ok(packets) => {
                 finished_tshark.send(()).unwrap();
                 Self::handle_packets(fname, packets, sender)
@@ -922,7 +940,7 @@ impl Widget for Win {
     fn handle_packets(
         fname: PathBuf,
         packets: Vec<tshark_communication::TSharkPacket>,
-        sender: relm::Sender<LoadedDataParams>,
+        sender: relm::Sender<ParseInputStep>,
     ) {
         let by_stream = {
             let mut by_stream: Vec<_> = packets

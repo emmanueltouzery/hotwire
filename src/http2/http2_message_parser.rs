@@ -31,11 +31,11 @@ impl MessageParser for Http2 {
         icons::Icon::HTTP
     }
 
-    fn parse_stream(&self, stream: Vec<TSharkPacket>) -> Result<StreamData, String> {
-        dbg!(&stream);
-        let mut server_ip = stream.first().unwrap().basic_info.ip_dst;
-        let mut client_ip = stream.first().unwrap().basic_info.ip_src;
-        let mut server_port = stream.first().unwrap().basic_info.port_dst;
+    fn add_to_stream(
+        &self,
+        stream: &mut StreamData,
+        new_packet: TSharkPacket,
+    ) -> Result<(), String> {
         let mut messages_per_stream = HashMap::new();
         let mut packet_infos = vec![];
         for msg in stream {
