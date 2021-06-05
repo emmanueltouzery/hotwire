@@ -307,6 +307,8 @@ impl MessageParser for Http {
             0,
             "0.0.0.0".parse().unwrap(),
             HttpMessageData {
+                http_stream_id: 0,
+                is_end_stream: true,
                 request: None,
                 response: None,
             },

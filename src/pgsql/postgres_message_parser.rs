@@ -2,6 +2,7 @@ use super::postgres_details_widget;
 use super::postgres_details_widget::PostgresCommEntry;
 use crate::colors;
 use crate::icons::Icon;
+use crate::message_parser::ClientServerInfo;
 use crate::message_parser::{MessageInfo, MessageParser, StreamData};
 use crate::pgsql::tshark_pgsql::{PostgresColType, PostgresWireMessage};
 use crate::tshark_communication::TSharkPacket;
@@ -32,11 +33,12 @@ impl MessageParser for Postgres {
         Icon::DATABASE
     }
 
-    fn parse_stream(&self, comms: Vec<TSharkPacket>) -> Result<StreamData, String> {
-        let mut client_ip = comms.first().as_ref().unwrap().basic_info.ip_src;
-        let mut server_ip = comms.first().as_ref().unwrap().basic_info.ip_dst;
-        let mut server_port = comms.first().as_ref().unwrap().basic_info.port_dst;
-        let mut messages = vec![];
+    fn add_to_stream(
+        &self,
+        stream: &mut StreamData,
+        new_packet: TSharkPacket,
+    ) -> Result<(), String> {
+        // TODO must recover known_statements from earlier in the stream, continue resultsets and stuff :/
         let mut cur_query = None;
         let mut cur_col_names = vec![];
         let mut cur_col_types = vec![];
@@ -51,24 +53,25 @@ impl MessageParser for Postgres {
         let mut was_bind = false;
         let mut cur_parameter_values = vec![];
         let mut query_timestamp = None;
-        let mut set_correct_server_info = false;
-        for comm in comms {
-            let timestamp = comm.basic_info.frame_time;
-            if let Some(mds) = comm.pgsql {
-                for md in mds {
-                    match md {
-                        PostgresWireMessage::Startup {
-                            username: Some(ref username),
-                            database: Some(ref database),
-                            application,
-                        } => {
-                            if !set_correct_server_info {
-                                server_ip = comm.basic_info.ip_dst;
-                                client_ip = comm.basic_info.ip_src;
-                                server_port = comm.basic_info.port_dst;
-                                set_correct_server_info = true;
-                            }
-                            messages.push(MessageData::Postgres(PostgresMessageData {
+        let timestamp = new_packet.basic_info.frame_time;
+        if let Some(mds) = new_packet.pgsql {
+            for md in mds {
+                match md {
+                    PostgresWireMessage::Startup {
+                        username: Some(ref username),
+                        database: Some(ref database),
+                        application,
+                    } => {
+                        if stream.client_server.is_none() {
+                            stream.client_server = Some(ClientServerInfo {
+                                server_ip: new_packet.basic_info.ip_dst,
+                                client_ip: new_packet.basic_info.ip_src,
+                                server_port: new_packet.basic_info.port_dst,
+                            });
+                        }
+                        stream
+                            .messages
+                            .push(MessageData::Postgres(PostgresMessageData {
                                 query: Some(Cow::Owned(format!(
                                     "LOGIN: user: {}, db: {}, app: {}",
                                     username,
@@ -87,189 +90,190 @@ impl MessageParser for Postgres {
                                 resultset_datetime_cols: vec![],
                                 resultset_col_types: vec![],
                             }));
+                    }
+                    PostgresWireMessage::Startup { .. } => {
+                        if stream.client_server.is_none() {
+                            stream.client_server = Some(ClientServerInfo {
+                                server_ip: new_packet.basic_info.ip_dst,
+                                client_ip: new_packet.basic_info.ip_src,
+                                server_port: new_packet.basic_info.port_dst,
+                            });
                         }
-                        PostgresWireMessage::Startup { .. } => {
-                            if !set_correct_server_info {
-                                server_ip = comm.basic_info.ip_dst;
-                                client_ip = comm.basic_info.ip_src;
-                                server_port = comm.basic_info.port_dst;
-                                set_correct_server_info = true;
-                            }
+                    }
+                    PostgresWireMessage::Parse {
+                        ref query,
+                        ref statement,
+                    } => {
+                        if stream.client_server.is_none() {
+                            stream.client_server = Some(ClientServerInfo {
+                                server_ip: new_packet.basic_info.ip_dst,
+                                client_ip: new_packet.basic_info.ip_src,
+                                server_port: new_packet.basic_info.port_dst,
+                            });
                         }
-                        PostgresWireMessage::Parse {
-                            ref query,
-                            ref statement,
-                        } => {
-                            if !set_correct_server_info {
-                                server_ip = comm.basic_info.ip_dst;
-                                client_ip = comm.basic_info.ip_src;
-                                server_port = comm.basic_info.port_dst;
-                                set_correct_server_info = true;
-                            }
-                            if let (Some(st), Some(q)) = (statement, query) {
-                                known_statements.insert((*st).clone(), (*q).clone());
-                            }
-                            cur_query = query.clone();
+                        if let (Some(st), Some(q)) = (statement, query) {
+                            known_statements.insert((*st).clone(), (*q).clone());
                         }
-                        PostgresWireMessage::Bind {
-                            statement,
-                            parameter_values,
-                        } => {
-                            if !set_correct_server_info {
-                                server_ip = comm.basic_info.ip_dst;
-                                client_ip = comm.basic_info.ip_src;
-                                server_port = comm.basic_info.port_dst;
-                                set_correct_server_info = true;
-                            }
-                            was_bind = true;
-                            query_timestamp = Some(timestamp);
-                            cur_query_with_fallback = match (&cur_query, &statement) {
-                                (Some(_), _) => cur_query.clone(),
-                                (None, Some(s)) => Some(
-                                    known_statements
-                                        .get(s)
-                                        .cloned()
-                                        .unwrap_or(format!("Unknown statement: {}", s)),
-                                ),
-                                _ => None,
-                            };
-                            cur_parameter_values = parameter_values.to_vec();
+                        cur_query = query.clone();
+                    }
+                    PostgresWireMessage::Bind {
+                        statement,
+                        parameter_values,
+                    } => {
+                        if stream.client_server.is_none() {
+                            stream.client_server = Some(ClientServerInfo {
+                                server_ip: new_packet.basic_info.ip_dst,
+                                client_ip: new_packet.basic_info.ip_src,
+                                server_port: new_packet.basic_info.port_dst,
+                            });
                         }
-                        PostgresWireMessage::RowDescription {
-                            col_names,
-                            col_types,
-                        } => {
-                            if !set_correct_server_info {
-                                server_ip = comm.basic_info.ip_src;
-                                client_ip = comm.basic_info.ip_dst;
-                                server_port = comm.basic_info.port_src;
-                                set_correct_server_info = true;
-                            }
-                            cur_col_names = col_names;
-                            cur_col_types = col_types;
-                            for col_type in &cur_col_types {
-                                match col_type {
-                                    PostgresColType::Bool => {
-                                        cur_rs_bool_cols.push(vec![]);
-                                    }
-                                    PostgresColType::Int2 | PostgresColType::Int4 => {
-                                        cur_rs_int_cols.push(vec![]);
-                                    }
-                                    PostgresColType::Timestamp => {
-                                        cur_rs_datetime_cols.push(vec![]);
-                                    }
-                                    PostgresColType::Int8 => {
-                                        cur_rs_bigint_cols.push(vec![]);
-                                    }
-                                    _ => {
-                                        cur_rs_string_cols.push(vec![]);
-                                    }
+                        was_bind = true;
+                        query_timestamp = Some(timestamp);
+                        cur_query_with_fallback = match (&cur_query, &statement) {
+                            (Some(_), _) => cur_query.clone(),
+                            (None, Some(s)) => Some(
+                                known_statements
+                                    .get(s)
+                                    .cloned()
+                                    .unwrap_or(format!("Unknown statement: {}", s)),
+                            ),
+                            _ => None,
+                        };
+                        cur_parameter_values = parameter_values.to_vec();
+                    }
+                    PostgresWireMessage::RowDescription {
+                        col_names,
+                        col_types,
+                    } => {
+                        if stream.client_server.is_none() {
+                            stream.client_server = Some(ClientServerInfo {
+                                server_ip: new_packet.basic_info.ip_src,
+                                client_ip: new_packet.basic_info.ip_dst,
+                                server_port: new_packet.basic_info.port_src,
+                            });
+                        }
+                        cur_col_names = col_names;
+                        cur_col_types = col_types;
+                        for col_type in &cur_col_types {
+                            match col_type {
+                                PostgresColType::Bool => {
+                                    cur_rs_bool_cols.push(vec![]);
                                 }
-                            }
-                        }
-                        PostgresWireMessage::ResultSetRow { cols } => {
-                            if !set_correct_server_info {
-                                server_ip = comm.basic_info.ip_src;
-                                client_ip = comm.basic_info.ip_dst;
-                                server_port = comm.basic_info.port_src;
-                                set_correct_server_info = true;
-                            }
-                            cur_rs_row_count += 1;
-                            let mut int_col_idx = 0;
-                            let mut datetime_col_idx = 0;
-                            let mut bigint_col_idx = 0;
-                            let mut bool_col_idx = 0;
-                            let mut string_col_idx = 0;
-                            if cur_col_types.is_empty() {
-                                // it's possible we don't have all the info about this query
-                                // default to String for all the columns instead of dropping the data.
-                                cur_col_types = vec![PostgresColType::Text; cols.len()];
-                                cur_col_names = vec!["Col".to_string(); cols.len()];
-                                for _ in &cur_col_types {
+                                PostgresColType::Int2 | PostgresColType::Int4 => {
+                                    cur_rs_int_cols.push(vec![]);
+                                }
+                                PostgresColType::Timestamp => {
+                                    cur_rs_datetime_cols.push(vec![]);
+                                }
+                                PostgresColType::Int8 => {
+                                    cur_rs_bigint_cols.push(vec![]);
+                                }
+                                _ => {
                                     cur_rs_string_cols.push(vec![]);
                                 }
-                            };
-                            for (col_type, val) in cur_col_types.iter().zip(cols) {
-                                match col_type {
-                                    PostgresColType::Bool => {
-                                        cur_rs_bool_cols[bool_col_idx].push(match &val[..] {
-                                            "t" => Some(true),
-                                            "null" => None,
-                                            "f" => Some(false),
-                                            _ => {
-                                                return Err(format!("expected bool value: {}", val))
-                                            }
-                                        });
-                                        bool_col_idx += 1;
-                                    }
-                                    PostgresColType::Int2 | PostgresColType::Int4 => {
-                                        cur_rs_int_cols[int_col_idx].push(if val == "null" {
-                                            None
+                            }
+                        }
+                    }
+                    PostgresWireMessage::ResultSetRow { cols } => {
+                        if stream.client_server.is_none() {
+                            stream.client_server = Some(ClientServerInfo {
+                                server_ip: new_packet.basic_info.ip_src,
+                                client_ip: new_packet.basic_info.ip_dst,
+                                server_port: new_packet.basic_info.port_src,
+                            });
+                        }
+                        cur_rs_row_count += 1;
+                        let mut int_col_idx = 0;
+                        let mut datetime_col_idx = 0;
+                        let mut bigint_col_idx = 0;
+                        let mut bool_col_idx = 0;
+                        let mut string_col_idx = 0;
+                        if cur_col_types.is_empty() {
+                            // it's possible we don't have all the info about this query
+                            // default to String for all the columns instead of dropping the data.
+                            cur_col_types = vec![PostgresColType::Text; cols.len()];
+                            cur_col_names = vec!["Col".to_string(); cols.len()];
+                            for _ in &cur_col_types {
+                                cur_rs_string_cols.push(vec![]);
+                            }
+                        };
+                        for (col_type, val) in cur_col_types.iter().zip(cols) {
+                            match col_type {
+                                PostgresColType::Bool => {
+                                    cur_rs_bool_cols[bool_col_idx].push(match &val[..] {
+                                        "t" => Some(true),
+                                        "null" => None,
+                                        "f" => Some(false),
+                                        _ => return Err(format!("expected bool value: {}", val)),
+                                    });
+                                    bool_col_idx += 1;
+                                }
+                                PostgresColType::Int2 | PostgresColType::Int4 => {
+                                    cur_rs_int_cols[int_col_idx].push(if val == "null" {
+                                        None
+                                    } else {
+                                        let parsed: Option<i32> = val.parse().ok();
+                                        if parsed.is_some() {
+                                            parsed
                                         } else {
-                                            let parsed: Option<i32> = val.parse().ok();
-                                            if parsed.is_some() {
-                                                parsed
-                                            } else {
-                                                return Err(format!("expected int value: {}", val));
-                                            }
-                                        });
-                                        int_col_idx += 1;
-                                    }
-                                    PostgresColType::Timestamp => {
-                                        cur_rs_datetime_cols[datetime_col_idx].push(
-                                            if val == "null" {
-                                                None
-                                            } else {
-                                                let parsed = NaiveDateTime::parse_from_str(
-                                                    &val,
-                                                    "%Y-%m-%d %H:%M:%S%.f",
-                                                )
-                                                .ok();
-                                                if parsed.is_some() {
-                                                    parsed
-                                                } else {
-                                                    return Err(format!(
-                                                        "expected datetime value: {}",
-                                                        val
-                                                    ));
-                                                }
-                                            },
-                                        );
-                                        datetime_col_idx += 1;
-                                    }
-                                    PostgresColType::Int8 => {
-                                        cur_rs_bigint_cols[bigint_col_idx].push(if val == "null" {
-                                            None
+                                            return Err(format!("expected int value: {}", val));
+                                        }
+                                    });
+                                    int_col_idx += 1;
+                                }
+                                PostgresColType::Timestamp => {
+                                    cur_rs_datetime_cols[datetime_col_idx].push(if val == "null" {
+                                        None
+                                    } else {
+                                        let parsed = NaiveDateTime::parse_from_str(
+                                            &val,
+                                            "%Y-%m-%d %H:%M:%S%.f",
+                                        )
+                                        .ok();
+                                        if parsed.is_some() {
+                                            parsed
                                         } else {
-                                            let parsed: Option<i64> = val.parse().ok();
-                                            if let Some(p) = parsed {
-                                                parsed
-                                            } else {
-                                                return Err(format!(
-                                                    "expected int8 value: {}",
-                                                    val
-                                                ));
-                                            }
-                                        });
-                                        bigint_col_idx += 1;
-                                    }
-                                    _ => {
-                                        cur_rs_string_cols[string_col_idx]
-                                            .push(Some(val).filter(|v| v != "null"));
-                                        string_col_idx += 1;
-                                    }
+                                            return Err(format!(
+                                                "expected datetime value: {}",
+                                                val
+                                            ));
+                                        }
+                                    });
+                                    datetime_col_idx += 1;
+                                }
+                                PostgresColType::Int8 => {
+                                    cur_rs_bigint_cols[bigint_col_idx].push(if val == "null" {
+                                        None
+                                    } else {
+                                        let parsed: Option<i64> = val.parse().ok();
+                                        if let Some(p) = parsed {
+                                            parsed
+                                        } else {
+                                            return Err(format!("expected int8 value: {}", val));
+                                        }
+                                    });
+                                    bigint_col_idx += 1;
+                                }
+                                _ => {
+                                    cur_rs_string_cols[string_col_idx]
+                                        .push(Some(val).filter(|v| v != "null"));
+                                    string_col_idx += 1;
                                 }
                             }
                         }
-                        PostgresWireMessage::ReadyForQuery => {
-                            if !set_correct_server_info {
-                                server_ip = comm.basic_info.ip_src;
-                                client_ip = comm.basic_info.ip_dst;
-                                server_port = comm.basic_info.port_src;
-                                set_correct_server_info = true;
-                            }
-                            if was_bind {
-                                messages.push(MessageData::Postgres(PostgresMessageData {
+                    }
+                    PostgresWireMessage::ReadyForQuery => {
+                        if stream.client_server.is_none() {
+                            stream.client_server = Some(ClientServerInfo {
+                                server_ip: new_packet.basic_info.ip_src,
+                                client_ip: new_packet.basic_info.ip_dst,
+                                server_port: new_packet.basic_info.port_src,
+                            });
+                        }
+                        if was_bind {
+                            stream
+                                .messages
+                                .push(MessageData::Postgres(PostgresMessageData {
                                     query: cur_query_with_fallback.map(Cow::Owned),
                                     query_timestamp: query_timestamp.unwrap(), // know it was populated since was_bind is true
                                     result_timestamp: timestamp,
@@ -283,29 +287,32 @@ impl MessageParser for Postgres {
                                     resultset_datetime_cols: cur_rs_datetime_cols,
                                     resultset_col_types: cur_col_types,
                                 }));
-                            }
-                            was_bind = false;
-                            cur_query_with_fallback = None;
-                            cur_query = None;
-                            cur_col_names = vec![];
-                            cur_parameter_values = vec![];
-                            cur_rs_row_count = 0;
-                            cur_rs_bool_cols = vec![];
-                            cur_rs_string_cols = vec![];
-                            cur_rs_int_cols = vec![];
-                            cur_rs_bigint_cols = vec![];
-                            cur_rs_datetime_cols = vec![];
-                            cur_col_types = vec![];
-                            query_timestamp = None;
                         }
-                        PostgresWireMessage::CopyData => {
-                            if !set_correct_server_info {
-                                server_ip = comm.basic_info.ip_src;
-                                client_ip = comm.basic_info.ip_dst;
-                                server_port = comm.basic_info.port_src;
-                                set_correct_server_info = true;
-                            }
-                            messages.push(MessageData::Postgres(PostgresMessageData {
+                        was_bind = false;
+                        cur_query_with_fallback = None;
+                        cur_query = None;
+                        cur_col_names = vec![];
+                        cur_parameter_values = vec![];
+                        cur_rs_row_count = 0;
+                        cur_rs_bool_cols = vec![];
+                        cur_rs_string_cols = vec![];
+                        cur_rs_int_cols = vec![];
+                        cur_rs_bigint_cols = vec![];
+                        cur_rs_datetime_cols = vec![];
+                        cur_col_types = vec![];
+                        query_timestamp = None;
+                    }
+                    PostgresWireMessage::CopyData => {
+                        if stream.client_server.is_none() {
+                            stream.client_server = Some(ClientServerInfo {
+                                server_ip: new_packet.basic_info.ip_src,
+                                client_ip: new_packet.basic_info.ip_dst,
+                                server_port: new_packet.basic_info.port_src,
+                            });
+                        }
+                        stream
+                            .messages
+                            .push(MessageData::Postgres(PostgresMessageData {
                                 query: Some(Cow::Borrowed("COPY DATA")),
                                 query_timestamp: timestamp,
                                 result_timestamp: timestamp,
@@ -319,18 +326,11 @@ impl MessageParser for Postgres {
                                 resultset_datetime_cols: vec![],
                                 resultset_col_types: vec![],
                             }));
-                        }
                     }
                 }
             }
         }
-        Ok(StreamData {
-            server_ip,
-            server_port,
-            client_ip,
-            messages,
-            summary_details: None,
-        })
+        Ok(())
     }
 
     fn prepare_treeview(&self, tv: &gtk::TreeView) {
