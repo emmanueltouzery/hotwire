@@ -4,6 +4,7 @@ use crate::http::http_message_parser::{
 };
 use crate::http2::tshark_http2::{Http2Data, TSharkHttp2Message};
 use crate::icons;
+use crate::message_parser::ClientServerInfo;
 use crate::message_parser::{MessageInfo, MessageParser, StreamData};
 use crate::tshark_communication::TSharkPacket;
 use crate::widgets::comm_remote_server::MessageData;
@@ -37,28 +38,35 @@ impl MessageParser for Http2 {
         new_packet: TSharkPacket,
     ) -> Result<(), String> {
         let mut messages_per_stream = HashMap::new();
-        let mut packet_infos = vec![];
-        for msg in stream {
-            if let Some(http2) = msg.http2 {
-                packet_infos.push(msg.basic_info);
-                for http2_msg in http2 {
-                    let stream_msgs_entry = messages_per_stream
-                        .entry(http2_msg.stream_id)
-                        .or_insert(vec![]);
-                    stream_msgs_entry.push((packet_infos.len() - 1, http2_msg));
-                }
-            }
+        let cur_msg = new_packet.basic_info;
+        let http2 = new_packet.http2.unwrap();
+        for http2_msg in http2 {
+            let stream_msgs_entry = messages_per_stream
+                .entry(http2_msg.stream_id)
+                .or_insert(vec![]);
+            stream_msgs_entry.push(http2_msg);
         }
         let mut summary_details = None;
-        let mut messages = vec![];
-        for (_http2_stream_id, stream_messages) in messages_per_stream {
+        for (http2_stream_id, stream_messages) in messages_per_stream {
+            let previous_pos_of_stream = stream
+                .messages
+                .iter()
+                .rposition(|p| {
+                    p.as_http()
+                        .filter(|h| h.http_stream_id == http2_stream_id)
+                        .is_some()
+                })
+                .filter(|idx| !stream.messages[*idx].as_http().unwrap().is_end_stream);
+            if previous_pos_of_stream.is_some() {
+                panic!("got the continuation of an unfinished http2 stream");
+            }
             let mut cur_request = None;
             let mut cur_stream_messages = vec![];
+            let mut is_end_stream;
             let stream_messages_len = stream_messages.len();
-            for (idx, (packet_info_idx, http2_msg)) in stream_messages.into_iter().enumerate() {
-                let cur_msg = &packet_infos[packet_info_idx];
+            for (idx, http2_msg) in stream_messages.into_iter().enumerate() {
                 // dbg!(&http2_msg);
-                let is_end_stream = http2_msg.is_end_stream;
+                is_end_stream = http2_msg.is_end_stream;
                 cur_stream_messages.push(http2_msg);
                 if is_end_stream || idx == stream_messages_len - 1 {
                     let (http_msg, msg_type) = prepare_http_message(
@@ -77,28 +85,26 @@ impl MessageParser for Http2 {
                                 )
                                 .map(|c| c.to_string());
                             }
-                            let msg_server_ip = &cur_msg.ip_dst;
-                            if *msg_server_ip != server_ip {
-                                server_ip = *msg_server_ip;
+                            if stream.client_server.is_none() {
+                                stream.client_server = Some(ClientServerInfo {
+                                    client_ip: cur_msg.ip_src,
+                                    server_ip: cur_msg.ip_dst,
+                                    server_port: cur_msg.port_dst,
+                                });
                             }
-                            let msg_client_ip = &cur_msg.ip_src;
-                            if *msg_client_ip != client_ip {
-                                client_ip = *msg_client_ip;
-                            }
-                            server_port = cur_msg.port_dst;
                             cur_request = Some(http_msg);
                         }
                         MsgType::Response => {
-                            let msg_server_ip = &cur_msg.ip_src;
-                            if *msg_server_ip != server_ip {
-                                server_ip = *msg_server_ip;
+                            if stream.client_server.is_none() {
+                                stream.client_server = Some(ClientServerInfo {
+                                    client_ip: cur_msg.ip_dst,
+                                    server_ip: cur_msg.ip_src,
+                                    server_port: cur_msg.port_src,
+                                });
                             }
-                            let msg_client_ip = &cur_msg.ip_dst;
-                            if *msg_client_ip != client_ip {
-                                client_ip = *msg_client_ip;
-                            }
-                            server_port = cur_msg.port_src;
-                            messages.push(MessageData::Http(HttpMessageData {
+                            stream.messages.push(MessageData::Http(HttpMessageData {
+                                is_end_stream,
+                                http_stream_id: http2_stream_id,
                                 request: cur_request,
                                 response: Some(http_msg),
                             }));
@@ -113,19 +119,15 @@ impl MessageParser for Http2 {
                         http_message_parser::get_http_header_value(&r.headers, ":authority")
                             .map(|c| c.to_string());
                 }
-                messages.push(MessageData::Http(HttpMessageData {
+                stream.messages.push(MessageData::Http(HttpMessageData {
+                    is_end_stream,
+                    http_stream_id: http2_stream_id,
                     request: Some(r),
                     response: None,
                 }));
             }
         }
-        Ok(StreamData {
-            server_ip,
-            server_port,
-            client_ip,
-            messages,
-            summary_details,
-        })
+        Ok(())
     }
 
     fn populate_treeview(

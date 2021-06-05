@@ -66,6 +66,8 @@ impl MessageParser for Http {
                     });
                 }
                 stream.messages.push(MessageData::Http(HttpMessageData {
+                    http_stream_id: 0,
+                    is_end_stream: true,
                     request: Some(r),
                     response: None,
                 }));
@@ -92,6 +94,8 @@ impl MessageParser for Http {
                     }
                     _ => {
                         stream.messages.push(MessageData::Http(HttpMessageData {
+                            http_stream_id: 0,
+                            is_end_stream: true,
                             request: None,
                             response: Some(r),
                         }));
@@ -411,6 +415,8 @@ pub enum ContentEncoding {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HttpMessageData {
+    pub http_stream_id: u32,
+    pub is_end_stream: bool,
     pub request: Option<HttpRequestResponseData>,
     pub response: Option<HttpRequestResponseData>,
 }
