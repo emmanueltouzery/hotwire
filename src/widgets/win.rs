@@ -1,4 +1,5 @@
 use super::comm_remote_server::MessageData;
+use super::comm_target_card;
 use super::comm_target_card::{CommTargetCard, CommTargetCardData};
 use super::headerbar_search::HeaderbarSearch;
 use super::headerbar_search::Msg as HeaderbarSearchMsg;
@@ -112,6 +113,13 @@ struct TreeViewSignals {
     // row_activation_signal_id: glib::SignalHandlerId,
 }
 
+#[derive(PartialEq, Eq, Hash)]
+pub struct CommTargetCardKey {
+    pub ip: IpAddr,
+    pub port: u32,
+    pub protocol_index: usize,
+}
+
 pub struct Model {
     relm: relm::Relm<Win>,
     bg_sender: mpsc::Sender<BgFunc>,
@@ -139,7 +147,7 @@ pub struct Model {
     _loaded_data_channel: relm::Channel<ParseInputStep>,
     loaded_data_sender: relm::Sender<ParseInputStep>,
 
-    _comm_targets_components: Vec<Component<CommTargetCard>>,
+    comm_targets_components: HashMap<CommTargetCardKey, Component<CommTargetCard>>,
     _recent_file_item_components: Vec<Component<RecentFileItem>>,
 
     details_component_emitters: Vec<Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, MessageInfo)>>,
@@ -528,7 +536,7 @@ impl Widget for Win {
                 .height_request(24)
                 .build(),
             infobar_label: gtk::LabelBuilder::new().build(),
-            _comm_targets_components: vec![],
+            comm_targets_components: HashMap::new(),
             _recent_file_item_components: vec![],
             recent_files: vec![],
             selected_card: None,
@@ -679,7 +687,7 @@ impl Widget for Win {
                             );
                         }
                     }
-                    self.refresh_comm_targets();
+                    // self.refresh_comm_targets();
                     self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
                 }
             }
@@ -776,6 +784,11 @@ impl Widget for Win {
         client_server_info: &ClientServerInfo,
         summary_details: Option<&str>,
     ) {
+        let card_key = CommTargetCardKey {
+            ip: client_server_info.server_ip,
+            port: client_server_info.server_port,
+            protocol_index,
+        };
         if let Some(card) = self.model.comm_target_cards.iter().find(|c| {
             c.protocol_index == protocol_index
                 && c.port == client_server_info.server_port
@@ -783,15 +796,21 @@ impl Widget for Win {
         }) {
             // update existing card
             card.incoming_session_count += 1;
-            card.remote_hosts.insert(client_server_info.client_ip);
+            card.remote_hosts
+                .insert(client_server_info.client_ip.to_string());
             if card.summary_details.is_none() && summary_details.is_some() {
                 card.summary_details = Some(SummaryDetails {
                     details: summary_details.unwrap().to_string(),
                 });
             }
+            self.model
+                .comm_targets_components
+                .get(&card_key)
+                .unwrap()
+                .emit(comm_target_card::Msg::Update(*card));
         } else {
             // add new card
-            self.model.comm_target_cards.push(CommTargetCardData {
+            let card = CommTargetCardData {
                 ip: client_server_info.server_ip,
                 port: client_server_info.server_port,
                 protocol_index,
@@ -805,7 +824,14 @@ impl Widget for Win {
                     details: d.to_string(),
                 }),
                 incoming_session_count: 1,
-            });
+            };
+            self.model.comm_target_cards.push(card.clone());
+            self.model.comm_targets_components.insert(
+                card_key,
+                self.widgets
+                    .comm_target_list
+                    .add_widget::<CommTargetCard>(card),
+            );
         }
     }
 

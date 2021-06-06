@@ -6,7 +6,9 @@ use std::collections::BTreeSet;
 use std::net::IpAddr;
 
 #[derive(Msg)]
-pub enum Msg {}
+pub enum Msg {
+    Update(CommTargetCardData),
+}
 
 #[derive(Clone, Debug)]
 pub struct SummaryDetails {
@@ -49,7 +51,15 @@ impl Widget for CommTargetCard {
         Model { data }
     }
 
-    fn update(&mut self, _event: Msg) {}
+    fn update(&mut self, event: Msg) {
+        match event {
+            Msg::Update(d) => {
+                self.model.data.remote_hosts = d.remote_hosts;
+                self.model.data.summary_details = d.summary_details;
+                self.model.data.incoming_session_count = d.incoming_session_count;
+            }
+        }
+    }
 
     fn server_ip_port_display(data: &CommTargetCardData) -> String {
         Self::server_ip_port_display_format(data.ip, data.port)
