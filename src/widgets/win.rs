@@ -661,7 +661,10 @@ impl Widget for Win {
                             summary_details: None,
                         };
                         if let Err(msg) = parser.add_to_stream(&mut stream_data, p) {
-                            self.model.relm.stream().emit(Msg::LoadedData(Err(msg)));
+                            self.model.relm.stream().emit(Msg::LoadedData(Err(format!(
+                                "Error parsing file, in stream {}: {}",
+                                packet_stream_id, msg
+                            ))));
                             return;
                         }
                         self.model.streams.insert(packet_stream_id, stream_data);
@@ -681,6 +684,13 @@ impl Widget for Win {
                 }
             }
             Msg::LoadedData(Ok(InputStep::Eof)) => {
+                if self.model.streams.is_empty() {
+                    self.model.relm.stream().emit(Msg::LoadedData(Err(
+                        "Hotwire doesn't know how to read any useful data from this file"
+                            .to_string(),
+                    )));
+                    return;
+                }
                 self.widgets.loading_spinner.stop();
                 self.model.window_subtitle = Some(
                     fname
@@ -1014,166 +1024,7 @@ impl Widget for Win {
         sender: relm::Sender<ParseInputStep>,
         finished_tshark: relm::Sender<()>,
     ) {
-        match invoke_tshark(&fname, "http || pgsql || http2", sender) {
-            Ok(packets) => {
-                finished_tshark.send(()).unwrap();
-                Self::handle_packets(fname, packets, sender)
-            }
-            Err(e) => {
-                sender
-                    .send(Err(format!("error invoking tshark: {}", e)))
-                    .unwrap();
-            }
-        }
-    }
-
-    fn handle_packets(
-        fname: PathBuf,
-        packets: Vec<tshark_communication::TSharkPacket>,
-        sender: relm::Sender<ParseInputStep>,
-    ) {
-        let by_stream = {
-            let mut by_stream: Vec<_> = packets
-                .into_iter()
-                .map(|p| (p.basic_info.tcp_stream_id, p))
-                .into_group_map()
-                .into_iter()
-                .collect();
-            by_stream.sort_by_key(|p| Reverse(p.1.len()));
-            by_stream
-        };
-
-        let message_parsers = get_message_parsers();
-
-        let parsed_streams = {
-            let mut parsed_streams: Vec<_> = by_stream
-                .into_iter()
-                .filter_map(|(id, comms)| {
-                    let parser = comms
-                        .iter()
-                        .find_map(|c| message_parsers.iter().find(|p| p.is_my_message(c)));
-
-                    parser
-                        .map(|p| {
-                            let stream_data = p.parse_stream(comms);
-                            (p, id, stream_data)
-                        })
-                        .filter(|(_p, _id, stream_data)| {
-                            stream_data.is_err()
-                                || !stream_data.as_ref().unwrap().messages.is_empty()
-                        })
-                })
-                .collect();
-            parsed_streams.sort_by_key(|(_parser, id, _pstream)| *id);
-            parsed_streams
-        };
-
-        if let Some((_parser, id, Err(error))) = parsed_streams
-            .iter()
-            .find(|(_parser, id, pstream)| pstream.is_err())
-        {
-            sender
-                .send(Err(format!(
-                    "Error parsing file, in stream {}: {}",
-                    id, error
-                )))
-                .unwrap();
-            return;
-        }
-        // now I know there are no errors
-        let parsed_streams: Vec<_> = parsed_streams
-            .into_iter()
-            .map(|(p, id, s)| {
-                let stream_data = s.unwrap();
-                let card_key = (stream_data.server_ip, stream_data.server_port);
-                (
-                    p,
-                    id,
-                    stream_data.server_ip,
-                    stream_data.client_ip,
-                    card_key,
-                    stream_data,
-                )
-            })
-            .collect();
-
-        if parsed_streams
-            .iter()
-            .all(|(_parser, _id, _sip, _cip, _ck, stream)| stream.messages.is_empty())
-        {
-            sender
-                .send(Err(
-                    "Hotwire doesn't know how to read any useful data from this file".to_string(),
-                ))
-                .unwrap();
-            return;
-        }
-
-        let comm_target_cards = parsed_streams
-            .iter()
-            .fold(
-                HashMap::<(IpAddr, u32), CommTargetCardData>::new(),
-                |mut sofar, (parser, _stream_id, srv_ip, client_ip, card_key, items)| {
-                    if let Some(target_card) = sofar.get_mut(&card_key) {
-                        target_card.remote_hosts.insert(client_ip.to_string());
-                        target_card.incoming_session_count += 1;
-                        if target_card.summary_details.is_none() && items.summary_details.is_some()
-                        {
-                            target_card.summary_details = SummaryDetails::new(
-                                items.summary_details.as_deref().unwrap(),
-                                target_card.ip,
-                                target_card.port,
-                            );
-                        }
-                    } else {
-                        let mut remote_hosts = BTreeSet::new();
-                        remote_hosts.insert(client_ip.to_string());
-                        let protocol_index = message_parsers
-                            .iter()
-                            // comparing by the protocol icon is.. quite horrible..
-                            .position(|p| p.protocol_icon() == parser.protocol_icon())
-                            .unwrap();
-                        sofar.insert(
-                            *card_key,
-                            CommTargetCardData {
-                                ip: card_key.0,
-                                protocol_index,
-                                protocol_icon: parser.protocol_icon(),
-                                port: card_key.1,
-                                remote_hosts,
-                                incoming_session_count: 1,
-                                summary_details: items
-                                    .summary_details
-                                    .as_ref()
-                                    .and_then(|d| SummaryDetails::new(d, card_key.0, card_key.1)),
-                            },
-                        );
-                    }
-                    sofar
-                },
-            )
-            .into_iter()
-            .map(|(k, v)| v)
-            .collect();
-
-        let streams = parsed_streams
-            .into_iter()
-            .map(|(_parser, id, srv_ip, client_ip, card_key, pstream)| {
-                (
-                    StreamInfo {
-                        stream_id: id,
-                        target_ip: card_key.0,
-                        target_port: card_key.1,
-                        source_ip: client_ip,
-                    },
-                    pstream.messages,
-                )
-            })
-            .collect();
-
-        sender
-            .send(Ok((fname, comm_target_cards, streams)))
-            .unwrap();
+        invoke_tshark(&fname, "http || pgsql || http2", sender);
     }
 
     fn refresh_comm_targets(&mut self) {
