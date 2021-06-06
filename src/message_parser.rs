@@ -1,6 +1,7 @@
 use crate::icons::Icon;
 use crate::tshark_communication::TSharkPacket;
 use crate::widgets::comm_remote_server::MessageData;
+use crate::widgets::comm_remote_server::StreamGlobals;
 use crate::widgets::win;
 use crate::BgFunc;
 use std::net::IpAddr;
@@ -18,6 +19,7 @@ pub struct ClientServerInfo {
 }
 
 pub struct StreamData {
+    pub stream_globals: StreamGlobals,
     pub client_server: Option<ClientServerInfo>,
     pub messages: Vec<MessageData>,
     pub summary_details: Option<String>,

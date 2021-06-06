@@ -38,21 +38,7 @@ impl MessageParser for Postgres {
         stream: &mut StreamData,
         new_packet: TSharkPacket,
     ) -> Result<(), String> {
-        // TODO must recover known_statements from earlier in the stream, continue resultsets and stuff :/
-        let mut cur_query = None;
-        let mut cur_col_names = vec![];
-        let mut cur_col_types = vec![];
-        let mut cur_rs_row_count = 0;
-        let mut cur_rs_int_cols: Vec<Vec<Option<i32>>> = vec![];
-        let mut cur_rs_bigint_cols: Vec<Vec<Option<i64>>> = vec![];
-        let mut cur_rs_bool_cols: Vec<Vec<Option<bool>>> = vec![];
-        let mut cur_rs_string_cols: Vec<Vec<Option<String>>> = vec![];
-        let mut cur_rs_datetime_cols: Vec<Vec<Option<NaiveDateTime>>> = vec![];
-        let mut known_statements = HashMap::new();
-        let mut cur_query_with_fallback = None;
-        let mut was_bind = false;
-        let mut cur_parameter_values = vec![];
-        let mut query_timestamp = None;
+        let mut globals = stream.stream_globals.as_postgres().unwrap();
         let timestamp = new_packet.basic_info.frame_time;
         if let Some(mds) = new_packet.pgsql {
             for md in mds {
@@ -112,9 +98,9 @@ impl MessageParser for Postgres {
                             });
                         }
                         if let (Some(st), Some(q)) = (statement, query) {
-                            known_statements.insert((*st).clone(), (*q).clone());
+                            globals.known_statements.insert((*st).clone(), (*q).clone());
                         }
-                        cur_query = query.clone();
+                        globals.cur_query = query.clone();
                     }
                     PostgresWireMessage::Bind {
                         statement,
@@ -127,19 +113,20 @@ impl MessageParser for Postgres {
                                 server_port: new_packet.basic_info.port_dst,
                             });
                         }
-                        was_bind = true;
-                        query_timestamp = Some(timestamp);
-                        cur_query_with_fallback = match (&cur_query, &statement) {
-                            (Some(_), _) => cur_query.clone(),
+                        globals.was_bind = true;
+                        globals.query_timestamp = Some(timestamp);
+                        globals.cur_query_with_fallback = match (&globals.cur_query, &statement) {
+                            (Some(_), _) => globals.cur_query.clone(),
                             (None, Some(s)) => Some(
-                                known_statements
+                                globals
+                                    .known_statements
                                     .get(s)
                                     .cloned()
                                     .unwrap_or(format!("Unknown statement: {}", s)),
                             ),
                             _ => None,
                         };
-                        cur_parameter_values = parameter_values.to_vec();
+                        globals.cur_parameter_values = parameter_values.to_vec();
                     }
                     PostgresWireMessage::RowDescription {
                         col_names,
@@ -152,24 +139,24 @@ impl MessageParser for Postgres {
                                 server_port: new_packet.basic_info.port_src,
                             });
                         }
-                        cur_col_names = col_names;
-                        cur_col_types = col_types;
-                        for col_type in &cur_col_types {
+                        globals.cur_col_names = col_names;
+                        globals.cur_col_types = col_types;
+                        for col_type in &globals.cur_col_types {
                             match col_type {
                                 PostgresColType::Bool => {
-                                    cur_rs_bool_cols.push(vec![]);
+                                    globals.cur_rs_bool_cols.push(vec![]);
                                 }
                                 PostgresColType::Int2 | PostgresColType::Int4 => {
-                                    cur_rs_int_cols.push(vec![]);
+                                    globals.cur_rs_int_cols.push(vec![]);
                                 }
                                 PostgresColType::Timestamp => {
-                                    cur_rs_datetime_cols.push(vec![]);
+                                    globals.cur_rs_datetime_cols.push(vec![]);
                                 }
                                 PostgresColType::Int8 => {
-                                    cur_rs_bigint_cols.push(vec![]);
+                                    globals.cur_rs_bigint_cols.push(vec![]);
                                 }
                                 _ => {
-                                    cur_rs_string_cols.push(vec![]);
+                                    globals.cur_rs_string_cols.push(vec![]);
                                 }
                             }
                         }
@@ -182,25 +169,25 @@ impl MessageParser for Postgres {
                                 server_port: new_packet.basic_info.port_src,
                             });
                         }
-                        cur_rs_row_count += 1;
+                        globals.cur_rs_row_count += 1;
                         let mut int_col_idx = 0;
                         let mut datetime_col_idx = 0;
                         let mut bigint_col_idx = 0;
                         let mut bool_col_idx = 0;
                         let mut string_col_idx = 0;
-                        if cur_col_types.is_empty() {
+                        if globals.cur_col_types.is_empty() {
                             // it's possible we don't have all the info about this query
                             // default to String for all the columns instead of dropping the data.
-                            cur_col_types = vec![PostgresColType::Text; cols.len()];
-                            cur_col_names = vec!["Col".to_string(); cols.len()];
-                            for _ in &cur_col_types {
-                                cur_rs_string_cols.push(vec![]);
+                            globals.cur_col_types = vec![PostgresColType::Text; cols.len()];
+                            globals.cur_col_names = vec!["Col".to_string(); cols.len()];
+                            for _ in &globals.cur_col_types {
+                                globals.cur_rs_string_cols.push(vec![]);
                             }
                         };
-                        for (col_type, val) in cur_col_types.iter().zip(cols) {
+                        for (col_type, val) in globals.cur_col_types.iter().zip(cols) {
                             match col_type {
                                 PostgresColType::Bool => {
-                                    cur_rs_bool_cols[bool_col_idx].push(match &val[..] {
+                                    globals.cur_rs_bool_cols[bool_col_idx].push(match &val[..] {
                                         "t" => Some(true),
                                         "null" => None,
                                         "f" => Some(false),
@@ -209,7 +196,7 @@ impl MessageParser for Postgres {
                                     bool_col_idx += 1;
                                 }
                                 PostgresColType::Int2 | PostgresColType::Int4 => {
-                                    cur_rs_int_cols[int_col_idx].push(if val == "null" {
+                                    globals.cur_rs_int_cols[int_col_idx].push(if val == "null" {
                                         None
                                     } else {
                                         let parsed: Option<i32> = val.parse().ok();
@@ -222,40 +209,47 @@ impl MessageParser for Postgres {
                                     int_col_idx += 1;
                                 }
                                 PostgresColType::Timestamp => {
-                                    cur_rs_datetime_cols[datetime_col_idx].push(if val == "null" {
-                                        None
-                                    } else {
-                                        let parsed = NaiveDateTime::parse_from_str(
-                                            &val,
-                                            "%Y-%m-%d %H:%M:%S%.f",
-                                        )
-                                        .ok();
-                                        if parsed.is_some() {
-                                            parsed
+                                    globals.cur_rs_datetime_cols[datetime_col_idx].push(
+                                        if val == "null" {
+                                            None
                                         } else {
-                                            return Err(format!(
-                                                "expected datetime value: {}",
-                                                val
-                                            ));
-                                        }
-                                    });
+                                            let parsed = NaiveDateTime::parse_from_str(
+                                                &val,
+                                                "%Y-%m-%d %H:%M:%S%.f",
+                                            )
+                                            .ok();
+                                            if parsed.is_some() {
+                                                parsed
+                                            } else {
+                                                return Err(format!(
+                                                    "expected datetime value: {}",
+                                                    val
+                                                ));
+                                            }
+                                        },
+                                    );
                                     datetime_col_idx += 1;
                                 }
                                 PostgresColType::Int8 => {
-                                    cur_rs_bigint_cols[bigint_col_idx].push(if val == "null" {
-                                        None
-                                    } else {
-                                        let parsed: Option<i64> = val.parse().ok();
-                                        if let Some(p) = parsed {
-                                            parsed
+                                    globals.cur_rs_bigint_cols[bigint_col_idx].push(
+                                        if val == "null" {
+                                            None
                                         } else {
-                                            return Err(format!("expected int8 value: {}", val));
-                                        }
-                                    });
+                                            let parsed: Option<i64> = val.parse().ok();
+                                            if let Some(p) = parsed {
+                                                parsed
+                                            } else {
+                                                return Err(format!(
+                                                    "expected int8 value: {}",
+                                                    val
+                                                ));
+                                            }
+                                        },
+                                    );
                                     bigint_col_idx += 1;
                                 }
                                 _ => {
-                                    cur_rs_string_cols[string_col_idx]
+                                    globals.cur_rs_string_cols[string_col_idx]
                                         .push(Some(val).filter(|v| v != "null"));
                                     string_col_idx += 1;
                                 }
@@ -270,37 +264,37 @@ impl MessageParser for Postgres {
                                 server_port: new_packet.basic_info.port_src,
                             });
                         }
-                        if was_bind {
+                        if globals.was_bind {
                             stream
                                 .messages
                                 .push(MessageData::Postgres(PostgresMessageData {
-                                    query: cur_query_with_fallback.map(Cow::Owned),
-                                    query_timestamp: query_timestamp.unwrap(), // know it was populated since was_bind is true
+                                    query: globals.cur_query_with_fallback.map(Cow::Owned),
+                                    query_timestamp: globals.query_timestamp.unwrap(), // know it was populated since was_bind is true
                                     result_timestamp: timestamp,
-                                    parameter_values: cur_parameter_values,
-                                    resultset_col_names: cur_col_names,
-                                    resultset_row_count: cur_rs_row_count,
-                                    resultset_bool_cols: cur_rs_bool_cols,
-                                    resultset_string_cols: cur_rs_string_cols,
-                                    resultset_int_cols: cur_rs_int_cols,
-                                    resultset_bigint_cols: cur_rs_bigint_cols,
-                                    resultset_datetime_cols: cur_rs_datetime_cols,
-                                    resultset_col_types: cur_col_types,
+                                    parameter_values: globals.cur_parameter_values,
+                                    resultset_col_names: globals.cur_col_names,
+                                    resultset_row_count: globals.cur_rs_row_count,
+                                    resultset_bool_cols: globals.cur_rs_bool_cols,
+                                    resultset_string_cols: globals.cur_rs_string_cols,
+                                    resultset_int_cols: globals.cur_rs_int_cols,
+                                    resultset_bigint_cols: globals.cur_rs_bigint_cols,
+                                    resultset_datetime_cols: globals.cur_rs_datetime_cols,
+                                    resultset_col_types: globals.cur_col_types,
                                 }));
                         }
-                        was_bind = false;
-                        cur_query_with_fallback = None;
-                        cur_query = None;
-                        cur_col_names = vec![];
-                        cur_parameter_values = vec![];
-                        cur_rs_row_count = 0;
-                        cur_rs_bool_cols = vec![];
-                        cur_rs_string_cols = vec![];
-                        cur_rs_int_cols = vec![];
-                        cur_rs_bigint_cols = vec![];
-                        cur_rs_datetime_cols = vec![];
-                        cur_col_types = vec![];
-                        query_timestamp = None;
+                        globals.was_bind = false;
+                        globals.cur_query_with_fallback = None;
+                        globals.cur_query = None;
+                        globals.cur_col_names = vec![];
+                        globals.cur_parameter_values = vec![];
+                        globals.cur_rs_row_count = 0;
+                        globals.cur_rs_bool_cols = vec![];
+                        globals.cur_rs_string_cols = vec![];
+                        globals.cur_rs_int_cols = vec![];
+                        globals.cur_rs_bigint_cols = vec![];
+                        globals.cur_rs_datetime_cols = vec![];
+                        globals.cur_col_types = vec![];
+                        globals.query_timestamp = None;
                     }
                     PostgresWireMessage::CopyData => {
                         if stream.client_server.is_none() {
@@ -573,6 +567,24 @@ pub struct PostgresMessageData {
     pub resultset_int_cols: Vec<Vec<Option<i32>>>,
     pub resultset_bigint_cols: Vec<Vec<Option<i64>>>,
     pub resultset_datetime_cols: Vec<Vec<Option<NaiveDateTime>>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PostgresStreamGlobals {
+    known_statements: HashMap<String, String>,
+    cur_query: Option<String>,
+    cur_query_with_fallback: Option<String>,
+    was_bind: bool,
+    query_timestamp: Option<NaiveDateTime>,
+    cur_rs_row_count: usize,
+    cur_col_names: Vec<String>,
+    cur_col_types: Vec<PostgresColType>,
+    cur_parameter_values: Vec<String>,
+    cur_rs_int_cols: Vec<Vec<Option<i32>>>,
+    cur_rs_bigint_cols: Vec<Vec<Option<i64>>>,
+    cur_rs_bool_cols: Vec<Vec<Option<bool>>>,
+    cur_rs_string_cols: Vec<Vec<Option<String>>>,
+    cur_rs_datetime_cols: Vec<Vec<Option<NaiveDateTime>>>,
 }
 
 #[test]
