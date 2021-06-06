@@ -624,7 +624,7 @@ impl Widget for Win {
                 self.model.window_subtitle = None;
                 self.model.current_file_path = None;
                 self.model.streams = vec![];
-                self.refresh_comm_targets();
+                // self.refresh_comm_targets();
                 self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
                 let dialog = gtk::MessageDialog::new(
                     None::<&gtk::Window>,
@@ -832,6 +832,11 @@ impl Widget for Win {
                     .comm_target_list
                     .add_widget::<CommTargetCard>(card),
             );
+            if self.model.comm_target_cards.len() == 1 {
+                self.widgets
+                    .comm_target_list
+                    .select_row(self.widgets.comm_target_list.get_row_at_index(0).as_ref());
+            }
         }
     }
 
@@ -1053,25 +1058,25 @@ impl Widget for Win {
         invoke_tshark(&fname, "http || pgsql || http2", sender);
     }
 
-    fn refresh_comm_targets(&mut self) {
-        for child in self.widgets.comm_target_list.get_children() {
-            self.widgets.comm_target_list.remove(&child);
-        }
-        self.model._comm_targets_components = self
-            .model
-            .comm_target_cards
-            .iter()
-            .map(|card| {
-                self.widgets
-                    .comm_target_list
-                    .add_widget::<CommTargetCard>(card.clone())
-            })
-            .collect();
-        self.widgets
-            .comm_target_list
-            .select_row(self.widgets.comm_target_list.get_row_at_index(0).as_ref());
-        // self.model.selected_card = self.model.comm_target_cards.first().cloned();
-    }
+    // fn refresh_comm_targets(&mut self) {
+    //     for child in self.widgets.comm_target_list.get_children() {
+    //         self.widgets.comm_target_list.remove(&child);
+    //     }
+    //     self.model._comm_targets_components = self
+    //         .model
+    //         .comm_target_cards
+    //         .iter()
+    //         .map(|card| {
+    //             self.widgets
+    //                 .comm_target_list
+    //                 .add_widget::<CommTargetCard>(card.clone())
+    //         })
+    //         .collect();
+    //     self.widgets
+    //         .comm_target_list
+    //         .select_row(self.widgets.comm_target_list.get_row_at_index(0).as_ref());
+    //     // self.model.selected_card = self.model.comm_target_cards.first().cloned();
+    // }
 
     fn refresh_remote_ips_streams_tree(
         &mut self,
