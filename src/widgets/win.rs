@@ -9,6 +9,7 @@ use crate::colors;
 use crate::http::http_message_parser::Http;
 use crate::http2::http2_message_parser::Http2;
 use crate::icons::Icon;
+use crate::message_parser::StreamData;
 use crate::message_parser::{MessageInfo, MessageParser};
 use crate::pgsql::postgres_message_parser::Postgres;
 use crate::tshark_communication;
@@ -121,9 +122,11 @@ pub struct Model {
     infobar_spinner: gtk::Spinner,
     infobar_label: gtk::Label,
 
+    message_parsers: Vec<Box<dyn MessageParser>>,
+
     sidebar_selection_change_signal_id: Option<glib::SignalHandlerId>,
 
-    streams: Vec<(StreamInfo, Vec<MessageData>)>,
+    streams: HashMap<u32, StreamData>, // tcp_stream_id => streamdata
     comm_target_cards: Vec<CommTargetCardData>,
     selected_card: Option<CommTargetCardData>,
 
@@ -518,6 +521,7 @@ impl Widget for Win {
         Model {
             relm: relm.clone(),
             bg_sender,
+            message_parsers: get_message_parsers(),
             infobar_spinner: gtk::SpinnerBuilder::new()
                 .width_request(24)
                 .height_request(24)
@@ -625,10 +629,32 @@ impl Widget for Win {
                 dialog.close();
             }
             Msg::LoadedData(Ok(InputStep::Packet(p))) => {
-                self.model.comm_target_cards = comm_target_cards;
-                self.model.streams = streams;
-                self.refresh_comm_targets();
-                self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
+                if let Some(parser) = self
+                    .model
+                    .message_parsers
+                    .iter()
+                    .find(|ps| ps.is_my_message(&p))
+                {
+                    let packet_stream_id = p.basic_info.tcp_stream_id;
+                    let existing_stream = self.model.streams.get(&packet_stream_id);
+                    if let Some(ref mut stream_data) = existing_stream {
+                        parser.add_to_stream(stream_data, p);
+                    } else {
+                        // new stream
+                        let mut stream_data = StreamData {
+                            stream_globals: parser.initial_globals(),
+                            client_server: None,
+                            messages: vec![],
+                            summary_details: None,
+                        };
+                        parser.add_to_stream(&mut stream_data, p);
+                        self.model.streams.insert(packet_stream_id, stream_data);
+                    }
+                    self.model.comm_target_cards = comm_target_cards;
+                    self.model.streams = streams;
+                    self.refresh_comm_targets();
+                    self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
+                }
             }
             Msg::LoadedData(Ok(InputStep::Eof)) => {
                 self.widgets.loading_spinner.stop();

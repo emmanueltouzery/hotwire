@@ -7,6 +7,7 @@ use crate::message_parser::{MessageInfo, MessageParser, StreamData};
 use crate::pgsql::tshark_pgsql::{PostgresColType, PostgresWireMessage};
 use crate::tshark_communication::TSharkPacket;
 use crate::widgets::comm_remote_server::MessageData;
+use crate::widgets::comm_remote_server::StreamGlobals;
 use crate::widgets::win;
 use crate::BgFunc;
 use chrono::{NaiveDateTime, Utc};
@@ -31,6 +32,10 @@ impl MessageParser for Postgres {
 
     fn protocol_icon(&self) -> Icon {
         Icon::DATABASE
+    }
+
+    fn initial_globals(&self) -> StreamGlobals {
+        StreamGlobals::Postgres(PostgresStreamGlobals::default())
     }
 
     fn add_to_stream(
@@ -569,7 +574,7 @@ pub struct PostgresMessageData {
     pub resultset_datetime_cols: Vec<Vec<Option<NaiveDateTime>>>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct PostgresStreamGlobals {
     known_statements: HashMap<String, String>,
     cur_query: Option<String>,

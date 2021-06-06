@@ -8,6 +8,7 @@ use crate::message_parser::ClientServerInfo;
 use crate::message_parser::{MessageInfo, MessageParser, StreamData};
 use crate::tshark_communication::TSharkPacket;
 use crate::widgets::comm_remote_server::MessageData;
+use crate::widgets::comm_remote_server::StreamGlobals;
 use crate::widgets::win;
 use crate::BgFunc;
 use chrono::NaiveDateTime;
@@ -30,6 +31,10 @@ impl MessageParser for Http2 {
 
     fn protocol_icon(&self) -> icons::Icon {
         icons::Icon::HTTP
+    }
+
+    fn initial_globals(&self) -> StreamGlobals {
+        StreamGlobals::None
     }
 
     fn add_to_stream(

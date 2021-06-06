@@ -28,6 +28,7 @@ pub struct StreamData {
 pub trait MessageParser {
     fn is_my_message(&self, msg: &TSharkPacket) -> bool;
     fn protocol_icon(&self) -> Icon;
+    fn initial_globals(&self) -> StreamGlobals;
     fn add_to_stream(
         &self,
         stream: &mut StreamData,
