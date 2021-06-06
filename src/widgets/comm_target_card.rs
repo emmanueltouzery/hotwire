@@ -33,7 +33,7 @@ pub struct CommTargetCardData {
     pub ip: IpAddr,
     pub port: u32,
     pub protocol_index: usize,
-    pub remote_hosts: BTreeSet<String>,
+    pub remote_hosts: BTreeSet<String>, // TODO change String to IpAddr?
     pub protocol_icon: Icon,
     pub summary_details: Option<SummaryDetails>,
     pub incoming_session_count: usize,

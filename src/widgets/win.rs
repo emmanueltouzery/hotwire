@@ -9,6 +9,7 @@ use crate::colors;
 use crate::http::http_message_parser::Http;
 use crate::http2::http2_message_parser::Http2;
 use crate::icons::Icon;
+use crate::message_parser::ClientServerInfo;
 use crate::message_parser::StreamData;
 use crate::message_parser::{MessageInfo, MessageParser};
 use crate::pgsql::postgres_message_parser::Postgres;
@@ -629,16 +630,28 @@ impl Widget for Win {
                 dialog.close();
             }
             Msg::LoadedData(Ok(InputStep::Packet(p))) => {
-                if let Some(parser) = self
+                if let Some((parser_index, parser)) = self
                     .model
                     .message_parsers
                     .iter()
-                    .find(|ps| ps.is_my_message(&p))
+                    .enumerate()
+                    .find(|(_idx, ps)| ps.is_my_message(&p))
                 {
                     let packet_stream_id = p.basic_info.tcp_stream_id;
                     let existing_stream = self.model.streams.get(&packet_stream_id);
                     if let Some(ref mut stream_data) = existing_stream {
+                        let had_client_server = stream_data.client_server.is_some();
                         parser.add_to_stream(stream_data, p);
+                        if !had_client_server && stream_data.client_server.is_some() {
+                            // we got the client-server info for this stream, add the
+                            // comm target data.
+                            self.add_comm_target_data(
+                                parser_index,
+                                &parser,
+                                stream_data.client_server.as_ref().unwrap(),
+                                stream_data.summary_details.as_deref(),
+                            );
+                        }
                     } else {
                         // new stream
                         let mut stream_data = StreamData {
@@ -647,11 +660,22 @@ impl Widget for Win {
                             messages: vec![],
                             summary_details: None,
                         };
-                        parser.add_to_stream(&mut stream_data, p);
+                        if let Err(msg) = parser.add_to_stream(&mut stream_data, p) {
+                            self.model.relm.stream().emit(Msg::LoadedData(Err(msg)));
+                            return;
+                        }
                         self.model.streams.insert(packet_stream_id, stream_data);
+                        if stream_data.client_server.is_some() {
+                            // we got the client-server info for this stream, add the
+                            // comm target data.
+                            self.add_comm_target_data(
+                                parser_index,
+                                &parser,
+                                stream_data.client_server.as_ref().unwrap(),
+                                stream_data.summary_details.as_deref(),
+                            );
+                        }
                     }
-                    self.model.comm_target_cards = comm_target_cards;
-                    self.model.streams = streams;
                     self.refresh_comm_targets();
                     self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
                 }
@@ -732,6 +756,46 @@ impl Widget for Win {
                 }
             }
             Msg::Quit => gtk::main_quit(),
+        }
+    }
+
+    fn add_comm_target_data(
+        &mut self,
+        protocol_index: usize,
+        parser: &Box<dyn MessageParser>,
+        client_server_info: &ClientServerInfo,
+        summary_details: Option<&str>,
+    ) {
+        if let Some(card) = self.model.comm_target_cards.iter().find(|c| {
+            c.protocol_index == protocol_index
+                && c.port == client_server_info.server_port
+                && c.ip == client_server_info.server_ip
+        }) {
+            // update existing card
+            card.incoming_session_count += 1;
+            card.remote_hosts.insert(client_server_info.client_ip);
+            if card.summary_details.is_none() && summary_details.is_some() {
+                card.summary_details = Some(SummaryDetails {
+                    details: summary_details.unwrap().to_string(),
+                });
+            }
+        } else {
+            // add new card
+            self.model.comm_target_cards.push(CommTargetCardData {
+                ip: client_server_info.server_ip,
+                port: client_server_info.server_port,
+                protocol_index,
+                remote_hosts: {
+                    let bs = BTreeSet::new();
+                    bs.insert(client_server_info.client_ip.to_string());
+                    bs
+                },
+                protocol_icon: parser.protocol_icon(),
+                summary_details: summary_details.map(|d| SummaryDetails {
+                    details: d.to_string(),
+                }),
+                incoming_session_count: 1,
+            });
         }
     }
 
