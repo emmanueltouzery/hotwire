@@ -147,6 +147,8 @@ pub struct Model {
     _loaded_data_channel: relm::Channel<ParseInputStep>,
     loaded_data_sender: relm::Sender<ParseInputStep>,
 
+    cur_liststore: Option<(CommTargetCardKey, gtk::ListStore, i32)>,
+
     comm_targets_components: HashMap<CommTargetCardKey, Component<CommTargetCard>>,
     _recent_file_item_components: Vec<Component<RecentFileItem>>,
 
@@ -647,7 +649,9 @@ impl Widget for Win {
                 {
                     let packet_stream_id = p.basic_info.tcp_stream_id;
                     let existing_stream = self.model.streams.get(&packet_stream_id);
-                    if let Some(ref mut stream_data) = existing_stream {
+                    let message_count_before;
+                    let stream_data = if let Some(ref mut stream_data) = existing_stream {
+                        message_count_before = stream_data.messages.len();
                         let had_client_server = stream_data.client_server.is_some();
                         parser.add_to_stream(stream_data, p);
                         if !had_client_server && stream_data.client_server.is_some() {
@@ -660,8 +664,10 @@ impl Widget for Win {
                                 stream_data.summary_details.as_deref(),
                             );
                         }
+                        stream_data
                     } else {
                         // new stream
+                        message_count_before = 0;
                         let mut stream_data = StreamData {
                             stream_globals: parser.initial_globals(),
                             client_server: None,
@@ -686,9 +692,57 @@ impl Widget for Win {
                                 stream_data.summary_details.as_deref(),
                             );
                         }
-                    }
+                        &stream_data
+                    };
+                    let added_messages = stream_data.messages.len() - message_count_before;
                     // self.refresh_comm_targets();
-                    self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
+
+                    // self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
+                    let selected_card = self.model.selected_card.as_ref();
+                    match (stream_data.client_server, selected_card) {
+                        (Some(client_server), Some(card)) => {
+                            if client_server.server_ip == card.ip
+                                && client_server.server_port == card.port
+                                && parser_index == card.protocol_index
+                            {
+                                let (ls, ls_len) = self
+                                    .model
+                                    .cur_liststore
+                                    .filter(|(c, _s, _l)| {
+                                        c.ip == card.ip
+                                            && c.port == card.port
+                                            && c.protocol_index == card.protocol_index
+                                    })
+                                    .map(|(_c, s, l)| (s, l))
+                                    .unwrap_or_else(|| {
+                                        let key = CommTargetCardKey {
+                                            ip: card.ip,
+                                            port: card.port,
+                                            protocol_index: card.protocol_index,
+                                        };
+                                        let ls = parser.get_empty_liststore();
+                                        self.model.cur_liststore = Some((key, ls, 0));
+                                        let (ref tv, ref _signals) = &self
+                                            .model
+                                            .comm_remote_servers_treeviews
+                                            .get(card.protocol_index)
+                                            .unwrap();
+                                        parser.end_populate_treeview(tv, &ls);
+                                        (ls, 0)
+                                    });
+                                // refresh_remote_ips_streams_tree() // <-----------
+                                parser.populate_treeview(
+                                    &ls,
+                                    p.basic_info.tcp_stream_id,
+                                    &stream_data.messages
+                                        [stream_data.messages.len() - added_messages..],
+                                    ls_len,
+                                );
+                                self.model.cur_liststore.as_ref().unwrap().2 +=
+                                    added_messages as i32;
+                            }
+                        }
+                    }
                 }
             }
             Msg::LoadedData(Ok(InputStep::Eof)) => {
