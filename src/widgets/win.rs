@@ -32,6 +32,7 @@ use std::collections::HashSet;
 use std::io::BufRead;
 use std::io::BufReader;
 use std::net::IpAddr;
+use std::net::Ipv4Addr;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
@@ -808,7 +809,7 @@ impl Widget for Win {
                     .model
                     .streams
                     .iter()
-                    .find(|(stream_info, items)| stream_info.stream_id == stream_id)
+                    .find(|(stream_id, items)| stream_id == stream_id)
                     .and_then(|s| s.1.get(idx as usize).map(|f| (&s.0, f)))
                 {
                     for adj in &self.model.details_adjustments {
@@ -1166,10 +1167,10 @@ impl Widget for Win {
                     &pango::Weight::Normal.to_glib().to_value(),
                 ],
             );
-            for (stream_info, _messages) in &self.model.streams {
-                if stream_info.target_ip != target_ip
-                    || stream_info.target_port != target_port
-                    || stream_info.source_ip != *remote_ip
+            for (stream_id, messages) in &self.model.streams {
+                if messages.client_server.map(|cs| cs.server_ip) != Some(target_ip)
+                    || messages.client_server.map(|cs| cs.server_port) != Some(target_port)
+                    || messages.client_server.map(|cs| cs.client_ip) != Some(*remote_ip)
                 {
                     continue;
                 }
@@ -1181,12 +1182,12 @@ impl Widget for Win {
                         &format!(
                             r#"<span foreground="{}" size="smaller">⬤</span> <span rise="-1700">Stream {}</span>"#,
                             colors::STREAM_COLORS
-                                [stream_info.stream_id as usize % colors::STREAM_COLORS.len()],
-                            stream_info.stream_id
+                                [*stream_id as usize % colors::STREAM_COLORS.len()],
+                            stream_id
                         )
                         .to_value(),
                         &pango::Weight::Normal.to_glib().to_value(),
-                        &stream_info.stream_id.to_value(),
+                        &stream_id.to_value(),
                     ],
                 );
             }
@@ -1210,24 +1211,34 @@ impl Widget for Win {
             let target_port = card.port;
             let mut by_remote_ip = HashMap::new();
             let parsers = get_message_parsers();
-            for (stream_info, messages) in &self.model.streams {
-                if stream_info.target_ip != target_ip || stream_info.target_port != target_port {
+            for (stream_id, messages) in &self.model.streams {
+                if messages.client_server.map(|cs| cs.server_ip) != Some(target_ip)
+                    || messages.client_server.map(|cs| cs.server_port) != Some(target_port)
+                {
                     continue;
                 }
                 let allowed_all =
                     constrain_remote_ips.is_empty() && constrain_stream_ids.is_empty();
 
-                let allowed_ip = constrain_remote_ips.contains(&stream_info.source_ip);
-                let allowed_stream = constrain_stream_ids.contains(&stream_info.stream_id);
+                let allowed_ip = messages
+                    .client_server
+                    .filter(|cs| constrain_remote_ips.contains(&cs.client_ip))
+                    .is_some();
+                let allowed_stream = constrain_stream_ids.contains(&stream_id);
                 let allowed = allowed_all || allowed_ip || allowed_stream;
 
                 if !allowed {
                     continue;
                 }
                 let remote_server_streams = by_remote_ip
-                    .entry(stream_info.source_ip)
+                    .entry(
+                        messages
+                            .client_server
+                            .map(|cs| cs.client_ip)
+                            .unwrap_or(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))),
+                    )
                     .or_insert_with(Vec::new);
-                remote_server_streams.push((stream_info.stream_id, messages));
+                remote_server_streams.push((stream_id, messages));
             }
             let mp = parsers.get(card.protocol_index).unwrap();
             self.widgets
