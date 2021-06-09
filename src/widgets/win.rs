@@ -554,9 +554,16 @@ impl Widget for Win {
             _finished_tshark_channel,
             sidebar_selection_change_signal_id: None,
             comm_target_cards: vec![],
-            streams: vec![],
+            streams: HashMap::new(),
+            cur_liststore: None,
             current_file_path,
             window_subtitle: None,
+            remote_ips_streams_iptopath: HashMap::new(),
+            remote_ips_streams_treestore: gtk::TreeStore::new(&[
+                String::static_type(),
+                pango::Weight::static_type(),
+                u32::static_type(),
+            ]),
         }
     }
 
@@ -628,7 +635,7 @@ impl Widget for Win {
                     .set_visible_child_name(WELCOME_STACK_NAME);
                 self.model.window_subtitle = None;
                 self.model.current_file_path = None;
-                self.model.streams = vec![];
+                self.model.streams = HashMap::new();
                 // self.refresh_comm_targets();
                 self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
                 let dialog = gtk::MessageDialog::new(
@@ -862,7 +869,7 @@ impl Widget for Win {
                     .streams
                     .iter()
                     .find(|(stream_id, items)| stream_id == stream_id)
-                    .and_then(|s| s.1.get(idx as usize).map(|f| (&s.0, f)))
+                    .and_then(|s| s.1.messages.get(idx as usize).map(|f| (&s.1, f)))
                 {
                     for adj in &self.model.details_adjustments {
                         adj.set_value(0.0);
@@ -872,8 +879,8 @@ impl Widget for Win {
                             self.model.bg_sender.clone(),
                             self.model.current_file_path.as_ref().unwrap().clone(),
                             MessageInfo {
-                                stream_id: stream_info.stream_id,
-                                client_ip: stream_info.source_ip,
+                                stream_id,
+                                client_ip: stream_info.client_server.unwrap().client_ip,
                                 message_data: msg_data.clone(),
                             },
                         );
@@ -1123,7 +1130,8 @@ impl Widget for Win {
     }
 
     fn gui_load_file(&mut self, fname: PathBuf) {
-        self.connect_remote_ips_streams_tree(self.init_remote_ips_streams_tree());
+        self.init_remote_ips_streams_tree();
+        self.connect_remote_ips_streams_tree();
         self.components
             .headerbar_search
             .emit(HeaderbarSearchMsg::SearchActiveChanged(false));
@@ -1189,6 +1197,7 @@ impl Widget for Win {
     fn init_remote_ips_streams_tree(&mut self) {
         self.model.remote_ips_streams_iptopath.clear();
         self.model.remote_ips_streams_treestore = gtk::TreeStore::new(&[
+            // TODO duplicated in model init
             String::static_type(),
             pango::Weight::static_type(),
             u32::static_type(),
@@ -1322,8 +1331,8 @@ impl Widget for Win {
             for (remote_ip, tcp_sessions) in &by_remote_ip {
                 for (session_id, session) in tcp_sessions {
                     let mut idx = 0;
-                    for chunk in session.chunks(100) {
-                        mp.populate_treeview(&ls, *session_id, chunk, idx);
+                    for chunk in session.messages.chunks(100) {
+                        mp.populate_treeview(&ls, **session_id, chunk, idx);
                         idx += 100;
                         // https://developer.gnome.org/gtk3/stable/gtk3-General.html#gtk-events-pending
                         // I've had this loop last almost 3 seconds!!
