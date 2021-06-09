@@ -1,4 +1,3 @@
-use super::comm_remote_server::MessageData;
 use super::comm_target_card;
 use super::comm_target_card::{CommTargetCard, CommTargetCardData};
 use super::headerbar_search::HeaderbarSearch;
@@ -8,8 +7,8 @@ use super::headerbar_search::Msg::SearchTextChanged as HbsMsgSearchTextChanged;
 use super::recent_file_item::RecentFileItem;
 use crate::colors;
 use crate::http::http_message_parser::Http;
+use crate::http::http_message_parser::HttpMessageData;
 use crate::http2::http2_message_parser::Http2;
-use crate::http2::http2_message_parser::HttpMessageData;
 use crate::icons::Icon;
 use crate::message_parser::ClientServerInfo;
 use crate::message_parser::StreamData;
@@ -559,7 +558,9 @@ impl Widget for Win {
             _finished_tshark_channel,
             sidebar_selection_change_signal_id: None,
             comm_target_cards: vec![],
-            streams: HashMap::new(),
+            http_streams: HashMap::new(),
+            http2_streams: HashMap::new(),
+            postgres_streams: HashMap::new(),
             cur_liststore: None,
             current_file_path,
             window_subtitle: None,
@@ -570,6 +571,15 @@ impl Widget for Win {
                 u32::static_type(),
             ]),
         }
+    }
+
+    fn stream_visitor<MP: MessageParser>(
+        &self,
+        visitor: impl Fn(&StreamData<MP::MessageType, MP::StreamGlobalsType>),
+    ) {
+        self.model.http_streams.iter().for_each(visitor);
+        self.model.http2_streams.iter().for_each(visitor);
+        self.model.postgres_streams.iter().for_each(visitor);
     }
 
     fn update(&mut self, event: Msg) {
@@ -640,7 +650,9 @@ impl Widget for Win {
                     .set_visible_child_name(WELCOME_STACK_NAME);
                 self.model.window_subtitle = None;
                 self.model.current_file_path = None;
-                self.model.streams = HashMap::new();
+                self.model.http_streams = HashMap::new();
+                self.model.http2_streams = HashMap::new();
+                self.model.postgres_streams = HashMap::new();
                 // self.refresh_comm_targets();
                 self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
                 let dialog = gtk::MessageDialog::new(
@@ -664,7 +676,7 @@ impl Widget for Win {
                 }
             }
             Msg::LoadedData(Ok(InputStep::Eof)) => {
-                if self.model.streams.is_empty() {
+                if self.stream_by_client_server(|_| true).is_none() {
                     self.model.relm.stream().emit(Msg::LoadedData(Err(
                         "Hotwire doesn't know how to read any useful data from this file"
                             .to_string(),

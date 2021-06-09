@@ -5,7 +5,6 @@ use crate::icons::Icon;
 use crate::message_parser::MessageInfo;
 use crate::widgets::comm_info_header;
 use crate::widgets::comm_info_header::CommInfoHeader;
-use crate::widgets::comm_remote_server::MessageData;
 use crate::widgets::win;
 use crate::BgFunc;
 use gtk::prelude::*;
@@ -18,7 +17,7 @@ use std::sync::mpsc;
 
 #[derive(Msg, Debug)]
 pub enum Msg {
-    DisplayDetails(mpsc::Sender<BgFunc>, PathBuf, MessageInfo),
+    DisplayDetails(mpsc::Sender<BgFunc>, PathBuf, MessageInfo<HttpMessageData>),
     RemoveFormatToggled,
 }
 
@@ -85,7 +84,7 @@ impl Widget for HttpCommEntry {
                 MessageInfo {
                     client_ip,
                     stream_id,
-                    message_data: MessageData::Http(msg),
+                    message_data: msg,
                 },
             ) => {
                 self.model.data = msg;

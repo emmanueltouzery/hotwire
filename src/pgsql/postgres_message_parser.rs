@@ -6,8 +6,6 @@ use crate::message_parser::ClientServerInfo;
 use crate::message_parser::{MessageInfo, MessageParser, StreamData};
 use crate::pgsql::tshark_pgsql::{PostgresColType, PostgresWireMessage};
 use crate::tshark_communication::TSharkPacket;
-use crate::widgets::comm_remote_server::MessageData;
-use crate::widgets::comm_remote_server::StreamGlobals;
 use crate::widgets::win;
 use crate::BgFunc;
 use chrono::{NaiveDateTime, Utc};
@@ -478,7 +476,7 @@ impl MessageParser for Postgres {
         _overlay: Option<&gtk::Overlay>,
         bg_sender: mpsc::Sender<BgFunc>,
         win_msg_sender: relm::StreamHandle<win::Msg>,
-    ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, MessageInfo)> {
+    ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, MessageInfo<PostgresMessageData>)> {
         let component = Box::leak(Box::new(parent.add_widget::<PostgresCommEntry>((
             0,
             "0.0.0.0".parse().unwrap(),

@@ -7,8 +7,6 @@ use crate::icons;
 use crate::message_parser::ClientServerInfo;
 use crate::message_parser::{MessageInfo, MessageParser, StreamData};
 use crate::tshark_communication::TSharkPacket;
-use crate::widgets::comm_remote_server::MessageData;
-use crate::widgets::comm_remote_server::StreamGlobals;
 use crate::widgets::win;
 use crate::BgFunc;
 use chrono::NaiveDateTime;
@@ -150,7 +148,7 @@ impl MessageParser for Http2 {
         overlay: Option<&gtk::Overlay>,
         bg_sender: mpsc::Sender<BgFunc>,
         win_msg_sender: relm::StreamHandle<win::Msg>,
-    ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, MessageInfo)> {
+    ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, MessageInfo<HttpMessageData>)> {
         http_message_parser::Http.add_details_to_scroll(parent, overlay, bg_sender, win_msg_sender)
     }
 

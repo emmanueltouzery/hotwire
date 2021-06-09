@@ -1,7 +1,5 @@
 use crate::icons::Icon;
 use crate::tshark_communication::TSharkPacket;
-use crate::widgets::comm_remote_server::MessageData;
-use crate::widgets::comm_remote_server::StreamGlobals;
 use crate::widgets::win;
 use crate::BgFunc;
 use std::net::IpAddr;
@@ -54,12 +52,12 @@ pub trait MessageParser {
         overlay: Option<&gtk::Overlay>,
         bg_sender: mpsc::Sender<BgFunc>,
         win_msg_sender: relm::StreamHandle<win::Msg>,
-    ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, MessageInfo)>;
+    ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, MessageInfo<Self::MessageType>)>;
 }
 
 #[derive(Debug)]
-pub struct MessageInfo {
+pub struct MessageInfo<MessageType> {
     pub stream_id: u32,
     pub client_ip: IpAddr,
-    pub message_data: MessageData,
+    pub message_data: MessageType,
 }

@@ -8,47 +8,47 @@ use relm_derive::{widget, Msg};
 #[derive(Msg)]
 pub enum Msg {}
 
-// circular dependencies, message parsers depend on this
-// which depends on them...
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum MessageData {
-    Http(HttpMessageData),
-    Postgres(PostgresMessageData),
-}
+// // circular dependencies, message parsers depend on this
+// // which depends on them...
+// #[derive(Clone, Debug, PartialEq, Eq)]
+// pub enum MessageData {
+//     Http(HttpMessageData),
+//     Postgres(PostgresMessageData),
+// }
 
-impl MessageData {
-    pub fn as_http(&self) -> Option<&HttpMessageData> {
-        match &self {
-            MessageData::Http(x) => Some(x),
-            _ => None,
-        }
-    }
+// impl MessageData {
+//     pub fn as_http(&self) -> Option<&HttpMessageData> {
+//         match &self {
+//             MessageData::Http(x) => Some(x),
+//             _ => None,
+//         }
+//     }
 
-    pub fn as_postgres(&self) -> Option<&PostgresMessageData> {
-        match &self {
-            MessageData::Postgres(x) => Some(x),
-            _ => None,
-        }
-    }
-}
+//     pub fn as_postgres(&self) -> Option<&PostgresMessageData> {
+//         match &self {
+//             MessageData::Postgres(x) => Some(x),
+//             _ => None,
+//         }
+//     }
+// }
 
-pub enum StreamGlobals {
-    Postgres(PostgresStreamGlobals),
-    None,
-}
+// pub enum StreamGlobals {
+//     Postgres(PostgresStreamGlobals),
+//     None,
+// }
 
-impl StreamGlobals {
-    pub fn as_postgres(&self) -> Option<&PostgresStreamGlobals> {
-        match &self {
-            StreamGlobals::Postgres(x) => Some(x),
-            _ => None,
-        }
-    }
-}
+// impl StreamGlobals {
+//     pub fn as_postgres(&self) -> Option<&PostgresStreamGlobals> {
+//         match &self {
+//             StreamGlobals::Postgres(x) => Some(x),
+//             _ => None,
+//         }
+//     }
+// }
 
 pub struct CommRemoteServerData {
     pub remote_ip: String,
-    pub tcp_sessions: Vec<(Option<u32>, Vec<MessageData>)>,
+    // pub tcp_sessions: Vec<(Option<u32>, Vec<MessageData>)>,
 }
 
 pub struct Model {

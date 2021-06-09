@@ -3,7 +3,6 @@ use crate::message_parser::MessageInfo;
 use crate::pgsql::tshark_pgsql::PostgresColType;
 use crate::widgets::comm_info_header;
 use crate::widgets::comm_info_header::CommInfoHeader;
-use crate::widgets::comm_remote_server::MessageData;
 use crate::widgets::win;
 use crate::BgFunc;
 use chrono::NaiveDateTime;
@@ -36,7 +35,11 @@ pub struct Model {
 
 #[derive(Msg, Debug)]
 pub enum Msg {
-    DisplayDetails(mpsc::Sender<BgFunc>, PathBuf, MessageInfo),
+    DisplayDetails(
+        mpsc::Sender<BgFunc>,
+        PathBuf,
+        MessageInfo<PostgresMessageData>,
+    ),
     ExportResultSet,
 }
 
@@ -152,7 +155,7 @@ impl Widget for PostgresCommEntry {
                 MessageInfo {
                     stream_id,
                     client_ip,
-                    message_data: MessageData::Postgres(msg),
+                    message_data: msg,
                 },
             ) => {
                 self.model.data = msg;
