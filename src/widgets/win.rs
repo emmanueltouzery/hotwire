@@ -201,8 +201,14 @@ pub fn invoke_tshark(
             // "tcp.stream eq 104",
         ])
         .stdout(Stdio::piped())
-        .spawn()?;
-    let buf_reader = BufReader::new(tshark_child.stdout.unwrap());
+        .spawn();
+    if tshark_child.is_err() {
+        sender
+            .send(Err(format!("Error launching tshark: {:?}", tshark_child)))
+            .unwrap();
+        return;
+    }
+    let buf_reader = BufReader::new(tshark_child.unwrap().stdout.unwrap());
     parse_pdml_stream(buf_reader, sender);
 }
 
@@ -814,13 +820,14 @@ impl Widget for Win {
                     return;
                 }
                 self.widgets.loading_spinner.stop();
-                self.model.window_subtitle = Some(
-                    fname
-                        // .file_name().unwrap()
-                        .to_string_lossy()
-                        .to_string(),
-                );
-                self.model.current_file_path = Some(fname);
+                // TODO window subtitle
+                // self.model.window_subtitle = Some(
+                //     fname
+                //         // .file_name().unwrap()
+                //         .to_string_lossy()
+                //         .to_string(),
+                // );
+                // self.model.current_file_path = Some(fname);
                 self.widgets
                     .root_stack
                     .set_visible_child_name(NORMAL_STACK_NAME);
@@ -1171,7 +1178,12 @@ impl Widget for Win {
         sender: relm::Sender<ParseInputStep>,
         finished_tshark: relm::Sender<()>,
     ) {
-        invoke_tshark(&fname, "http || pgsql || http2", sender);
+        invoke_tshark(
+            TSharkInputType::File,
+            &fname,
+            "http || pgsql || http2",
+            sender,
+        );
     }
 
     // fn refresh_comm_targets(&mut self) {
