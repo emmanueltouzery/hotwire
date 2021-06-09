@@ -49,42 +49,6 @@ const WELCOME_STACK_NAME: &str = "welcome";
 const LOADING_STACK_NAME: &str = "loading";
 const NORMAL_STACK_NAME: &str = "normal";
 
-pub enum DynMessageParser {
-    HttpMessageParser(Http),
-    PostgresMessageParser(Postgres),
-    Http2MessageParser(Http2),
-}
-
-impl DynMessageParser {
-    fn from_index(idx: usize) -> DynMessageParser {
-        match idx {
-            0 => DynMessageParser::HttpMessageParser(Http),
-            1 => DynMessageParser::PostgresMessageParser(Postgres),
-            2 => DynMessageParser::Http2MessageParser(Http2),
-        }
-    }
-
-    fn to_index(&self) -> usize {
-        match &self {
-            DynMessageParser::HttpMessageParser(_) => 0,
-            DynMessageParser::PostgresMessageParser(_) => 1,
-            DynMessageParser::Http2MessageParser(_) => 2,
-        }
-    }
-
-    fn for_message(msg: &TSharkPacket) -> Option<DynMessageParser> {
-        if Http.is_my_message(msg) {
-            Some(DynMessageParser::HttpMessageParser(Http))
-        } else if Postgres.is_my_message(msg) {
-            Some(DynMessageParser::PostgresMessageParser(Postgres))
-        } else if Http2.is_my_message(msg) {
-            Some(DynMessageParser::Http2MessageParser(Http2))
-        } else {
-            None
-        }
-    }
-}
-
 #[derive(Debug)]
 pub enum InputStep {
     Packet(TSharkPacket),
@@ -691,154 +655,12 @@ impl Widget for Win {
                 dialog.close();
             }
             Msg::LoadedData(Ok(InputStep::Packet(p))) => {
-                if let Some(parser) = DynMessageParser::for_message(&p) {
-                    let parser_index = parser.to_index();
-                    let packet_stream_id = p.basic_info.tcp_stream_id;
-                    let existing_stream = self.model.streams.get(&packet_stream_id);
-                    let message_count_before;
-                    let stream_data = if let Some(ref mut stream_data) = existing_stream {
-                        message_count_before = stream_data.messages.len();
-                        let had_client_server = stream_data.client_server.is_some();
-                        parser.add_to_stream(stream_data, p);
-                        if !had_client_server && stream_data.client_server.is_some() {
-                            // we got the client-server info for this stream, add the
-                            // comm target data.
-                            self.add_comm_target_data(
-                                parser_index,
-                                &parser,
-                                stream_data.client_server.as_ref().unwrap(),
-                                stream_data.summary_details.as_deref(),
-                            );
-                        }
-                        stream_data
-                    } else {
-                        // new stream
-                        message_count_before = 0;
-                        let mut stream_data = StreamData {
-                            stream_globals: parser.initial_globals(),
-                            client_server: None,
-                            messages: vec![],
-                            summary_details: None,
-                        };
-                        if let Err(msg) = parser.add_to_stream(&mut stream_data, p) {
-                            self.model.relm.stream().emit(Msg::LoadedData(Err(format!(
-                                "Error parsing file, in stream {}: {}",
-                                packet_stream_id, msg
-                            ))));
-                            return;
-                        }
-                        self.model.streams.insert(packet_stream_id, stream_data);
-                        if stream_data.client_server.is_some() {
-                            // we got the client-server info for this stream, add the
-                            // comm target data.
-                            self.add_comm_target_data(
-                                parser_index,
-                                &parser,
-                                stream_data.client_server.as_ref().unwrap(),
-                                stream_data.summary_details.as_deref(),
-                            );
-
-                            let remote_ip_iter = self
-                                .model
-                                .remote_ips_streams_iptopath
-                                .get(&stream_data.client_server.unwrap().client_ip)
-                                .and_then(|path| {
-                                    self.model.remote_ips_streams_treestore.get_iter(&path)
-                                })
-                                .unwrap_or_else(|| {
-                                    let new_iter =
-                                        self.model.remote_ips_streams_treestore.insert_with_values(
-                                            None,
-                                            None,
-                                            &[0, 1],
-                                            &[
-                                                &stream_data
-                                                    .client_server
-                                                    .unwrap()
-                                                    .client_ip
-                                                    .to_string()
-                                                    .to_value(),
-                                                &pango::Weight::Normal.to_glib().to_value(),
-                                            ],
-                                        );
-                                    self.model.remote_ips_streams_iptopath.insert(
-                                        stream_data.client_server.unwrap().client_ip,
-                                        self.model
-                                            .remote_ips_streams_treestore
-                                            .get_path(&new_iter)
-                                            .unwrap(),
-                                    );
-                                    new_iter
-                                });
-                            // TODO some duplication with refresh_remote_ips_streams_tree()
-                            self.model.remote_ips_streams_treestore.insert_with_values(
-                                Some(&remote_ip_iter),
-                                None,
-                                &[0, 1, 2],
-                                &[
-                                    &format!(
-                                        r#"<span foreground="{}" size="smaller">⬤</span> <span rise="-1700">Stream {}</span>"#,
-                                        colors::STREAM_COLORS
-                                            [packet_stream_id as usize % colors::STREAM_COLORS.len()],
-                                        packet_stream_id
-                                    )
-                                        .to_value(),
-                                    &pango::Weight::Normal.to_glib().to_value(),
-                                    &packet_stream_id.to_value(),
-                                ],
-                            );
-                        }
-                        &stream_data
-                    };
-                    let added_messages = stream_data.messages.len() - message_count_before;
-                    // self.refresh_comm_targets();
-
-                    // self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
-                    let selected_card = self.model.selected_card.as_ref();
-                    match (stream_data.client_server, selected_card) {
-                        (Some(client_server), Some(card)) => {
-                            if client_server.server_ip == card.ip
-                                && client_server.server_port == card.port
-                                && parser_index == card.protocol_index
-                            {
-                                let (ls, ls_len) = self
-                                    .model
-                                    .cur_liststore
-                                    .filter(|(c, _s, _l)| {
-                                        c.ip == card.ip
-                                            && c.port == card.port
-                                            && c.protocol_index == card.protocol_index
-                                    })
-                                    .map(|(_c, s, l)| (s, l))
-                                    .unwrap_or_else(|| {
-                                        let key = CommTargetCardKey {
-                                            ip: card.ip,
-                                            port: card.port,
-                                            protocol_index: card.protocol_index,
-                                        };
-                                        let ls = parser.get_empty_liststore();
-                                        self.model.cur_liststore = Some((key, ls, 0));
-                                        let (ref tv, ref _signals) = &self
-                                            .model
-                                            .comm_remote_servers_treeviews
-                                            .get(card.protocol_index)
-                                            .unwrap();
-                                        parser.end_populate_treeview(tv, &ls);
-                                        (ls, 0)
-                                    });
-                                // refresh_remote_ips_streams_tree() // <------
-                                parser.populate_treeview(
-                                    &ls,
-                                    p.basic_info.tcp_stream_id,
-                                    &stream_data.messages
-                                        [stream_data.messages.len() - added_messages..],
-                                    ls_len,
-                                );
-                                self.model.cur_liststore.as_ref().unwrap().2 +=
-                                    added_messages as i32;
-                            }
-                        }
-                    }
+                if Http.is_my_message(&p) {
+                    self.handle_loaded_data(Http, 0, &self.model.http_streams, p);
+                } else if Postgres.is_my_message(&p) {
+                    self.handle_loaded_data(Postgres, 1, &self.model.postgres_streams, p);
+                } else if Http2.is_my_message(&p) {
+                    self.handle_loaded_data(Http2, 2, &self.model.http2_streams, p);
                 }
             }
             Msg::LoadedData(Ok(InputStep::Eof)) => {
@@ -928,10 +750,160 @@ impl Widget for Win {
         }
     }
 
-    fn add_comm_target_data<MT, GT>(
+    fn handle_loaded_data<MP: MessageParser>(
+        &mut self,
+        parser: MP,
+        parser_index: usize,
+        streams: &HashMap<u32, StreamData<MP::MessageType, MP::StreamGlobalsType>>,
+        p: TSharkPacket,
+    ) {
+        let packet_stream_id = p.basic_info.tcp_stream_id;
+        let existing_stream = streams.get(&packet_stream_id);
+        let message_count_before;
+        let stream_data = if let Some(ref mut stream_data) = existing_stream {
+            message_count_before = stream_data.messages.len();
+            let had_client_server = stream_data.client_server.is_some();
+            parser.add_to_stream(stream_data, p);
+            if !had_client_server && stream_data.client_server.is_some() {
+                // we got the client-server info for this stream, add the
+                // comm target data.
+                self.add_comm_target_data(
+                    parser_index,
+                    &parser,
+                    stream_data.client_server.as_ref().unwrap(),
+                    stream_data.summary_details.as_deref(),
+                );
+            }
+            stream_data
+        } else {
+            // new stream
+            message_count_before = 0;
+            let mut stream_data = StreamData {
+                stream_globals: parser.initial_globals(),
+                client_server: None,
+                messages: vec![],
+                summary_details: None,
+            };
+            if let Err(msg) = parser.add_to_stream(&mut stream_data, p) {
+                self.model.relm.stream().emit(Msg::LoadedData(Err(format!(
+                    "Error parsing file, in stream {}: {}",
+                    packet_stream_id, msg
+                ))));
+                return;
+            }
+            streams.insert(packet_stream_id, stream_data);
+            if stream_data.client_server.is_some() {
+                // we got the client-server info for this stream, add the
+                // comm target data.
+                self.add_comm_target_data(
+                    parser_index,
+                    &parser,
+                    stream_data.client_server.as_ref().unwrap(),
+                    stream_data.summary_details.as_deref(),
+                );
+
+                let remote_ip_iter = self
+                    .model
+                    .remote_ips_streams_iptopath
+                    .get(&stream_data.client_server.unwrap().client_ip)
+                    .and_then(|path| self.model.remote_ips_streams_treestore.get_iter(&path))
+                    .unwrap_or_else(|| {
+                        let new_iter = self.model.remote_ips_streams_treestore.insert_with_values(
+                            None,
+                            None,
+                            &[0, 1],
+                            &[
+                                &stream_data
+                                    .client_server
+                                    .unwrap()
+                                    .client_ip
+                                    .to_string()
+                                    .to_value(),
+                                &pango::Weight::Normal.to_glib().to_value(),
+                            ],
+                        );
+                        self.model.remote_ips_streams_iptopath.insert(
+                            stream_data.client_server.unwrap().client_ip,
+                            self.model
+                                .remote_ips_streams_treestore
+                                .get_path(&new_iter)
+                                .unwrap(),
+                        );
+                        new_iter
+                    });
+                // TODO some duplication with refresh_remote_ips_streams_tree()
+                self.model.remote_ips_streams_treestore.insert_with_values(
+                                Some(&remote_ip_iter),
+                                None,
+                                &[0, 1, 2],
+                                &[
+                                    &format!(
+                                        r#"<span foreground="{}" size="smaller">⬤</span> <span rise="-1700">Stream {}</span>"#,
+                                        colors::STREAM_COLORS
+                                            [packet_stream_id as usize % colors::STREAM_COLORS.len()],
+                                        packet_stream_id
+                                    )
+                                        .to_value(),
+                                    &pango::Weight::Normal.to_glib().to_value(),
+                                    &packet_stream_id.to_value(),
+                                ],
+                            );
+            }
+            &stream_data
+        };
+        let added_messages = stream_data.messages.len() - message_count_before;
+        // self.refresh_comm_targets();
+
+        // self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
+        let selected_card = self.model.selected_card.as_ref();
+        match (stream_data.client_server, selected_card) {
+            (Some(client_server), Some(card)) => {
+                if client_server.server_ip == card.ip
+                    && client_server.server_port == card.port
+                    && parser_index == card.protocol_index
+                {
+                    let (ls, ls_len) = self
+                        .model
+                        .cur_liststore
+                        .filter(|(c, _s, _l)| {
+                            c.ip == card.ip
+                                && c.port == card.port
+                                && c.protocol_index == card.protocol_index
+                        })
+                        .map(|(_c, s, l)| (s, l))
+                        .unwrap_or_else(|| {
+                            let key = CommTargetCardKey {
+                                ip: card.ip,
+                                port: card.port,
+                                protocol_index: card.protocol_index,
+                            };
+                            let ls = parser.get_empty_liststore();
+                            self.model.cur_liststore = Some((key, ls, 0));
+                            let (ref tv, ref _signals) = &self
+                                .model
+                                .comm_remote_servers_treeviews
+                                .get(card.protocol_index)
+                                .unwrap();
+                            parser.end_populate_treeview(tv, &ls);
+                            (ls, 0)
+                        });
+                    // refresh_remote_ips_streams_tree() // <------
+                    parser.populate_treeview(
+                        &ls,
+                        p.basic_info.tcp_stream_id,
+                        &stream_data.messages[stream_data.messages.len() - added_messages..],
+                        ls_len,
+                    );
+                    self.model.cur_liststore.as_ref().unwrap().2 += added_messages as i32;
+                }
+            }
+        }
+    }
+
+    fn add_comm_target_data<MP: MessageParser>(
         &mut self,
         protocol_index: usize,
-        parser: &Box<dyn MessageParser<MessageType = MT, StreamGlobalsType = GT>>,
+        parser: &MP,
         client_server_info: &ClientServerInfo,
         summary_details: Option<&str>,
     ) {
