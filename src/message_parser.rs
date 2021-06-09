@@ -18,20 +18,22 @@ pub struct ClientServerInfo {
     pub client_ip: IpAddr,
 }
 
-pub struct StreamData {
-    pub stream_globals: StreamGlobals,
+pub struct StreamData<MessageType, StreamGlobalsType> {
+    pub stream_globals: StreamGlobalsType,
     pub client_server: Option<ClientServerInfo>,
-    pub messages: Vec<MessageData>,
+    pub messages: Vec<MessageType>,
     pub summary_details: Option<String>,
 }
 
 pub trait MessageParser {
+    type MessageType;
+    type StreamGlobalsType;
     fn is_my_message(&self, msg: &TSharkPacket) -> bool;
     fn protocol_icon(&self) -> Icon;
-    fn initial_globals(&self) -> StreamGlobals;
+    fn initial_globals(&self) -> Self::StreamGlobalsType;
     fn add_to_stream(
         &self,
-        stream: &mut StreamData,
+        stream: &mut StreamData<Self::MessageType, Self::StreamGlobalsType>,
         new_packet: TSharkPacket,
     ) -> Result<(), String>;
     fn prepare_treeview(&self, tv: &gtk::TreeView);
@@ -40,7 +42,7 @@ pub trait MessageParser {
         &self,
         ls: &gtk::ListStore,
         session_id: u32,
-        messages: &[MessageData],
+        messages: &[Self::MessageType],
         start_idx: i32,
     );
     fn end_populate_treeview(&self, tv: &gtk::TreeView, ls: &gtk::ListStore);

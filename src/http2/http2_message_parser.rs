@@ -25,6 +25,9 @@ use chrono::NaiveDate;
 pub struct Http2;
 
 impl MessageParser for Http2 {
+    type MessageType = HttpMessageData;
+    type StreamGlobalsType = ();
+
     fn is_my_message(&self, msg: &TSharkPacket) -> bool {
         msg.http2.is_some()
     }
@@ -33,13 +36,13 @@ impl MessageParser for Http2 {
         icons::Icon::HTTP
     }
 
-    fn initial_globals(&self) -> StreamGlobals {
-        StreamGlobals::None
+    fn initial_globals(&self) -> () {
+        ()
     }
 
     fn add_to_stream(
         &self,
-        stream: &mut StreamData,
+        stream: &mut StreamData<HttpMessageData, ()>,
         new_packet: TSharkPacket,
     ) -> Result<(), String> {
         let mut messages_per_stream = HashMap::new();
@@ -56,12 +59,8 @@ impl MessageParser for Http2 {
             let previous_pos_of_stream = stream
                 .messages
                 .iter()
-                .rposition(|p| {
-                    p.as_http()
-                        .filter(|h| h.http_stream_id == http2_stream_id)
-                        .is_some()
-                })
-                .filter(|idx| !stream.messages[*idx].as_http().unwrap().is_end_stream);
+                .rposition(|p| p.http_stream_id == http2_stream_id)
+                .filter(|idx| !stream.messages[*idx].is_end_stream);
             if previous_pos_of_stream.is_some() {
                 panic!("got the continuation of an unfinished http2 stream");
             }
@@ -107,12 +106,12 @@ impl MessageParser for Http2 {
                                     server_port: cur_msg.port_src,
                                 });
                             }
-                            stream.messages.push(MessageData::Http(HttpMessageData {
+                            stream.messages.push(HttpMessageData {
                                 is_end_stream,
                                 http_stream_id: http2_stream_id,
                                 request: cur_request,
                                 response: Some(http_msg),
-                            }));
+                            });
                             cur_request = None;
                         }
                     }
@@ -124,12 +123,12 @@ impl MessageParser for Http2 {
                         http_message_parser::get_http_header_value(&r.headers, ":authority")
                             .map(|c| c.to_string());
                 }
-                stream.messages.push(MessageData::Http(HttpMessageData {
+                stream.messages.push(HttpMessageData {
                     is_end_stream,
                     http_stream_id: http2_stream_id,
                     request: Some(r),
                     response: None,
-                }));
+                });
             }
         }
         Ok(())
@@ -139,7 +138,7 @@ impl MessageParser for Http2 {
         &self,
         ls: &gtk::ListStore,
         session_id: u32,
-        messages: &[MessageData],
+        messages: &[HttpMessageData],
         start_idx: i32,
     ) {
         http_message_parser::Http.populate_treeview(ls, session_id, messages, start_idx)

@@ -9,11 +9,14 @@ use super::recent_file_item::RecentFileItem;
 use crate::colors;
 use crate::http::http_message_parser::Http;
 use crate::http2::http2_message_parser::Http2;
+use crate::http2::http2_message_parser::HttpMessageData;
 use crate::icons::Icon;
 use crate::message_parser::ClientServerInfo;
 use crate::message_parser::StreamData;
 use crate::message_parser::{MessageInfo, MessageParser};
 use crate::pgsql::postgres_message_parser::Postgres;
+use crate::pgsql::postgres_message_parser::PostgresMessageData;
+use crate::pgsql::postgres_message_parser::PostgresStreamGlobals;
 use crate::tshark_communication;
 use crate::tshark_communication::TSharkPacket;
 use crate::widgets::comm_target_card::SummaryDetails;
@@ -46,8 +49,40 @@ const WELCOME_STACK_NAME: &str = "welcome";
 const LOADING_STACK_NAME: &str = "loading";
 const NORMAL_STACK_NAME: &str = "normal";
 
-pub fn get_message_parsers() -> Vec<Box<dyn MessageParser>> {
-    vec![Box::new(Http), Box::new(Postgres), Box::new(Http2)]
+pub enum DynMessageParser {
+    HttpMessageParser(Http),
+    PostgresMessageParser(Postgres),
+    Http2MessageParser(Http2),
+}
+
+impl DynMessageParser {
+    fn from_index(idx: usize) -> DynMessageParser {
+        match idx {
+            0 => DynMessageParser::HttpMessageParser(Http),
+            1 => DynMessageParser::PostgresMessageParser(Postgres),
+            2 => DynMessageParser::Http2MessageParser(Http2),
+        }
+    }
+
+    fn to_index(&self) -> usize {
+        match &self {
+            DynMessageParser::HttpMessageParser(_) => 0,
+            DynMessageParser::PostgresMessageParser(_) => 1,
+            DynMessageParser::Http2MessageParser(_) => 2,
+        }
+    }
+
+    fn for_message(msg: &TSharkPacket) -> Option<DynMessageParser> {
+        if Http.is_my_message(msg) {
+            Some(DynMessageParser::HttpMessageParser(Http))
+        } else if Postgres.is_my_message(msg) {
+            Some(DynMessageParser::PostgresMessageParser(Postgres))
+        } else if Http2.is_my_message(msg) {
+            Some(DynMessageParser::Http2MessageParser(Http2))
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -132,11 +167,12 @@ pub struct Model {
     infobar_spinner: gtk::Spinner,
     infobar_label: gtk::Label,
 
-    message_parsers: Vec<Box<dyn MessageParser>>,
-
     sidebar_selection_change_signal_id: Option<glib::SignalHandlerId>,
 
-    streams: HashMap<u32, StreamData>, // tcp_stream_id => streamdata
+    http_streams: HashMap<u32, StreamData<HttpMessageData, ()>>, // tcp_stream_id => streamdata
+    http2_streams: HashMap<u32, StreamData<HttpMessageData, ()>>, // tcp_stream_id => streamdata
+    postgres_streams: HashMap<u32, StreamData<PostgresMessageData, PostgresStreamGlobals>>, // tcp_stream_id => streamdata
+
     comm_target_cards: Vec<CommTargetCardData>,
     selected_card: Option<CommTargetCardData>,
 
@@ -333,9 +369,9 @@ impl Widget for Win {
             });
     }
 
-    fn add_message_parser_grid_and_pane(
+    fn add_message_parser_grid_and_pane<MT, GT>(
         &mut self,
-        message_parser: &Box<dyn MessageParser>,
+        message_parser: &Box<dyn MessageParser<MessageType = MT, StreamGlobalsType = GT>>,
         idx: usize,
     ) {
         let tv = gtk::TreeViewBuilder::new()
@@ -541,7 +577,6 @@ impl Widget for Win {
         Model {
             relm: relm.clone(),
             bg_sender,
-            message_parsers: get_message_parsers(),
             infobar_spinner: gtk::SpinnerBuilder::new()
                 .width_request(24)
                 .height_request(24)
@@ -656,13 +691,8 @@ impl Widget for Win {
                 dialog.close();
             }
             Msg::LoadedData(Ok(InputStep::Packet(p))) => {
-                if let Some((parser_index, parser)) = self
-                    .model
-                    .message_parsers
-                    .iter()
-                    .enumerate()
-                    .find(|(_idx, ps)| ps.is_my_message(&p))
-                {
+                if let Some(parser) = DynMessageParser::for_message(&p) {
+                    let parser_index = parser.to_index();
                     let packet_stream_id = p.basic_info.tcp_stream_id;
                     let existing_stream = self.model.streams.get(&packet_stream_id);
                     let message_count_before;
@@ -898,10 +928,10 @@ impl Widget for Win {
         }
     }
 
-    fn add_comm_target_data(
+    fn add_comm_target_data<MT, GT>(
         &mut self,
         protocol_index: usize,
-        parser: &Box<dyn MessageParser>,
+        parser: &Box<dyn MessageParser<MessageType = MT, StreamGlobalsType = GT>>,
         client_server_info: &ClientServerInfo,
         summary_details: Option<&str>,
     ) {

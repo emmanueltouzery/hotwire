@@ -26,6 +26,9 @@ use chrono::NaiveDate;
 pub struct Postgres;
 
 impl MessageParser for Postgres {
+    type MessageType = PostgresMessageData;
+    type StreamGlobalsType = PostgresStreamGlobals;
+
     fn is_my_message(&self, msg: &TSharkPacket) -> bool {
         msg.pgsql.is_some()
     }
@@ -34,16 +37,16 @@ impl MessageParser for Postgres {
         Icon::DATABASE
     }
 
-    fn initial_globals(&self) -> StreamGlobals {
-        StreamGlobals::Postgres(PostgresStreamGlobals::default())
+    fn initial_globals(&self) -> PostgresStreamGlobals {
+        PostgresStreamGlobals::default()
     }
 
     fn add_to_stream(
         &self,
-        stream: &mut StreamData,
+        stream: &mut StreamData<PostgresMessageData, PostgresStreamGlobals>,
         new_packet: TSharkPacket,
     ) -> Result<(), String> {
-        let mut globals = stream.stream_globals.as_postgres().unwrap();
+        let mut globals = stream.stream_globals;
         let timestamp = new_packet.basic_info.frame_time;
         if let Some(mds) = new_packet.pgsql {
             for md in mds {
@@ -60,27 +63,25 @@ impl MessageParser for Postgres {
                                 server_port: new_packet.basic_info.port_dst,
                             });
                         }
-                        stream
-                            .messages
-                            .push(MessageData::Postgres(PostgresMessageData {
-                                query: Some(Cow::Owned(format!(
-                                    "LOGIN: user: {}, db: {}, app: {}",
-                                    username,
-                                    database,
-                                    application.as_deref().unwrap_or("-")
-                                ))),
-                                query_timestamp: timestamp,
-                                result_timestamp: timestamp,
-                                parameter_values: vec![],
-                                resultset_col_names: vec![],
-                                resultset_row_count: 0,
-                                resultset_int_cols: vec![],
-                                resultset_bigint_cols: vec![],
-                                resultset_bool_cols: vec![],
-                                resultset_string_cols: vec![],
-                                resultset_datetime_cols: vec![],
-                                resultset_col_types: vec![],
-                            }));
+                        stream.messages.push(PostgresMessageData {
+                            query: Some(Cow::Owned(format!(
+                                "LOGIN: user: {}, db: {}, app: {}",
+                                username,
+                                database,
+                                application.as_deref().unwrap_or("-")
+                            ))),
+                            query_timestamp: timestamp,
+                            result_timestamp: timestamp,
+                            parameter_values: vec![],
+                            resultset_col_names: vec![],
+                            resultset_row_count: 0,
+                            resultset_int_cols: vec![],
+                            resultset_bigint_cols: vec![],
+                            resultset_bool_cols: vec![],
+                            resultset_string_cols: vec![],
+                            resultset_datetime_cols: vec![],
+                            resultset_col_types: vec![],
+                        });
                     }
                     PostgresWireMessage::Startup { .. } => {
                         if stream.client_server.is_none() {
@@ -270,22 +271,20 @@ impl MessageParser for Postgres {
                             });
                         }
                         if globals.was_bind {
-                            stream
-                                .messages
-                                .push(MessageData::Postgres(PostgresMessageData {
-                                    query: globals.cur_query_with_fallback.map(Cow::Owned),
-                                    query_timestamp: globals.query_timestamp.unwrap(), // know it was populated since was_bind is true
-                                    result_timestamp: timestamp,
-                                    parameter_values: globals.cur_parameter_values,
-                                    resultset_col_names: globals.cur_col_names,
-                                    resultset_row_count: globals.cur_rs_row_count,
-                                    resultset_bool_cols: globals.cur_rs_bool_cols,
-                                    resultset_string_cols: globals.cur_rs_string_cols,
-                                    resultset_int_cols: globals.cur_rs_int_cols,
-                                    resultset_bigint_cols: globals.cur_rs_bigint_cols,
-                                    resultset_datetime_cols: globals.cur_rs_datetime_cols,
-                                    resultset_col_types: globals.cur_col_types,
-                                }));
+                            stream.messages.push(PostgresMessageData {
+                                query: globals.cur_query_with_fallback.map(Cow::Owned),
+                                query_timestamp: globals.query_timestamp.unwrap(), // know it was populated since was_bind is true
+                                result_timestamp: timestamp,
+                                parameter_values: globals.cur_parameter_values,
+                                resultset_col_names: globals.cur_col_names,
+                                resultset_row_count: globals.cur_rs_row_count,
+                                resultset_bool_cols: globals.cur_rs_bool_cols,
+                                resultset_string_cols: globals.cur_rs_string_cols,
+                                resultset_int_cols: globals.cur_rs_int_cols,
+                                resultset_bigint_cols: globals.cur_rs_bigint_cols,
+                                resultset_datetime_cols: globals.cur_rs_datetime_cols,
+                                resultset_col_types: globals.cur_col_types,
+                            });
                         }
                         globals.was_bind = false;
                         globals.cur_query_with_fallback = None;
@@ -309,22 +308,20 @@ impl MessageParser for Postgres {
                                 server_port: new_packet.basic_info.port_src,
                             });
                         }
-                        stream
-                            .messages
-                            .push(MessageData::Postgres(PostgresMessageData {
-                                query: Some(Cow::Borrowed("COPY DATA")),
-                                query_timestamp: timestamp,
-                                result_timestamp: timestamp,
-                                parameter_values: vec![],
-                                resultset_col_names: vec![],
-                                resultset_row_count: 0,
-                                resultset_int_cols: vec![],
-                                resultset_bigint_cols: vec![],
-                                resultset_bool_cols: vec![],
-                                resultset_string_cols: vec![],
-                                resultset_datetime_cols: vec![],
-                                resultset_col_types: vec![],
-                            }));
+                        stream.messages.push(PostgresMessageData {
+                            query: Some(Cow::Borrowed("COPY DATA")),
+                            query_timestamp: timestamp,
+                            result_timestamp: timestamp,
+                            parameter_values: vec![],
+                            resultset_col_names: vec![],
+                            resultset_row_count: 0,
+                            resultset_int_cols: vec![],
+                            resultset_bigint_cols: vec![],
+                            resultset_bool_cols: vec![],
+                            resultset_string_cols: vec![],
+                            resultset_datetime_cols: vec![],
+                            resultset_col_types: vec![],
+                        });
                     }
                 }
             }
@@ -417,12 +414,11 @@ impl MessageParser for Postgres {
         &self,
         ls: &gtk::ListStore,
         session_id: u32,
-        messages: &[MessageData],
+        messages: &[PostgresMessageData],
         start_idx: i32,
     ) {
         // println!("adding {} rows", messages.len());
-        for (idx, message) in messages.iter().enumerate() {
-            let postgres = message.as_postgres().unwrap();
+        for (idx, postgres) in messages.iter().enumerate() {
             ls.insert_with_values(
                 None,
                 &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],

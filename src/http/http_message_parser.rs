@@ -25,6 +25,9 @@ use std::sync::mpsc;
 pub struct Http;
 
 impl MessageParser for Http {
+    type MessageType = HttpMessageData;
+    type StreamGlobalsType = ();
+
     fn is_my_message(&self, msg: &TSharkPacket) -> bool {
         msg.http.is_some()
     }
@@ -33,13 +36,13 @@ impl MessageParser for Http {
         Icon::HTTP
     }
 
-    fn initial_globals(&self) -> StreamGlobals {
-        StreamGlobals::None
+    fn initial_globals(&self) -> () {
+        ()
     }
 
     fn add_to_stream(
         &self,
-        stream: &mut StreamData,
+        stream: &mut StreamData<HttpMessageData, ()>,
         new_packet: TSharkPacket,
     ) -> Result<(), String> {
         let rr = parse_request_response(new_packet);
@@ -70,12 +73,12 @@ impl MessageParser for Http {
                         server_port: srv_port,
                     });
                 }
-                stream.messages.push(MessageData::Http(HttpMessageData {
+                stream.messages.push(HttpMessageData {
                     http_stream_id: 0,
                     is_end_stream: true,
                     request: Some(r),
                     response: None,
-                }));
+                });
             }
             ReqRespInfo {
                 req_resp: RequestOrResponseOrOther::Response(r),
@@ -92,18 +95,16 @@ impl MessageParser for Http {
                     });
                 }
                 match stream.messages.last() {
-                    Some(MessageData::Http(ref mut http))
-                        if http.request.is_some() && http.response.is_none() =>
-                    {
+                    Some(ref mut http) if http.request.is_some() && http.response.is_none() => {
                         http.response = Some(r);
                     }
                     _ => {
-                        stream.messages.push(MessageData::Http(HttpMessageData {
+                        stream.messages.push(HttpMessageData {
                             http_stream_id: 0,
                             is_end_stream: true,
                             request: None,
                             response: Some(r),
-                        }));
+                        });
                     }
                 };
             }
@@ -201,12 +202,11 @@ impl MessageParser for Http {
         &self,
         ls: &gtk::ListStore,
         session_id: u32,
-        messages: &[MessageData],
+        messages: &[HttpMessageData],
         start_idx: i32,
     ) {
-        for (idx, message) in messages.iter().enumerate() {
+        for (idx, http) in messages.iter().enumerate() {
             let iter = ls.append();
-            let http = message.as_http().unwrap();
             ls.set_value(
                 &iter,
                 0,
