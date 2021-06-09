@@ -149,6 +149,8 @@ pub struct Model {
     loaded_data_sender: relm::Sender<ParseInputStep>,
 
     cur_liststore: Option<(CommTargetCardKey, gtk::ListStore, i32)>,
+    remote_ips_streams_treestore: gtk::TreeStore,
+    remote_ips_streams_iptopath: HashMap<IpAddr, gtk::TreePath>,
 
     comm_targets_components: HashMap<CommTargetCardKey, Component<CommTargetCard>>,
     _recent_file_item_components: Vec<Component<RecentFileItem>>,
@@ -667,7 +669,7 @@ impl Widget for Win {
                         }
                         stream_data
                     } else {
-                        // new stream
+                        // new stream --
                         message_count_before = 0;
                         let mut stream_data = StreamData {
                             stream_globals: parser.initial_globals(),
@@ -691,6 +693,47 @@ impl Widget for Win {
                                 &parser,
                                 stream_data.client_server.as_ref().unwrap(),
                                 stream_data.summary_details.as_deref(),
+                            );
+
+                            let remote_ip_iter = self
+                                .model
+                                .remote_ips_streams_iptopath
+                                .get(&stream_data.client_server.unwrap().client_ip)
+                                .and_then(|path| {
+                                    self.model.remote_ips_streams_treestore.get_iter(&path)
+                                })
+                                .unwrap_or_else(|| {
+                                    self.model.remote_ips_streams_treestore.insert_with_values(
+                                        None,
+                                        None,
+                                        &[0, 1],
+                                        &[
+                                            &stream_data
+                                                .client_server
+                                                .unwrap()
+                                                .client_ip
+                                                .to_string()
+                                                .to_value(),
+                                            &pango::Weight::Normal.to_glib().to_value(),
+                                        ],
+                                    )
+                                });
+                            // TODO some duplication with refresh_remote_ips_streams_tree()
+                            self.model.remote_ips_streams_treestore.insert_with_values(
+                                Some(&remote_ip_iter),
+                                None,
+                                &[0, 1, 2],
+                                &[
+                                    &format!(
+                                        r#"<span foreground="{}" size="smaller">⬤</span> <span rise="-1700">Stream {}</span>"#,
+                                        colors::STREAM_COLORS
+                                            [packet_stream_id as usize % colors::STREAM_COLORS.len()],
+                                        packet_stream_id
+                                    )
+                                        .to_value(),
+                                    &pango::Weight::Normal.to_glib().to_value(),
+                                    &packet_stream_id.to_value(),
+                                ],
                             );
                         }
                         &stream_data
@@ -731,7 +774,7 @@ impl Widget for Win {
                                         parser.end_populate_treeview(tv, &ls);
                                         (ls, 0)
                                     });
-                                // refresh_remote_ips_streams_tree() // <-----------
+                                // refresh_remote_ips_streams_tree() // <------
                                 parser.populate_treeview(
                                     &ls,
                                     p.basic_info.tcp_stream_id,
@@ -1071,6 +1114,7 @@ impl Widget for Win {
     }
 
     fn gui_load_file(&mut self, fname: PathBuf) {
+        self.connect_remote_ips_streams_tree(self.init_remote_ips_streams_tree());
         self.components
             .headerbar_search
             .emit(HeaderbarSearchMsg::SearchActiveChanged(false));
@@ -1133,22 +1177,34 @@ impl Widget for Win {
     //     // self.model.selected_card = self.model.comm_target_cards.first().cloned();
     // }
 
-    fn refresh_remote_ips_streams_tree(
-        &mut self,
-        card: &CommTargetCardData,
-        remote_ips: &HashSet<IpAddr>,
-    ) {
-        let remote_ips_streams_tree_store = gtk::TreeStore::new(&[
+    fn init_remote_ips_streams_tree(&mut self) {
+        self.model.remote_ips_streams_iptopath.clear();
+        self.model.remote_ips_streams_treestore = gtk::TreeStore::new(&[
             String::static_type(),
             pango::Weight::static_type(),
             u32::static_type(),
         ]);
-        remote_ips_streams_tree_store.insert_with_values(
+        self.model.remote_ips_streams_treestore.insert_with_values(
             None,
             None,
             &[0, 1],
             &[&"All".to_value(), &pango::Weight::Bold.to_glib().to_value()],
         );
+    }
+
+    fn connect_remote_ips_streams_tree(&mut self) {
+        self.widgets
+            .remote_ips_streams_treeview
+            .set_model(Some(&self.model.remote_ips_streams_treestore));
+        self.widgets.remote_ips_streams_treeview.expand_all();
+    }
+
+    fn refresh_remote_ips_streams_tree(
+        &mut self,
+        card: &CommTargetCardData,
+        remote_ips: &HashSet<IpAddr>,
+    ) {
+        let remote_ips_streams_tree_store = self.init_remote_ips_streams_tree();
         // self.widgets.remote_ips_streams_treeview.set_cursor(
         //     &gtk::TreePath::new_first(),
         //     None::<&gtk::TreeViewColumn>,
@@ -1158,7 +1214,7 @@ impl Widget for Win {
         let target_port = card.port;
 
         for remote_ip in remote_ips {
-            let remote_ip_iter = remote_ips_streams_tree_store.insert_with_values(
+            let remote_ip_iter = self.model.remote_ips_streams_treestore.insert_with_values(
                 None,
                 None,
                 &[0, 1],
@@ -1167,6 +1223,13 @@ impl Widget for Win {
                     &pango::Weight::Normal.to_glib().to_value(),
                 ],
             );
+            self.model.remote_ips_streams_iptopath.insert(
+                *remote_ip,
+                self.model
+                    .remote_ips_streams_treestore
+                    .get_path(&remote_ip_iter)
+                    .unwrap(),
+            );
             for (stream_id, messages) in &self.model.streams {
                 if messages.client_server.map(|cs| cs.server_ip) != Some(target_ip)
                     || messages.client_server.map(|cs| cs.server_port) != Some(target_port)
@@ -1174,7 +1237,7 @@ impl Widget for Win {
                 {
                     continue;
                 }
-                remote_ips_streams_tree_store.insert_with_values(
+                self.model.remote_ips_streams_treestore.insert_with_values(
                     Some(&remote_ip_iter),
                     None,
                     &[0, 1, 2],
@@ -1193,10 +1256,7 @@ impl Widget for Win {
             }
         }
 
-        self.widgets
-            .remote_ips_streams_treeview
-            .set_model(Some(&remote_ips_streams_tree_store));
-        self.widgets.remote_ips_streams_treeview.expand_all();
+        self.connect_remote_ips_streams_tree();
     }
 
     fn refresh_remote_servers(
