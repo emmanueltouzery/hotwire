@@ -669,7 +669,7 @@ impl Widget for Win {
                         }
                         stream_data
                     } else {
-                        // new stream --
+                        // new stream
                         message_count_before = 0;
                         let mut stream_data = StreamData {
                             stream_globals: parser.initial_globals(),
@@ -703,20 +703,29 @@ impl Widget for Win {
                                     self.model.remote_ips_streams_treestore.get_iter(&path)
                                 })
                                 .unwrap_or_else(|| {
-                                    self.model.remote_ips_streams_treestore.insert_with_values(
-                                        None,
-                                        None,
-                                        &[0, 1],
-                                        &[
-                                            &stream_data
-                                                .client_server
-                                                .unwrap()
-                                                .client_ip
-                                                .to_string()
-                                                .to_value(),
-                                            &pango::Weight::Normal.to_glib().to_value(),
-                                        ],
-                                    )
+                                    let new_iter =
+                                        self.model.remote_ips_streams_treestore.insert_with_values(
+                                            None,
+                                            None,
+                                            &[0, 1],
+                                            &[
+                                                &stream_data
+                                                    .client_server
+                                                    .unwrap()
+                                                    .client_ip
+                                                    .to_string()
+                                                    .to_value(),
+                                                &pango::Weight::Normal.to_glib().to_value(),
+                                            ],
+                                        );
+                                    self.model.remote_ips_streams_iptopath.insert(
+                                        stream_data.client_server.unwrap().client_ip,
+                                        self.model
+                                            .remote_ips_streams_treestore
+                                            .get_path(&new_iter)
+                                            .unwrap(),
+                                    );
+                                    new_iter
                                 });
                             // TODO some duplication with refresh_remote_ips_streams_tree()
                             self.model.remote_ips_streams_treestore.insert_with_values(
