@@ -48,6 +48,58 @@ const WELCOME_STACK_NAME: &str = "welcome";
 const LOADING_STACK_NAME: &str = "loading";
 const NORMAL_STACK_NAME: &str = "normal";
 
+macro_rules! message_parser_visitor {
+    ($self: ident, $visitor: expr) => {
+        $visitor(
+            $self,
+            Http,
+            0,
+            &$self.model.http_streams,
+            &$self.model.http_details_component_emitters,
+        );
+        $visitor(
+            $self,
+            Postgres,
+            1,
+            &$self.model.postgres_streams,
+            &$self.model.postgres_details_component_emitters,
+        );
+        $visitor(
+            $self,
+            Http2,
+            2,
+            &$self.model.http2_streams,
+            &$self.model.http2_details_component_emitters,
+        );
+    };
+    ($self: ident, $visitor: expr, $param1:expr) => {
+        $visitor(
+            $self,
+            Http,
+            0,
+            &$self.model.http_streams,
+            &$self.model.http_details_component_emitters,
+            $param1,
+        );
+        $visitor(
+            $self,
+            Postgres,
+            1,
+            &$self.model.postgres_streams,
+            &$self.model.postgres_details_component_emitters,
+            $param1,
+        );
+        $visitor(
+            $self,
+            Http2,
+            2,
+            &$self.model.http2_streams,
+            &$self.model.http2_details_component_emitters,
+            $param1,
+        );
+    };
+}
+
 #[derive(Debug)]
 pub enum InputStep {
     Packet(TSharkPacket),
@@ -154,7 +206,13 @@ pub struct Model {
     comm_targets_components: HashMap<CommTargetCardKey, Component<CommTargetCard>>,
     _recent_file_item_components: Vec<Component<RecentFileItem>>,
 
-    details_component_emitters: Vec<Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, MessageInfo)>>,
+    http_details_component_emitters:
+        Vec<Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, HttpMessageData)>>,
+    http2_details_component_emitters:
+        Vec<Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, HttpMessageData)>>,
+    postgres_details_component_emitters:
+        Vec<Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, PostgresMessageData)>>,
+
     details_adjustments: Vec<gtk::Adjustment>,
 }
 
@@ -283,9 +341,7 @@ impl Widget for Win {
             .unwrap()
             .set_property_gtk_alternative_sort_arrows(true);
 
-        for (idx, message_parser) in get_message_parsers().iter().enumerate() {
-            self.add_message_parser_grid_and_pane(&message_parser, idx);
-        }
+        message_parser_visitor!(self, Self::add_message_parser_grid_and_pane);
 
         self.init_remote_ip_streams_tv();
 
@@ -303,6 +359,35 @@ impl Widget for Win {
         if let Some(p) = path {
             self.gui_load_file(p);
         }
+    }
+
+    fn get_parser_by_idx(&self, idx: usize) -> impl MessageParser {
+        let mut result: Option<Box<dyn MessageParser>> = None;
+        message_parser_visitor!(
+            self,
+            |_self, parser, parser_idx, _streams, _details_emitters| {
+                if parser_idx == idx {
+                    result = Some(parser);
+                }
+            }
+        );
+        result.unwrap()
+    }
+
+    fn get_streams_by_idx<MP: MessageParser>(
+        &self,
+        idx: usize,
+    ) -> &HashMap<u32, StreamData<MP::MessageType, MP::StreamGlobalsType>> {
+        let mut result = None;
+        message_parser_visitor!(
+            self,
+            |_self, _parser, parser_idx, streams, _details_emitters| {
+                if parser_idx == idx {
+                    result = Some(streams);
+                }
+            }
+        );
+        result.unwrap()
     }
 
     fn refresh_recent_files(&mut self) {
@@ -332,10 +417,12 @@ impl Widget for Win {
             });
     }
 
-    fn add_message_parser_grid_and_pane<MT, GT>(
+    fn add_message_parser_grid_and_pane<Parser: MessageParser>(
         &mut self,
-        message_parser: &Box<dyn MessageParser<MessageType = MT, StreamGlobalsType = GT>>,
+        message_parser: Parser,
         idx: usize,
+        _streams: &HashMap<u32, StreamData<Parser::MessageType, Parser::StreamGlobalsType>>,
+        _details_emitters: &[Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, Parser::MessageType)>],
     ) {
         let tv = gtk::TreeViewBuilder::new()
             .activate_on_single_click(true)
@@ -550,7 +637,9 @@ impl Widget for Win {
             recent_files: vec![],
             selected_card: None,
             comm_remote_servers_treeviews: vec![],
-            details_component_emitters: vec![],
+            http_details_component_emitters: vec![],
+            http2_details_component_emitters: vec![],
+            postgres_details_component_emitters: vec![],
             details_adjustments: vec![],
             loaded_data_sender,
             _loaded_data_channel,
@@ -573,14 +662,31 @@ impl Widget for Win {
         }
     }
 
-    fn stream_visitor<MP: MessageParser>(
-        &self,
-        visitor: impl Fn(&StreamData<MP::MessageType, MP::StreamGlobalsType>),
-    ) {
-        self.model.http_streams.iter().for_each(visitor);
-        self.model.http2_streams.iter().for_each(visitor);
-        self.model.postgres_streams.iter().for_each(visitor);
-    }
+    // fn message_parser_visitor<MP: MessageParser>(
+    //     &self,
+    //     visitor: impl Fn(
+    //         Box<
+    //             MessageParser<
+    //                 MessageType = MP::MessageType,
+    //                 StreamGlobalsType = MP::StreamGlobalsType,
+    //             >,
+    //         >,
+    //         usize,
+    //     ),
+    // ) {
+    //     visitor(Box::new(Http), 0);
+    //     visitor(Box::new(Postgres), 1);
+    //     visitor(Box::new(Http2), 2);
+    // }
+
+    // fn stream_visitor<MP: MessageParser>(
+    //     &self,
+    //     visitor: impl Fn(&StreamData<MP::MessageType, MP::StreamGlobalsType>),
+    // ) {
+    //     self.model.http_streams.iter().for_each(visitor);
+    //     self.model.http2_streams.iter().for_each(visitor);
+    //     self.model.postgres_streams.iter().for_each(visitor);
+    // }
 
     fn update(&mut self, event: Msg) {
         match &event {
@@ -667,13 +773,14 @@ impl Widget for Win {
                 dialog.close();
             }
             Msg::LoadedData(Ok(InputStep::Packet(p))) => {
-                if Http.is_my_message(&p) {
-                    self.handle_loaded_data(Http, 0, &self.model.http_streams, p);
-                } else if Postgres.is_my_message(&p) {
-                    self.handle_loaded_data(Postgres, 1, &self.model.postgres_streams, p);
-                } else if Http2.is_my_message(&p) {
-                    self.handle_loaded_data(Http2, 2, &self.model.http2_streams, p);
-                }
+                message_parser_visitor!(self, Self::handle_message_if_mine, p);
+                // if Http.is_my_message(&p) {
+                //     self.handle_loaded_data(Http, 0, &self.model.http_streams, p);
+                // } else if Postgres.is_my_message(&p) {
+                //     self.handle_loaded_data(Postgres, 1, &self.model.postgres_streams, p);
+                // } else if Http2.is_my_message(&p) {
+                //     self.handle_loaded_data(Http2, 2, &self.model.http2_streams, p);
+                // }
             }
             Msg::LoadedData(Ok(InputStep::Eof)) => {
                 if self.stream_by_client_server(|_| true).is_none() {
@@ -759,6 +866,19 @@ impl Widget for Win {
                 }
             }
             Msg::Quit => gtk::main_quit(),
+        }
+    }
+
+    fn handle_message_if_mine<Parser: MessageParser>(
+        &self,
+        parser: Parser,
+        parser_index: usize,
+        streams: &HashMap<u32, StreamData<Parser::MessageType, Parser::StreamGlobalsType>>,
+        _details_emitters: &[Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, Parser::MessageType)>],
+        packet: TSharkPacket,
+    ) {
+        if parser.is_my_message(&packet) {
+            self.handle_loaded_data(parser, parser_index, streams, packet);
         }
     }
 
@@ -1045,10 +1165,11 @@ impl Widget for Win {
 
     fn search_text_changed(&mut self, txt: String) {
         if let Some((protocol_index, tv, model_sort)) = self.get_model_sort() {
-            let parsers = get_message_parsers();
+            // let parsers = get_message_parsers();
             let new_model_filter = gtk::TreeModelFilter::new(&model_sort, None);
             new_model_filter.set_visible_func(move |model, iter| {
-                let mp = parsers.get(protocol_index).unwrap();
+                let mp = self.get_parser_by_idx(protocol_index);
+                // let mp = parsers.get(protocol_index).unwrap();
                 mp.matches_filter(&txt, model, iter)
             });
             tv.set_model(Some(&new_model_filter));
@@ -1314,7 +1435,6 @@ impl Widget for Win {
             let target_ip = card.ip;
             let target_port = card.port;
             let mut by_remote_ip = HashMap::new();
-            let parsers = get_message_parsers();
             for (stream_id, messages) in &self.model.streams {
                 if messages.client_server.map(|cs| cs.server_ip) != Some(target_ip)
                     || messages.client_server.map(|cs| cs.server_port) != Some(target_port)
@@ -1344,7 +1464,7 @@ impl Widget for Win {
                     .or_insert_with(Vec::new);
                 remote_server_streams.push((stream_id, messages));
             }
-            let mp = parsers.get(card.protocol_index).unwrap();
+            let mp = self.get_parser_by_idx(card.protocol_index);
             self.widgets
                 .comm_remote_servers_stack
                 .set_visible_child_name(&card.protocol_index.to_string());
