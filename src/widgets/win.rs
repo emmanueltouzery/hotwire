@@ -1279,7 +1279,7 @@ impl Widget for Win {
                 )?;
             }
             self.reset_open_file(None);
-            let mut tcpdump_child = Command::new("pexec")
+            let mut tcpdump_child = Command::new("pkexec")
                 .args(&[
                     "tcpdump",
                     "-ni",
