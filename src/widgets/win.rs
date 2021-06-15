@@ -1237,6 +1237,18 @@ impl Widget for Win {
             .ok()
             .and_then(|o| String::from_utf8(o.stdout).ok())
             .unwrap_or_else(|| "Failed running tshark".to_string());
+        let pkexec_version = Command::new("pkexec")
+            .args(&["--version"])
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .unwrap_or_else(|| "No pkexec installed".to_string());
+        let tcpdump_version = Command::new("tcpdump")
+            .args(&["--version"])
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .unwrap_or_else(|| "No tcpdump installed".to_string());
         let dlg = gtk::AboutDialogBuilder::new()
             .name("Hotwire")
             .version(env!("CARGO_PKG_VERSION"))
@@ -1245,6 +1257,8 @@ impl Widget for Win {
             .comments("Explore the contents of network capture files")
             .build();
         dlg.add_credit_section("tshark", &[&tshark_version]);
+        dlg.add_credit_section("pkexec", &[&pkexec_version]);
+        dlg.add_credit_section("tcpdump", &[&tcpdump_version]);
         dlg.run();
         dlg.close();
     }
