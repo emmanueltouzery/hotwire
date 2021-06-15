@@ -36,7 +36,7 @@ pub struct Model {
 
 #[derive(Msg, Debug)]
 pub enum Msg {
-    DisplayDetails(mpsc::Sender<BgFunc>, PathBuf, MessageInfo),
+    DisplayDetails(mpsc::Sender<BgFunc>, MessageInfo),
     ExportResultSet,
 }
 
@@ -148,7 +148,6 @@ impl Widget for PostgresCommEntry {
         match event {
             Msg::DisplayDetails(
                 _bg_sender,
-                _path,
                 MessageInfo {
                     stream_id,
                     client_ip,
@@ -164,7 +163,7 @@ impl Widget for PostgresCommEntry {
 
                 self.fill_resultset();
             }
-            Msg::DisplayDetails(_, _, _) => {}
+            Msg::DisplayDetails(_, _) => {}
             Msg::ExportResultSet => {
                 let dialog = gtk::FileChooserNativeBuilder::new()
                     .action(gtk::FileChooserAction::Save)

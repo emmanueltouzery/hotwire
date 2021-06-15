@@ -1,5 +1,8 @@
 use crate::http::http_message_parser::HttpMessageData;
+use crate::http::http_message_parser::HttpStreamGlobals;
+use crate::http2::http2_message_parser::Http2StreamGlobals;
 use crate::pgsql::postgres_message_parser::PostgresMessageData;
+use crate::pgsql::postgres_message_parser::PostgresStreamGlobals;
 use gtk::prelude::*;
 use relm::Widget;
 use relm_derive::{widget, Msg};
@@ -26,6 +29,36 @@ impl MessageData {
     pub fn as_postgres(&self) -> Option<&PostgresMessageData> {
         match &self {
             MessageData::Postgres(x) => Some(x),
+            _ => None,
+        }
+    }
+}
+
+pub enum StreamGlobals {
+    Postgres(PostgresStreamGlobals),
+    Http2(Http2StreamGlobals),
+    Http(HttpStreamGlobals),
+    None,
+}
+
+impl StreamGlobals {
+    pub fn as_postgres(self) -> Option<PostgresStreamGlobals> {
+        match self {
+            StreamGlobals::Postgres(x) => Some(x),
+            _ => None,
+        }
+    }
+
+    pub fn as_http(self) -> Option<HttpStreamGlobals> {
+        match self {
+            StreamGlobals::Http(x) => Some(x),
+            _ => None,
+        }
+    }
+
+    pub fn as_http2(self) -> Option<Http2StreamGlobals> {
+        match self {
+            StreamGlobals::Http2(x) => Some(x),
             _ => None,
         }
     }

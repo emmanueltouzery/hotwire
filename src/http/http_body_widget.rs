@@ -30,7 +30,7 @@ pub struct SavedBodyData {
 #[derive(Msg, Debug)]
 pub enum Msg {
     FormatCodeChanged(bool),
-    RequestResponseChanged(Option<HttpRequestResponseData>, PathBuf),
+    RequestResponseChanged(Option<HttpRequestResponseData>),
     SaveBinaryContents,
 }
 
@@ -39,7 +39,6 @@ pub struct Model {
 
     format_code: bool,
     data: Option<HttpRequestResponseData>,
-    file_path: Option<PathBuf>,
 
     _saved_body_channel: relm::Channel<SavedBodyData>,
     saved_body_sender: relm::Sender<SavedBodyData>,
@@ -65,7 +64,6 @@ impl Widget for HttpBodyWidget {
             win_msg_sender,
             format_code: true,
             data: None,
-            file_path: None,
             _saved_body_channel,
             saved_body_sender,
         }
@@ -77,13 +75,12 @@ impl Widget for HttpBodyWidget {
             Msg::FormatCodeChanged(format_code) => {
                 self.model.format_code = format_code;
             }
-            Msg::RequestResponseChanged(http_data, file_path) => {
+            Msg::RequestResponseChanged(http_data) => {
                 // it's very important to set the model right now,
                 // because setting it resets the contents stack
                 // => need to reset the stack to display the "text"
                 // child after that, if needed.
                 self.model.data = http_data.clone();
-                self.model.file_path = Some(file_path);
 
                 // need to try to decode as string.. the content-type may not be
                 // populated or be too exotic, and binary contents don't mean much
@@ -129,7 +126,6 @@ impl Widget for HttpBodyWidget {
                         )),
                         win::InfobarOptions::ShowSpinner,
                     ));
-                    let file_path = self.model.file_path.clone().unwrap();
                     if let Some(HttpBody::Binary(ref bytes)) =
                         self.model.data.as_ref().map(|d| &d.body)
                     {

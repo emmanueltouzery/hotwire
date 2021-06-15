@@ -44,7 +44,7 @@ pub struct TSharkHttp2Message {
 
 pub fn parse_http2_info<B: BufRead>(
     xml_reader: &mut quick_xml::Reader<B>,
-) -> Vec<TSharkHttp2Message> {
+) -> Result<Vec<TSharkHttp2Message>, String> {
     let mut streams = vec![];
     let buf = &mut vec![];
     xml_event_loop!(xml_reader, buf,
@@ -55,7 +55,7 @@ pub fn parse_http2_info<B: BufRead>(
                     .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                     .map(|kv| kv.unwrap().value);
                 if name.as_deref() == Some(b"http2.stream")  {
-                    let msg = parse_http2_stream(xml_reader);
+                    let msg = parse_http2_stream(xml_reader)?;
                     if !msg.headers.is_empty() || matches!(&msg.data, Some(v) if !v.is_empty()) {
                         streams.push(msg);
                     }
@@ -64,13 +64,15 @@ pub fn parse_http2_info<B: BufRead>(
         }
         Ok(Event::End(ref e)) => {
             if e.name() == b"proto" {
-                return streams;
+                return Ok(streams);
             }
         }
     )
 }
 
-fn parse_http2_stream<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> TSharkHttp2Message {
+fn parse_http2_stream<B: BufRead>(
+    xml_reader: &mut quick_xml::Reader<B>,
+) -> Result<TSharkHttp2Message, String> {
     let mut field_depth = 0;
     let mut headers = vec![];
     let mut data = None;
@@ -117,7 +119,7 @@ fn parse_http2_stream<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> TSha
                     .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                     .map(|kv| kv.unwrap().value);
                 if name.as_deref() == Some(b"http2.header") {
-                    headers.append(&mut parse_http2_headers(xml_reader));
+                    headers.append(&mut parse_http2_headers(xml_reader)?);
                     field_depth -= 1; // assume the function parsed the </field>
                 }
             }
@@ -127,19 +129,21 @@ fn parse_http2_stream<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> TSha
                 field_depth -= 1;
                 dbg!(field_depth);
                 if field_depth < 0 {
-                    return TSharkHttp2Message {
+                    return Ok(TSharkHttp2Message {
                         headers,
                         data,
                         stream_id,
                         is_end_stream,
-                    };
+                    });
                 }
             }
         }
     )
 }
 
-fn parse_http2_headers<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> Vec<(String, String)> {
+fn parse_http2_headers<B: BufRead>(
+    xml_reader: &mut quick_xml::Reader<B>,
+) -> Result<Vec<(String, String)>, String> {
     let mut cur_name = None;
     let mut headers = vec![];
     let buf = &mut vec![];
@@ -166,7 +170,7 @@ fn parse_http2_headers<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> Vec
         }
         Ok(Event::End(ref e)) => {
             if e.name() == b"field" {
-                return headers;
+                return Ok(headers);
             }
         }
     )

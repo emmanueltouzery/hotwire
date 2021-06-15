@@ -50,7 +50,7 @@ pub enum PostgresWireMessage {
 
 pub fn parse_pgsql_info<B: BufRead>(
     xml_reader: &mut quick_xml::Reader<B>,
-) -> Option<PostgresWireMessage> {
+) -> Result<Option<PostgresWireMessage>, String> {
     let buf = &mut vec![];
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Empty(ref e)) => {
@@ -65,20 +65,20 @@ pub fn parse_pgsql_info<B: BufRead>(
                         .as_str()
                     {
                         "Startup message" => {
-                            return Some(parse_startup_message(xml_reader));
+                            return Ok(Some(parse_startup_message(xml_reader)?));
                         }
-                        "Copy data" => return Some(PostgresWireMessage::CopyData),
+                        "Copy data" => return Ok(Some(PostgresWireMessage::CopyData)),
                         "Parse" => {
-                            return Some(parse_parse_message(xml_reader));
+                            return Ok(Some(parse_parse_message(xml_reader)?));
                         },
-                        "Bind" => return Some(parse_bind_message(xml_reader)),
+                        "Bind" => return Ok(Some(parse_bind_message(xml_reader)?)),
                         "Ready for query" => {
-                            return Some(PostgresWireMessage::ReadyForQuery);
+                            return Ok(Some(PostgresWireMessage::ReadyForQuery));
                         }
                         "Row description" => {
-                            return Some(parse_row_description_message(xml_reader));
+                            return Ok(Some(parse_row_description_message(xml_reader)?));
                         }
-                        "Data row" => return Some(parse_data_row_message(xml_reader)),
+                        "Data row" => return Ok(Some(parse_data_row_message(xml_reader)?)),
                         _ => {}
                     }
                 }
@@ -86,13 +86,15 @@ pub fn parse_pgsql_info<B: BufRead>(
         }
         Ok(Event::End(ref e)) => {
             if e.name() == b"proto" {
-                return None;
+                return Ok(None);
             }
         }
     )
 }
 
-fn parse_startup_message<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> PostgresWireMessage {
+fn parse_startup_message<B: BufRead>(
+    xml_reader: &mut quick_xml::Reader<B>,
+) -> Result<PostgresWireMessage, String> {
     let mut cur_param_name = None;
     let mut username = None;
     let mut database = None;
@@ -129,17 +131,19 @@ fn parse_startup_message<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> P
         }
         Ok(Event::End(ref e)) => {
             if e.name() == b"proto" {
-                return PostgresWireMessage::Startup {
+                return Ok(PostgresWireMessage::Startup {
                     username,
                     database,
                     application,
-                };
+                });
             }
         }
     )
 }
 
-fn parse_parse_message<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> PostgresWireMessage {
+fn parse_parse_message<B: BufRead>(
+    xml_reader: &mut quick_xml::Reader<B>,
+) -> Result<PostgresWireMessage, String> {
     let mut statement = None;
     let mut query = None;
     let buf = &mut vec![];
@@ -163,14 +167,16 @@ fn parse_parse_message<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> Pos
         }
         Ok(Event::End(ref e)) => {
             if e.name() == b"proto" {
-                return PostgresWireMessage::Parse { statement, query };
+                return Ok(PostgresWireMessage::Parse { statement, query });
             }
         }
         _ => {}
     )
 }
 
-fn parse_bind_message<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> PostgresWireMessage {
+fn parse_bind_message<B: BufRead>(
+    xml_reader: &mut quick_xml::Reader<B>,
+) -> Result<PostgresWireMessage, String> {
     let mut statement = None;
     let mut parameter_values = vec![];
     let buf = &mut vec![];
@@ -197,23 +203,25 @@ fn parse_bind_message<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> Post
                     let show =
                         tshark_communication::element_attr_val_string(e, b"show").unwrap();
                     if show.starts_with("Parameter values") {
-                        parameter_values = parse_parameter_values(xml_reader);
+                        parameter_values = parse_parameter_values(xml_reader)?;
                     }
                 }
             }
         }
         Ok(Event::End(ref e)) => {
             if e.name() == b"proto" {
-                return PostgresWireMessage::Bind {
+                return Ok(PostgresWireMessage::Bind {
                     statement,
                     parameter_values,
-                };
+                });
             }
         }
     )
 }
 
-fn parse_parameter_values<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> Vec<String> {
+fn parse_parameter_values<B: BufRead>(
+    xml_reader: &mut quick_xml::Reader<B>,
+) -> Result<Vec<String>, String> {
     let mut param_lengths = vec![];
     let mut param_vals = vec![];
     let buf = &mut vec![];
@@ -245,7 +253,7 @@ fn parse_parameter_values<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> 
         }
         Ok(Event::End(ref e)) => {
             if e.name() == b"field" {
-                return add_cols(param_vals, param_lengths);
+                return Ok(add_cols(param_vals, param_lengths));
             }
         }
     )
@@ -253,7 +261,7 @@ fn parse_parameter_values<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> 
 
 fn parse_row_description_message<B: BufRead>(
     xml_reader: &mut quick_xml::Reader<B>,
-) -> PostgresWireMessage {
+) -> Result<PostgresWireMessage, String> {
     let mut col_names = vec![];
     let mut col_types = vec![];
     let buf = &mut vec![];
@@ -286,10 +294,10 @@ fn parse_row_description_message<B: BufRead>(
         }
         Ok(Event::End(ref e)) => {
             if e.name() == b"proto" {
-                return PostgresWireMessage::RowDescription {
+                return Ok(PostgresWireMessage::RowDescription {
                     col_names,
                     col_types,
-                };
+                });
             }
         }
     )
@@ -297,7 +305,7 @@ fn parse_row_description_message<B: BufRead>(
 
 fn parse_data_row_message<B: BufRead>(
     xml_reader: &mut quick_xml::Reader<B>,
-) -> PostgresWireMessage {
+) -> Result<PostgresWireMessage, String> {
     let mut col_lengths = vec![];
     let mut col_vals = vec![];
     let buf = &mut vec![];
@@ -331,7 +339,7 @@ fn parse_data_row_message<B: BufRead>(
         Ok(Event::End(ref e)) => {
             if e.name() == b"field" {
                 let cols = add_cols(col_vals, col_lengths);
-                return PostgresWireMessage::ResultSetRow { cols };
+                return Ok(PostgresWireMessage::ResultSetRow { cols });
             }
         }
     );

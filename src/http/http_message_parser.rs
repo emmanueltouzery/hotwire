@@ -3,9 +3,11 @@ use super::http_details_widget::HttpCommEntry;
 use crate::colors;
 use crate::http::tshark_http::HttpType;
 use crate::icons::Icon;
+use crate::message_parser::ClientServerInfo;
 use crate::message_parser::{MessageInfo, MessageParser, StreamData};
 use crate::tshark_communication::TSharkPacket;
 use crate::widgets::comm_remote_server::MessageData;
+use crate::widgets::comm_remote_server::StreamGlobals;
 use crate::widgets::win;
 use crate::BgFunc;
 use chrono::NaiveDateTime;
@@ -16,11 +18,15 @@ use relm::ContainerWidget;
 use std::borrow::Cow;
 use std::io::prelude::*;
 use std::net::IpAddr;
-use std::path::PathBuf;
 use std::str;
 use std::sync::mpsc;
 
 pub struct Http;
+
+#[derive(Debug, Default)]
+pub struct HttpStreamGlobals {
+    cur_request: Option<HttpRequestResponseData>,
+}
 
 impl MessageParser for Http {
     fn is_my_message(&self, msg: &TSharkPacket) -> bool {
@@ -31,75 +37,98 @@ impl MessageParser for Http {
         Icon::HTTP
     }
 
-    fn parse_stream(&self, stream: Vec<TSharkPacket>) -> Result<StreamData, String> {
-        let mut client_ip = stream.first().unwrap().basic_info.ip_src;
-        let mut server_ip = stream.first().unwrap().basic_info.ip_dst;
-        let mut server_port = stream.first().unwrap().basic_info.port_dst;
-        let mut cur_request = None;
-        let mut messages = vec![];
-        let mut summary_details = None;
-        for msg in stream {
-            let rr = parse_request_response(msg);
-            if summary_details.is_none() {
-                match (
-                    rr.req_resp
-                        .data()
-                        .and_then(|d| get_http_header_value(&d.headers, "X-Forwarded-Server")),
-                    rr.host.as_ref(),
-                ) {
-                    (Some(fwd), _) => summary_details = Some(fwd.clone()),
-                    (_, Some(host)) => summary_details = Some(host.clone()),
-                    _ => {}
+    fn initial_globals(&self) -> StreamGlobals {
+        StreamGlobals::Http(HttpStreamGlobals::default())
+    }
+
+    fn add_to_stream(
+        &self,
+        mut stream: StreamData,
+        new_packet: TSharkPacket,
+    ) -> Result<StreamData, String> {
+        let mut globals = stream.stream_globals.as_http().unwrap();
+        let mut messages = stream.messages;
+        let rr = parse_request_response(new_packet);
+        // so, sometimes I see host headers like that: "Host: 10.215.215.9:8081".
+        // That's completely useless to give me the real hostname, and if later
+        // in the stream I get the real hostname, I ignore it because I "already got"
+        // the hostname. So filter out these and ignore them.
+        let ip_only_chars: Vec<_> = "0123456789.:".chars().collect();
+        if stream.summary_details.is_none() {
+            match (
+                rr.req_resp
+                    .data()
+                    .and_then(|d| get_http_header_value(&d.headers, "X-Forwarded-Server")),
+                rr.host.as_ref(),
+            ) {
+                (Some(fwd), _) => stream.summary_details = Some(fwd.clone()),
+                (_, Some(host)) => {
+                    stream.summary_details = Some(host.clone())
+                        .filter(|h| !h.trim_end_matches(&ip_only_chars[..]).is_empty())
                 }
-            }
-            match rr {
-                ReqRespInfo {
-                    req_resp: RequestOrResponseOrOther::Request(r),
-                    port_dst: srv_port,
-                    ip_dst: srv_ip,
-                    ip_src: cl_ip,
-                    ..
-                } => {
-                    client_ip = cl_ip;
-                    server_ip = srv_ip;
-                    server_port = srv_port;
-                    cur_request = Some(r);
-                }
-                ReqRespInfo {
-                    req_resp: RequestOrResponseOrOther::Response(r),
-                    port_dst: srv_port,
-                    ip_dst: srv_ip,
-                    ip_src: cl_ip,
-                    ..
-                } => {
-                    client_ip = cl_ip;
-                    server_ip = srv_ip;
-                    server_port = srv_port;
-                    messages.push(MessageData::Http(HttpMessageData {
-                        request: cur_request,
-                        response: Some(r),
-                    }));
-                    cur_request = None;
-                }
-                ReqRespInfo {
-                    req_resp: RequestOrResponseOrOther::Other,
-                    ..
-                } => {}
+                _ => {}
             }
         }
-        if let Some(r) = cur_request {
+        match rr {
+            ReqRespInfo {
+                req_resp: RequestOrResponseOrOther::Request(r),
+                port_dst: srv_port,
+                ip_dst: srv_ip,
+                ip_src: cl_ip,
+                ..
+            } => {
+                if stream.client_server.is_none() {
+                    stream.client_server = Some(ClientServerInfo {
+                        client_ip: cl_ip,
+                        server_ip: srv_ip,
+                        server_port: srv_port,
+                    });
+                }
+                globals.cur_request = Some(r);
+            }
+            ReqRespInfo {
+                req_resp: RequestOrResponseOrOther::Response(r),
+                port_dst: srv_port,
+                ip_dst: srv_ip,
+                ip_src: cl_ip,
+                ..
+            } => {
+                if stream.client_server.is_none() {
+                    stream.client_server = Some(ClientServerInfo {
+                        client_ip: cl_ip,
+                        server_ip: srv_ip,
+                        server_port: srv_port,
+                    });
+                }
+                messages.push(MessageData::Http(HttpMessageData {
+                    http_stream_id: 0,
+                    request: globals.cur_request.take(),
+                    response: Some(r),
+                }));
+            }
+            ReqRespInfo {
+                req_resp: RequestOrResponseOrOther::Other,
+                ..
+            } => {}
+        };
+        stream.stream_globals = StreamGlobals::Http(globals);
+        stream.messages = messages;
+        Ok(stream)
+    }
+
+    fn finish_stream(&self, mut stream: StreamData) -> Result<StreamData, String> {
+        let globals = stream.stream_globals.as_http().unwrap();
+        let mut messages = stream.messages;
+        if let Some(req) = globals.cur_request {
             messages.push(MessageData::Http(HttpMessageData {
-                request: Some(r),
+                http_stream_id: 0,
+                request: Some(req),
                 response: None,
             }));
         }
-        Ok(StreamData {
-            client_ip,
-            server_ip,
-            server_port,
-            messages,
-            summary_details,
-        })
+        stream.stream_globals = StreamGlobals::Http(HttpStreamGlobals::default());
+        stream.messages = messages;
+        Ok(stream)
     }
 
     fn get_empty_liststore(&self) -> gtk::ListStore {
@@ -234,14 +263,14 @@ impl MessageParser for Http {
                     ls.set_value(&iter, 8, &rq.content_type.to_value());
                     ls.set_value(&iter, 9, &rs.content_type.to_value());
                     ls.set_value(&iter, 10, &rs.tcp_seq_number.to_value());
-                    ls.set_value(
-                        &iter,
-                        11,
-                        &colors::STREAM_COLORS[session_id as usize % colors::STREAM_COLORS.len()]
-                            .to_value(),
-                    );
                 }
             }
+            ls.set_value(
+                &iter,
+                11,
+                &colors::STREAM_COLORS[session_id as usize % colors::STREAM_COLORS.len()]
+                    .to_value(),
+            );
         }
     }
 
@@ -293,24 +322,24 @@ impl MessageParser for Http {
         overlay: Option<&gtk::Overlay>,
         bg_sender: mpsc::Sender<BgFunc>,
         win_msg_sender: relm::StreamHandle<win::Msg>,
-    ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, MessageInfo)> {
+    ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, MessageInfo)> {
         let component = Box::leak(Box::new(parent.add_widget::<HttpCommEntry>((
             win_msg_sender,
             0,
             "0.0.0.0".parse().unwrap(),
             HttpMessageData {
+                http_stream_id: 0,
                 request: None,
                 response: None,
             },
             overlay.unwrap().clone(),
             bg_sender,
         ))));
-        Box::new(move |bg_sender, path, message_info| {
+        Box::new(move |bg_sender, message_info| {
             component
                 .stream()
                 .emit(http_details_widget::Msg::DisplayDetails(
                     bg_sender,
-                    path,
                     message_info,
                 ))
         })
@@ -407,6 +436,7 @@ pub enum ContentEncoding {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HttpMessageData {
+    pub http_stream_id: u32,
     pub request: Option<HttpRequestResponseData>,
     pub response: Option<HttpRequestResponseData>,
 }

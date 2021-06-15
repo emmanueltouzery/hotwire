@@ -1,6 +1,9 @@
 use crate::http::tshark_http;
 use crate::http2::tshark_http2;
+use crate::message_parser::{MessageParser, StreamData};
 use crate::pgsql::tshark_pgsql;
+use crate::tshark_communication;
+use crate::widgets::win::ParseInputStep;
 use chrono::NaiveDateTime;
 use quick_xml::events::Event;
 use std::fmt::Debug;
@@ -14,9 +17,9 @@ macro_rules! xml_event_loop {
         loop {
             match $reader.read_event($buf) {
                 $($tts)*
-                Ok(Event::Eof) => panic!("Unexpected EOF"),
+                Ok(Event::Eof) => return Err("Unexpected EOF".to_string()),
                 Ok(_) => {}
-                Err(e) => panic!("Error at position {}: {:?}", $reader.buffer_position(), e),
+                Err(e) => return Err(format!("Error at position {}: {:?}", $reader.buffer_position(), e)),
             }
         }
     }
@@ -43,7 +46,7 @@ macro_rules! xml_event_loop {
 //     }
 // }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct TSharkPacketBasicInfo {
     pub frame_time: NaiveDateTime,
     pub ip_src: IpAddr,
@@ -64,7 +67,7 @@ pub struct TSharkPacket {
 
 pub fn parse_packet<B: BufRead>(
     xml_reader: &mut quick_xml::Reader<B>,
-) -> Result<TSharkPacket, quick_xml::Error> {
+) -> Result<TSharkPacket, String> {
     let mut frame_time = NaiveDateTime::from_timestamp(0, 0);
     let mut ip_src = None;
     let mut ip_dst = None;
@@ -85,20 +88,20 @@ pub fn parse_packet<B: BufRead>(
                     .map(|kv| kv.unwrap().value);
                 match name.as_deref() {
                     Some(b"frame") => {
-                        frame_time = parse_frame_info(xml_reader);
+                        frame_time = parse_frame_info(xml_reader)?;
                     }
                     Some(b"ip") => {
                         if ip_src.is_some() {
                             panic!("Unexpected IP at position {}", xml_reader.buffer_position());
                         }
-                        let ip_info = parse_ip_info(xml_reader);
+                        let ip_info = parse_ip_info(xml_reader)?;
                         ip_src = Some(ip_info.0);
                         ip_dst = Some(ip_info.1);
                     }
                     // TODO ipv6
                     Some(b"tcp") => {
                         // waiting for https://github.com/rust-lang/rust/issues/71126
-                        let tcp_info = parse_tcp_info(xml_reader);
+                        let tcp_info = parse_tcp_info(xml_reader)?;
                         tcp_seq_number = tcp_info.0;
                         tcp_stream_id = tcp_info.1;
                         port_src = tcp_info.2;
@@ -108,10 +111,10 @@ pub fn parse_packet<B: BufRead>(
                         if http.is_some() {
                             panic!("http already there");
                         }
-                        http = Some(tshark_http::parse_http_info(xml_reader));
+                        http = Some(tshark_http::parse_http_info(xml_reader)?);
                     }
                     Some(b"http2") => {
-                        let mut http2_packets = tshark_http2::parse_http2_info(xml_reader);
+                        let mut http2_packets = tshark_http2::parse_http2_info(xml_reader)?;
                         if let Some(mut sofar) = http2 {
                             sofar.append(&mut http2_packets);
                             http2 = Some(sofar);
@@ -120,7 +123,7 @@ pub fn parse_packet<B: BufRead>(
                         }
                     }
                     Some(b"pgsql") => {
-                        if let Some(pgsql_packets) = tshark_pgsql::parse_pgsql_info(xml_reader) {
+                        if let Some(pgsql_packets) = tshark_pgsql::parse_pgsql_info(xml_reader)? {
                             if let Some(mut sofar) = pgsql {
                                 sofar.push(pgsql_packets);
                                 pgsql = Some(sofar);
@@ -134,7 +137,7 @@ pub fn parse_packet<B: BufRead>(
             }
         }
         Ok(Event::End(ref e)) => {
-            if e.name() == b"packet" {
+            if e.name() == b"packet" && ip_src.is_some() && ip_dst.is_some() {
                 return Ok(TSharkPacket {
                     basic_info: TSharkPacketBasicInfo {
                         frame_time,
@@ -154,7 +157,9 @@ pub fn parse_packet<B: BufRead>(
     )
 }
 
-fn parse_frame_info<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> NaiveDateTime {
+fn parse_frame_info<B: BufRead>(
+    xml_reader: &mut quick_xml::Reader<B>,
+) -> Result<NaiveDateTime, String> {
     let buf = &mut vec![];
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Empty(ref e)) => {
@@ -176,15 +181,16 @@ fn parse_frame_info<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> NaiveD
                     // > Timezone is completely ignored. Similar to the glibc strptime treatment of this format code.
                     // > It is not possible to reliably convert from an abbreviation to an offset, for example CDT
                     // > can mean either Central Daylight Time (North America) or China Daylight Time.
-                    return NaiveDateTime::parse_from_str(&time_str, "%b %e, %Y %T.%f %Z")
-                        .unwrap();
+                    return NaiveDateTime::parse_from_str(&time_str, "%b %e, %Y %T.%f %Z").map_err(|e| e.to_string());
                 }
             }
         }
     )
 }
 
-fn parse_ip_info<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> (IpAddr, IpAddr) {
+fn parse_ip_info<B: BufRead>(
+    xml_reader: &mut quick_xml::Reader<B>,
+) -> Result<(IpAddr, IpAddr), String> {
     let mut ip_src = None;
     let mut ip_dst = None;
     let buf = &mut vec![];
@@ -208,13 +214,15 @@ fn parse_ip_info<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> (IpAddr, 
         }
         Ok(Event::End(ref e)) => {
             if e.name() == b"proto" {
-                return (ip_src.unwrap(), ip_dst.unwrap());
+                return Ok((ip_src.unwrap(), ip_dst.unwrap()));
             }
         }
     )
 }
 
-fn parse_tcp_info<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> (u32, u32, u32, u32) {
+fn parse_tcp_info<B: BufRead>(
+    xml_reader: &mut quick_xml::Reader<B>,
+) -> Result<(u32, u32, u32, u32), String> {
     let mut tcp_seq_number = 0;
     let mut tcp_stream_id = 0;
     let mut port_src = 0;
@@ -246,7 +254,7 @@ fn parse_tcp_info<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> (u32, u3
         }
         Ok(Event::End(ref e)) => {
             if e.name() == b"proto" {
-                return (tcp_seq_number, tcp_stream_id, port_src, port_dst);
+                return Ok((tcp_seq_number, tcp_stream_id, port_src, port_dst));
             }
         }
     )
@@ -314,6 +322,47 @@ macro_rules! test_fmt_str {
 }
 
 #[cfg(test)]
-pub fn parse_test_xml(xml: &str) -> Vec<TSharkPacket> {
-    crate::widgets::win::parse_pdml_stream(format!(test_fmt_str!(), xml).as_bytes()).unwrap()
+pub fn parse_test_xml(xml: &str) -> Result<Vec<TSharkPacket>, String> {
+    let fmt_xml = format!(test_fmt_str!(), xml);
+    let mut xml_reader = quick_xml::Reader::from_reader(fmt_xml.as_bytes());
+    let mut res = vec![];
+    let mut buf = vec![];
+    loop {
+        match xml_reader.read_event(&mut buf) {
+            Ok(Event::Start(ref e)) => {
+                if e.name() == b"packet" {
+                    if let Ok(packet) = tshark_communication::parse_packet(&mut xml_reader) {
+                        res.push(packet);
+                    }
+                }
+            }
+            Ok(Event::Eof) => {
+                return Ok(res);
+            }
+            Err(e) => {
+                panic!(format!("xml parsing error: {}", e));
+            }
+            _ => {}
+        };
+        buf.clear();
+    }
+}
+
+#[cfg(test)]
+pub fn parse_stream<MP: MessageParser>(
+    parser: MP,
+    packets: Result<Vec<TSharkPacket>, String>,
+) -> Result<StreamData, String> {
+    let mut stream_data = StreamData {
+        parser_index: 0,
+        stream_globals: parser.initial_globals(),
+        client_server: None,
+        messages: vec![],
+        summary_details: None,
+    };
+    for packet in packets.unwrap().into_iter() {
+        stream_data = parser.add_to_stream(stream_data, packet)?;
+    }
+    stream_data = parser.finish_stream(stream_data)?;
+    Ok(stream_data)
 }

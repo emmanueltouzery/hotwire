@@ -1,4 +1,4 @@
-use super::comm_remote_server::MessageData;
+use super::comm_target_card;
 use super::comm_target_card::{CommTargetCard, CommTargetCardData};
 use super::headerbar_search::HeaderbarSearch;
 use super::headerbar_search::Msg as HeaderbarSearchMsg;
@@ -6,33 +6,38 @@ use super::headerbar_search::Msg::SearchActiveChanged as HbsMsgSearchActiveChang
 use super::headerbar_search::Msg::SearchTextChanged as HbsMsgSearchTextChanged;
 use super::recent_file_item::RecentFileItem;
 use crate::colors;
+use crate::config;
 use crate::http::http_message_parser::Http;
 use crate::http2::http2_message_parser::Http2;
 use crate::icons::Icon;
+use crate::message_parser::ClientServerInfo;
+use crate::message_parser::StreamData;
 use crate::message_parser::{MessageInfo, MessageParser};
 use crate::pgsql::postgres_message_parser::Postgres;
 use crate::tshark_communication;
+use crate::tshark_communication::TSharkPacket;
 use crate::widgets::comm_target_card::SummaryDetails;
 use crate::BgFunc;
 use gdk::prelude::*;
 use glib::translate::ToGlib;
 use gtk::prelude::*;
-use itertools::Itertools;
 use quick_xml::events::Event;
 use relm::{Component, ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
-use std::cmp::Reverse;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io::BufRead;
 use std::io::BufReader;
 use std::net::IpAddr;
+use std::net::Ipv4Addr;
 use std::path::Path;
 use std::path::PathBuf;
+use std::process::Child;
 use std::process::Command;
 use std::process::Stdio;
 use std::sync::mpsc;
+use std::time::Duration;
 use std::time::Instant;
 
 const CSS_DATA: &[u8] = include_bytes!("../../resources/style.css");
@@ -45,14 +50,14 @@ pub fn get_message_parsers() -> Vec<Box<dyn MessageParser>> {
     vec![Box::new(Http), Box::new(Postgres), Box::new(Http2)]
 }
 
-pub type LoadedDataParams = Result<
-    (
-        PathBuf,
-        Vec<CommTargetCardData>,
-        Vec<(StreamInfo, Vec<MessageData>)>,
-    ),
-    String,
->;
+#[derive(Debug)]
+pub enum InputStep {
+    StartedTShark(Child),
+    Packet(TSharkPacket),
+    Eof,
+}
+
+pub type ParseInputStep = Result<InputStep, String>;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum InfobarOptions {
@@ -67,13 +72,14 @@ pub enum Msg {
     OpenFile,
     OpenRecentFile(usize),
     DisplayAbout,
+    CaptureToggled,
+    SaveCapture,
 
     KeyPress(gdk::EventKey),
     SearchActiveChanged(bool),
     SearchTextChanged(String),
 
-    FinishedTShark,
-    LoadedData(LoadedDataParams),
+    LoadedData(ParseInputStep),
 
     SelectCard(Option<usize>),
     SelectRemoteIpStream(gtk::TreeSelection),
@@ -110,6 +116,13 @@ struct TreeViewSignals {
     // row_activation_signal_id: glib::SignalHandlerId,
 }
 
+#[derive(PartialEq, Eq, Hash)]
+pub struct CommTargetCardKey {
+    pub ip: IpAddr,
+    pub port: u32,
+    pub protocol_index: usize,
+}
+
 pub struct Model {
     relm: relm::Relm<Win>,
     bg_sender: mpsc::Sender<BgFunc>,
@@ -123,29 +136,39 @@ pub struct Model {
 
     sidebar_selection_change_signal_id: Option<glib::SignalHandlerId>,
 
-    streams: Vec<(StreamInfo, Vec<MessageData>)>,
+    streams: HashMap<u32, StreamData>, // tcp_stream_id => streamdata
     comm_target_cards: Vec<CommTargetCardData>,
     selected_card: Option<CommTargetCardData>,
 
     comm_remote_servers_treeviews: Vec<(gtk::TreeView, TreeViewSignals)>,
 
-    _finished_tshark_channel: relm::Channel<()>,
-    finished_tshark_sender: relm::Sender<()>,
+    _loaded_data_channel: relm::Channel<ParseInputStep>,
+    loaded_data_sender: relm::Sender<ParseInputStep>,
 
-    _loaded_data_channel: relm::Channel<LoadedDataParams>,
-    loaded_data_sender: relm::Sender<LoadedDataParams>,
+    cur_liststore: Option<(CommTargetCardKey, gtk::ListStore, i32)>,
+    remote_ips_streams_treestore: gtk::TreeStore,
+    remote_ips_streams_iptopath: HashMap<IpAddr, gtk::TreePath>,
 
-    _comm_targets_components: Vec<Component<CommTargetCard>>,
+    comm_targets_components: HashMap<CommTargetCardKey, Component<CommTargetCard>>,
     _recent_file_item_components: Vec<Component<RecentFileItem>>,
 
-    details_component_emitters: Vec<Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, MessageInfo)>>,
+    details_component_emitters: Vec<Box<dyn Fn(mpsc::Sender<BgFunc>, MessageInfo)>>,
     details_adjustments: Vec<gtk::Adjustment>,
+
+    tcpdump_child: Option<Child>,
+    tshark_child: Option<Child>,
 }
 
 #[derive(PartialEq, Eq)]
 enum RefreshRemoteIpsAndStreams {
     Yes,
     No,
+}
+
+#[derive(PartialEq, Eq)]
+pub enum TSharkInputType {
+    File,
+    Fifo,
 }
 
 // it would be possible to ask tshark to "mix in" a keylog file
@@ -156,49 +179,77 @@ enum RefreshRemoteIpsAndStreams {
 // due to the sandbox) => better to just mix in the secrets manually and open a single
 // file. this is done through => editcap --inject-secrets tls,/path/to/keylog.txt ~/testtls.pcap ~/outtls.pcapng
 pub fn invoke_tshark(
+    input_type: TSharkInputType,
     fname: &Path,
     filters: &str,
-) -> Result<Vec<tshark_communication::TSharkPacket>, Box<dyn std::error::Error>> {
+    sender: relm::Sender<ParseInputStep>,
+) {
     dbg!(&filters);
     // piping from tshark, not to load the entire JSON in ram...
+    let mut tshark_params = vec![
+        if input_type == TSharkInputType::File {
+            "-r"
+        } else {
+            "-i"
+        },
+        fname.to_str().expect("invalid filename"),
+        "-Tpdml",
+        // "-o",
+        // "ssl.keylog_file:/home/emmanuel/chrome_keylog.txt",
+        // "tcp.stream eq 104",
+    ];
+    let pcap_output = config::get_tshark_pcap_output_path();
+    if input_type == TSharkInputType::Fifo {
+        // -l == flush after each packet
+        tshark_params.extend(&["-w", pcap_output.to_str().unwrap(), "-l"]);
+    } else {
+        // if I filter in fifo mode then tshark doesn't write the output pcap file
+        tshark_params.extend(&[filters]);
+    }
     let tshark_child = Command::new("tshark")
-        .args(&[
-            "-r",
-            fname.to_str().expect("invalid filename"),
-            "-Tpdml",
-            // "-o",
-            // "ssl.keylog_file:/home/emmanuel/chrome_keylog.txt",
-            filters,
-            // "tcp.stream eq 104",
-        ])
+        .args(&tshark_params)
         .stdout(Stdio::piped())
-        .spawn()?;
-    let buf_reader = BufReader::new(tshark_child.stdout.unwrap());
-    parse_pdml_stream(buf_reader)
+        .spawn();
+    if tshark_child.is_err() {
+        sender
+            .send(Err(format!("Error launching tshark: {:?}", tshark_child)))
+            .unwrap();
+        return;
+    }
+    let mut tshark_child = tshark_child.unwrap();
+    let buf_reader = BufReader::new(tshark_child.stdout.take().unwrap());
+    sender
+        .send(Ok(InputStep::StartedTShark(tshark_child)))
+        .unwrap();
+    parse_pdml_stream(buf_reader, sender);
 }
 
-pub fn parse_pdml_stream<B: BufRead>(
-    buf_reader: B,
-) -> Result<Vec<tshark_communication::TSharkPacket>, Box<dyn std::error::Error>> {
+pub fn parse_pdml_stream<B: BufRead>(buf_reader: B, sender: relm::Sender<ParseInputStep>) {
     let mut xml_reader = quick_xml::Reader::from_reader(buf_reader);
     let mut buf = vec![];
-    let mut r = vec![];
     loop {
         match xml_reader.read_event(&mut buf) {
             Ok(Event::Start(ref e)) => {
                 if e.name() == b"packet" {
                     if let Ok(packet) = tshark_communication::parse_packet(&mut xml_reader) {
-                        r.push(packet);
+                        sender.send(Ok(InputStep::Packet(packet))).unwrap();
                     }
                 }
             }
-            Ok(Event::Eof) => break,
-            Err(e) => return Err(Box::new(e)),
+            Ok(Event::Eof) => {
+                sender.send(Ok(InputStep::Eof)).unwrap();
+                break;
+            }
+            Err(e) => {
+                sender
+                    .send(Err(format!("xml parsing error: {}", e)))
+                    .unwrap();
+                break;
+            }
             _ => {}
         };
         buf.clear();
     }
-    Ok(r)
 }
 
 #[derive(Debug)]
@@ -487,15 +538,8 @@ impl Widget for Win {
 
         let (_loaded_data_channel, loaded_data_sender) = {
             let stream = relm.stream().clone();
-            relm::Channel::new(move |ch_data: LoadedDataParams| {
+            relm::Channel::new(move |ch_data: ParseInputStep| {
                 stream.emit(Msg::LoadedData(ch_data));
-            })
-        };
-
-        let (_finished_tshark_channel, finished_tshark_sender) = {
-            let stream = relm.stream().clone();
-            relm::Channel::new(move |_| {
-                stream.emit(Msg::FinishedTShark);
             })
         };
 
@@ -507,7 +551,7 @@ impl Widget for Win {
                 .height_request(24)
                 .build(),
             infobar_label: gtk::LabelBuilder::new().build(),
-            _comm_targets_components: vec![],
+            comm_targets_components: HashMap::new(),
             _recent_file_item_components: vec![],
             recent_files: vec![],
             selected_card: None,
@@ -516,13 +560,20 @@ impl Widget for Win {
             details_adjustments: vec![],
             loaded_data_sender,
             _loaded_data_channel,
-            finished_tshark_sender,
-            _finished_tshark_channel,
             sidebar_selection_change_signal_id: None,
             comm_target_cards: vec![],
-            streams: vec![],
+            streams: HashMap::new(),
+            cur_liststore: None,
             current_file_path,
             window_subtitle: None,
+            remote_ips_streams_iptopath: HashMap::new(),
+            remote_ips_streams_treestore: gtk::TreeStore::new(&[
+                String::static_type(),
+                pango::Weight::static_type(),
+                u32::static_type(),
+            ]),
+            tcpdump_child: None,
+            tshark_child: None,
         }
     }
 
@@ -540,6 +591,18 @@ impl Widget for Win {
             Msg::OpenFile => {
                 self.open_file();
             }
+            Msg::CaptureToggled => {
+                if let Err(e) = self.handle_capture_toggled() {
+                    Self::display_error_block(
+                        "Error capturing network traffic",
+                        Some(&e.to_string()),
+                    );
+                    self.widgets.capture_btn.set_active(false);
+                }
+            }
+            Msg::SaveCapture => {
+                self.handle_save_capture();
+            }
             Msg::KeyPress(e) => {
                 self.handle_keypress(e);
             }
@@ -554,10 +617,6 @@ impl Widget for Win {
             Msg::OpenRecentFile(idx) => {
                 let path = self.model.recent_files[idx].clone();
                 self.gui_load_file(path);
-            }
-            Msg::FinishedTShark => {
-                self.widgets.loading_tshark_label.set_visible(false);
-                self.widgets.loading_parsing_label.set_visible(true);
             }
             Msg::InfoBarShow(Some(msg), options) => {
                 self.widgets.infobar.set_show_close_button(matches!(
@@ -588,39 +647,185 @@ impl Widget for Win {
             }
             Msg::InfoBarEvent(_) => {}
             Msg::LoadedData(Err(msg)) => {
+                // TODO clear the streams like we do when opening a new file?
                 self.widgets.loading_spinner.stop();
                 self.widgets
                     .root_stack
                     .set_visible_child_name(WELCOME_STACK_NAME);
                 self.model.window_subtitle = None;
                 self.model.current_file_path = None;
-                self.model.streams = vec![];
-                self.refresh_comm_targets();
+                self.model.streams = HashMap::new();
+                // self.refresh_comm_targets();
                 self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
-                let dialog = gtk::MessageDialog::new(
-                    None::<&gtk::Window>,
-                    gtk::DialogFlags::all(),
-                    gtk::MessageType::Error,
-                    gtk::ButtonsType::Close,
-                    "Cannot load file",
-                );
-                dialog.set_property_secondary_text(Some(&msg));
-                let _r = dialog.run();
-                dialog.close();
+                Self::display_error_block("Cannot load file", Some(&msg));
             }
-            Msg::LoadedData(Ok((fname, comm_target_cards, streams))) => {
+            Msg::LoadedData(Ok(InputStep::StartedTShark(pid))) => {
+                self.model.tshark_child = Some(pid);
+            }
+            Msg::LoadedData(Ok(InputStep::Packet(p))) => {
+                if let Some((parser_index, parser)) = get_message_parsers()
+                    .iter()
+                    .enumerate()
+                    .find(|(_idx, ps)| ps.is_my_message(&p))
+                {
+                    let packet_stream_id = p.basic_info.tcp_stream_id;
+                    let existing_stream = self.model.streams.remove(&packet_stream_id);
+                    let message_count_before;
+                    let stream_data = if let Some(stream_data) = existing_stream {
+                        message_count_before = stream_data.messages.len();
+                        let had_client_server = stream_data.client_server.is_some();
+                        let stream_data = match parser.add_to_stream(stream_data, p) {
+                            Ok(sd) => sd,
+                            Err(msg) => {
+                                self.model.relm.stream().emit(Msg::LoadedData(Err(format!(
+                                    "Error parsing file, in stream {}: {}",
+                                    packet_stream_id, msg
+                                ))));
+                                return;
+                            }
+                        };
+                        if !had_client_server && stream_data.client_server.is_some() {
+                            // we got the client-server info for this stream, add the
+                            // comm target data.
+                            self.add_comm_target_data(
+                                parser_index,
+                                &parser,
+                                stream_data.client_server.as_ref().unwrap(),
+                                stream_data.summary_details.as_deref(),
+                            );
+                        }
+                        stream_data
+                    } else {
+                        // new stream
+                        message_count_before = 0;
+                        let mut stream_data = StreamData {
+                            parser_index,
+                            stream_globals: parser.initial_globals(),
+                            client_server: None,
+                            messages: vec![],
+                            summary_details: None,
+                        };
+                        match parser.add_to_stream(stream_data, p) {
+                            Ok(sd) => {
+                                stream_data = sd;
+                            }
+                            Err(msg) => {
+                                self.model.relm.stream().emit(Msg::LoadedData(Err(format!(
+                                    "Error parsing file, in stream {}: {}",
+                                    packet_stream_id, msg
+                                ))));
+                                return;
+                            }
+                        }
+                        if stream_data.client_server.is_some() {
+                            // we got the client-server info for this stream, add the
+                            // comm target data.
+                            self.add_comm_target_data(
+                                parser_index,
+                                &parser,
+                                stream_data.client_server.as_ref().unwrap(),
+                                stream_data.summary_details.as_deref(),
+                            );
+
+                            let is_for_current_card = matches!(
+                            (stream_data.client_server, self.model.selected_card.as_ref()),
+                            (Some(clientserver), Some(card)) if clientserver.server_ip == card.ip
+                                && clientserver.server_port == card.port
+                                && parser_index == card.protocol_index);
+
+                            if is_for_current_card {
+                                let treestore = self.model.remote_ips_streams_treestore.clone();
+
+                                let remote_ip_iter = self
+                                    .model
+                                    .remote_ips_streams_iptopath
+                                    .get(&stream_data.client_server.as_ref().unwrap().client_ip)
+                                    .and_then(|path| treestore.get_iter(&path))
+                                    .unwrap_or_else(|| {
+                                        let new_iter = treestore.insert_with_values(
+                                            None,
+                                            None,
+                                            &[0, 1],
+                                            &[
+                                                &stream_data
+                                                    .client_server
+                                                    .as_ref()
+                                                    .unwrap()
+                                                    .client_ip
+                                                    .to_string()
+                                                    .to_value(),
+                                                &pango::Weight::Normal.to_glib().to_value(),
+                                            ],
+                                        );
+                                        self.model.remote_ips_streams_iptopath.insert(
+                                            stream_data.client_server.as_ref().unwrap().client_ip,
+                                            treestore.get_path(&new_iter).unwrap(),
+                                        );
+                                        new_iter
+                                    });
+                                // TODO some duplication with refresh_remote_ips_streams_tree()
+                                self.model.remote_ips_streams_treestore.insert_with_values(
+                                Some(&remote_ip_iter),
+                                None,
+                                &[0, 1, 2],
+                                &[
+                                    &format!(
+                                        r#"<span foreground="{}" size="smaller">⬤</span> <span rise="-1700">Stream {}</span>"#,
+                                        colors::STREAM_COLORS
+                                            [packet_stream_id as usize % colors::STREAM_COLORS.len()],
+                                        packet_stream_id
+                                    )
+                                        .to_value(),
+                                    &pango::Weight::Normal.to_glib().to_value(),
+                                    &packet_stream_id.to_value(),
+                                ],
+                            );
+                            }
+                        }
+                        stream_data
+                    };
+                    self.refresh_grids_new_messages(
+                        packet_stream_id,
+                        parser_index,
+                        message_count_before,
+                        stream_data,
+                    );
+                }
+            }
+            Msg::LoadedData(Ok(InputStep::Eof)) => {
+                let keys: Vec<u32> = self.model.streams.keys().map(|k| *k).collect();
+                for stream_id in keys {
+                    let stream_data = self.model.streams.remove(&stream_id).unwrap();
+                    let message_count_before = stream_data.messages.len();
+                    let parsers = get_message_parsers();
+                    let parser_index = stream_data.parser_index;
+                    let parser = parsers.get(parser_index).unwrap();
+                    match parser.finish_stream(stream_data) {
+                        Ok(sd) => {
+                            self.refresh_grids_new_messages(
+                                stream_id,
+                                parser_index,
+                                message_count_before,
+                                sd,
+                            );
+                        }
+                        Err(e) => {
+                            self.model.relm.stream().emit(Msg::LoadedData(Err(format!(
+                                "Error parsing file after collecting the final packets: {}",
+                                e
+                            ))));
+                            return;
+                        }
+                    }
+                }
+                if self.model.streams.is_empty() {
+                    self.model.relm.stream().emit(Msg::LoadedData(Err(
+                        "Hotwire doesn't know how to read any useful data from this file"
+                            .to_string(),
+                    )));
+                    return;
+                }
                 self.widgets.loading_spinner.stop();
-                self.model.window_subtitle = Some(
-                    fname
-                        // .file_name().unwrap()
-                        .to_string_lossy()
-                        .to_string(),
-                );
-                self.model.current_file_path = Some(fname);
-                self.model.comm_target_cards = comm_target_cards;
-                self.model.streams = streams;
-                self.refresh_comm_targets();
-                self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
                 self.widgets
                     .root_stack
                     .set_visible_child_name(NORMAL_STACK_NAME);
@@ -664,12 +869,11 @@ impl Widget for Win {
                 );
             }
             Msg::DisplayDetails(stream_id, idx) => {
-                if let Some((stream_info, msg_data)) = self
+                if let Some((stream_client_server, msg_data)) = self
                     .model
                     .streams
-                    .iter()
-                    .find(|(stream_info, items)| stream_info.stream_id == stream_id)
-                    .and_then(|s| s.1.get(idx as usize).map(|f| (&s.0, f)))
+                    .get(&stream_id)
+                    .and_then(|s| s.messages.get(idx as usize).map(|f| (&s.client_server, f)))
                 {
                     for adj in &self.model.details_adjustments {
                         adj.set_value(0.0);
@@ -677,17 +881,211 @@ impl Widget for Win {
                     for component_emitter in &self.model.details_component_emitters {
                         component_emitter(
                             self.model.bg_sender.clone(),
-                            self.model.current_file_path.as_ref().unwrap().clone(),
                             MessageInfo {
-                                stream_id: stream_info.stream_id,
-                                client_ip: stream_info.source_ip,
+                                stream_id,
+                                client_ip: stream_client_server.as_ref().unwrap().client_ip,
                                 message_data: msg_data.clone(),
                             },
                         );
                     }
+                } else {
+                    println!(
+                        "NO DATA for {}/{} -- stream length {:?}",
+                        stream_id,
+                        idx,
+                        self.model.streams.get(&stream_id).unwrap().messages.len()
+                    );
                 }
             }
-            Msg::Quit => gtk::main_quit(),
+            Msg::Quit => {
+                // needed for the pcap save temp files at least
+                if let Err(e) =
+                    config::remove_obsolete_tcpdump_files(config::RemoveMode::OldFilesAndMyFiles)
+                {
+                    eprintln!("Error removing the obsolete tcpdump files: {:?}", e);
+                }
+                gtk::main_quit()
+            }
+        }
+    }
+
+    fn display_error_block(msg: &str, secondary: Option<&str>) {
+        let dialog = gtk::MessageDialog::new(
+            None::<&gtk::Window>,
+            gtk::DialogFlags::all(),
+            gtk::MessageType::Error,
+            gtk::ButtonsType::Close,
+            msg,
+        );
+        dialog.set_property_secondary_text(secondary);
+        let _r = dialog.run();
+        dialog.close();
+    }
+
+    fn refresh_grids_new_messages(
+        &mut self,
+        stream_id: u32,
+        parser_index: usize,
+        message_count_before: usize,
+        stream_data: StreamData,
+    ) {
+        let parsers = get_message_parsers();
+        let parser = parsers.get(parser_index).unwrap();
+        let added_messages = stream_data.messages.len() - message_count_before;
+        // self.refresh_comm_targets();
+
+        // self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
+        let selected_card = self.model.selected_card.clone();
+        match (stream_data.client_server, selected_card) {
+            (Some(client_server), Some(card)) => {
+                if client_server.server_ip == card.ip
+                    && client_server.server_port == card.port
+                    && parser_index == card.protocol_index
+                {
+                    let ls = self
+                        .model
+                        .cur_liststore
+                        .as_ref()
+                        .filter(|(c, _s, _l)| {
+                            c.ip == card.ip
+                                && c.port == card.port
+                                && c.protocol_index == card.protocol_index
+                        })
+                        .map(|(_c, s, _l)| s.clone())
+                        .unwrap_or_else(|| {
+                            let key = CommTargetCardKey {
+                                ip: card.ip,
+                                port: card.port,
+                                protocol_index: card.protocol_index,
+                            };
+                            let ls = parser.get_empty_liststore();
+                            self.model.cur_liststore = Some((key, ls.clone(), 0));
+                            let (ref tv, ref _signals) = &self
+                                .model
+                                .comm_remote_servers_treeviews
+                                .get(card.protocol_index)
+                                .unwrap();
+                            parser.end_populate_treeview(tv, &ls);
+                            ls
+                        });
+                    // refresh_remote_ips_streams_tree() // <------
+                    parser.populate_treeview(
+                        &ls,
+                        stream_id,
+                        &stream_data.messages[stream_data.messages.len() - added_messages..],
+                        (stream_data.messages.len() - added_messages) as i32,
+                    );
+                    let mut store = self.model.cur_liststore.take().unwrap();
+                    store.2 += added_messages as i32;
+                    self.model.cur_liststore = Some(store);
+
+                    if self.model.current_file_path.is_none() {
+                        // we're capturing network traffic. scroll to
+                        // reveal new packets (TODO don't scroll if we're not
+                        // scrolled to the bottom beforehand)
+                        let scrolledwindow = self
+                            .widgets
+                            .comm_remote_servers_stack
+                            .get_visible_child()
+                            .unwrap()
+                            .dynamic_cast::<gtk::Paned>()
+                            .unwrap()
+                            .get_child1()
+                            .unwrap()
+                            .dynamic_cast::<gtk::ScrolledWindow>()
+                            .unwrap();
+                        let vadj = scrolledwindow.get_vadjustment().unwrap();
+                        vadj.set_value(vadj.get_upper());
+                    }
+
+                    if stream_data.messages.len() == added_messages {
+                        // just added the first rows to the grid. select the first row.
+                        self.model
+                            .comm_remote_servers_treeviews
+                            .get(card.protocol_index)
+                            .unwrap()
+                            .0
+                            .get_selection()
+                            .select_path(&gtk::TreePath::new_first());
+
+                        if self.model.current_file_path.is_none() {
+                            // we're capturing network traffic. start displaying data
+                            // realtime as we're receiving packets.
+                            self.widgets
+                                .root_stack
+                                .set_visible_child_name(NORMAL_STACK_NAME);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        self.model.streams.insert(stream_id, stream_data);
+    }
+
+    fn add_comm_target_data(
+        &mut self,
+        protocol_index: usize,
+        parser: &Box<dyn MessageParser>,
+        client_server_info: &ClientServerInfo,
+        summary_details: Option<&str>,
+    ) {
+        let card_key = CommTargetCardKey {
+            ip: client_server_info.server_ip,
+            port: client_server_info.server_port,
+            protocol_index,
+        };
+        if let Some(card_idx) = self.model.comm_target_cards.iter().position(|c| {
+            c.protocol_index == protocol_index
+                && c.port == client_server_info.server_port
+                && c.ip == client_server_info.server_ip
+        }) {
+            let mut card = self.model.comm_target_cards.get_mut(card_idx).unwrap();
+            // update existing card
+            card.increase_incoming_session_count();
+            card.remote_hosts
+                .insert(client_server_info.client_ip.to_string());
+            if card.summary_details.is_none() && summary_details.is_some() {
+                card.summary_details = Some(SummaryDetails {
+                    details: summary_details.unwrap().to_string(),
+                });
+            }
+            dbg!(&card);
+            dbg!(&self.model.comm_targets_components.len());
+            self.model
+                .comm_targets_components
+                .get(&card_key)
+                .unwrap()
+                .emit(comm_target_card::Msg::Update(card.clone()));
+        } else {
+            // add new card
+            let card = CommTargetCardData::new(
+                client_server_info.server_ip,
+                client_server_info.server_port,
+                protocol_index,
+                {
+                    let mut bs = BTreeSet::new();
+                    bs.insert(client_server_info.client_ip.to_string());
+                    bs
+                },
+                parser.protocol_icon(),
+                summary_details.map(|d| SummaryDetails {
+                    details: d.to_string(),
+                }),
+                1,
+            );
+            self.model.comm_target_cards.push(card.clone());
+            self.model.comm_targets_components.insert(
+                card_key,
+                self.widgets
+                    .comm_target_list
+                    .add_widget::<CommTargetCard>(card),
+            );
+            if self.model.comm_target_cards.len() == 1 {
+                self.widgets
+                    .comm_target_list
+                    .select_row(self.widgets.comm_target_list.get_row_at_index(0).as_ref());
+            }
         }
     }
 
@@ -820,14 +1218,16 @@ impl Widget for Win {
                 _ => panic!(path.get_depth()),
             }
         }
-        self.model
-            .relm
-            .stream()
-            .emit(Msg::SelectCardFromRemoteIpsAndStreams(
-                self.model.selected_card.as_ref().unwrap().clone(),
-                allowed_ips,
-                allowed_stream_ids,
-            ));
+        if let Some(card) = self.model.selected_card.as_ref() {
+            self.model
+                .relm
+                .stream()
+                .emit(Msg::SelectCardFromRemoteIpsAndStreams(
+                    card.clone(),
+                    allowed_ips,
+                    allowed_stream_ids,
+                ));
+        }
     }
 
     fn display_about(&mut self) {
@@ -849,6 +1249,119 @@ impl Widget for Win {
         dlg.close();
     }
 
+    fn handle_capture_toggled(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // TODO don't call from the GUI thread
+        let is_active = self.widgets.capture_btn.get_active();
+        self.widgets.capture_spinner.set_visible(is_active);
+        if is_active {
+            self.widgets.capture_spinner.start();
+            // i wanted to use the temp folder but I got permissions issues,
+            // which I don't fully understand.
+            let fifo_path = config::get_tcpdump_fifo_path();
+            if !fifo_path.exists() {
+                nix::unistd::mkfifo(
+                    &fifo_path,
+                    nix::sys::stat::Mode::S_IRUSR | nix::sys::stat::Mode::S_IWUSR,
+                )?;
+            }
+            self.reset_open_file(None);
+            let mut tcpdump_child = Command::new("pexec")
+                .args(&[
+                    "tcpdump",
+                    "-ni",
+                    "any",
+                    "-s0",
+                    "--immediate-mode",
+                    "--packet-buffered",
+                    "-w",
+                    fifo_path.to_str().unwrap(),
+                ])
+                .spawn()
+                .map_err(|e| format!("Error launching pkexec: {:?}", e))?;
+
+            // yeah sleeping 50ms in the gui thread...
+            // but it's the easiest. pkexec needs some tome to init, try to launch that
+            // app and fail... on my computer 50ms is consistently enough.
+            std::thread::sleep(Duration::from_millis(50));
+            if let Ok(Some(status)) = tcpdump_child.try_wait() {
+                return Err(
+                    format!("Failed to execute tcpdump, pkexec exit code {}", status).into(),
+                );
+            }
+
+            self.model.tcpdump_child = Some(tcpdump_child);
+            let s = self.model.loaded_data_sender.clone();
+            self.model
+                .bg_sender
+                .send(BgFunc::new(move || {
+                    Self::load_file(TSharkInputType::Fifo, fifo_path.clone(), s.clone());
+                }))
+                .unwrap();
+        } else {
+            self.widgets.capture_spinner.stop();
+            self.widgets
+                .root_stack
+                .set_visible_child_name(if self.model.streams.is_empty() {
+                    WELCOME_STACK_NAME
+                } else {
+                    NORMAL_STACK_NAME
+                });
+            if let Some(_tcpdump_child) = self.model.tcpdump_child.take() {
+                let mut tcpdump_child = _tcpdump_child;
+                // seems like we can't kill tcpdump, even though it's our child (owned by another user),
+                // but it's not needed (presumably because we kill tshark, which reads from the fifo,
+                // and the fifo itself)
+                // if let Err(e) = tcpdump_pid.kill() {
+                //     eprintln!("kill1 fails {:?}", e);
+                // }
+
+                // try_wait doesn't work, wait hangs, not doing anything leaves zombie processes
+                // i found this way of regularly calling try_wait until it succeeds...
+                glib::idle_add_local(move || {
+                    glib::Continue(
+                        !matches!(tcpdump_child.try_wait(), Ok(Some(s)) if s.code().is_some()),
+                    )
+                });
+            }
+            if let Some(_tshark_child) = self.model.tshark_child.take() {
+                let mut tshark_child = _tshark_child;
+                tshark_child.kill()?;
+                // try_wait doesn't work, wait hangs, not doing anything leaves zombie processes
+                // i found this way of regularly calling try_wait until it succeeds...
+                glib::idle_add_local(move || {
+                    glib::Continue(
+                        !matches!(tshark_child.try_wait(), Ok(Some(s)) if s.code().is_some()),
+                    )
+                });
+            }
+            let fifo_path = config::get_tcpdump_fifo_path();
+            if fifo_path.exists() {
+                std::fs::remove_file(fifo_path)?;
+            }
+            self.widgets.save_capture_btn.set_visible(true);
+        }
+        Ok(())
+    }
+
+    fn handle_save_capture(&mut self) {
+        let dialog = gtk::FileChooserNativeBuilder::new()
+            .action(gtk::FileChooserAction::Save)
+            .title("Select file")
+            .modal(true)
+            .build();
+        let filter = gtk::FileFilter::new();
+        filter.add_pattern("*.pcap");
+        filter.add_pattern("*.pcapng");
+        dialog.set_filter(&filter);
+        if dialog.run() == gtk::ResponseType::Accept {
+            if let Some(fname) = dialog.get_filename() {
+                if let Err(e) = std::fs::copy(config::get_tshark_pcap_output_path(), fname) {
+                    Self::display_error_block("Error saving capture file", Some(&e.to_string()));
+                }
+            }
+        }
+    }
+
     fn open_file(&mut self) {
         let dialog = gtk::FileChooserNativeBuilder::new()
             .action(gtk::FileChooserAction::Open)
@@ -866,10 +1379,45 @@ impl Widget for Win {
         }
     }
 
-    fn gui_load_file(&mut self, fname: PathBuf) {
+    fn reset_open_file(&mut self, fname: Option<PathBuf>) {
+        let pcap_output_file = config::get_tshark_pcap_output_path();
+        if pcap_output_file.exists() {
+            if let Err(e) = std::fs::remove_file(pcap_output_file) {
+                eprintln!("Error removing pcap capture file: {}", e);
+            }
+        }
+        self.widgets.save_capture_btn.set_visible(false);
+        self.init_remote_ips_streams_tree();
+        self.connect_remote_ips_streams_tree();
         self.components
             .headerbar_search
             .emit(HeaderbarSearchMsg::SearchActiveChanged(false));
+        self.model.window_subtitle = Some(
+            fname
+                .as_ref()
+                .map(|p| p.to_string_lossy())
+                .unwrap_or(std::borrow::Cow::Borrowed("Network Capture"))
+                .to_string(),
+        );
+        self.model.current_file_path = fname;
+        self.widgets.loading_spinner.start();
+        self.widgets.loading_parsing_label.set_visible(false);
+        self.widgets.loading_tshark_label.set_visible(true);
+        self.widgets
+            .root_stack
+            .set_visible_child_name(LOADING_STACK_NAME);
+        self.model.streams.clear();
+        self.model.cur_liststore = None;
+        self.model.selected_card = None;
+        self.model.comm_target_cards.clear();
+        for child in self.widgets.comm_target_list.get_children() {
+            self.widgets.comm_target_list.remove(&child);
+        }
+        self.model.comm_targets_components.clear();
+        self.model.remote_ips_streams_iptopath.clear();
+    }
+
+    fn gui_load_file(&mut self, fname: PathBuf) {
         self.widgets.open_btn.set_active(false);
         let rm = gtk::RecentManager::get_default().unwrap();
         if let Some(fname_str) = fname.to_str() {
@@ -884,208 +1432,65 @@ impl Widget for Win {
             };
             rm.add_full(fname_str, &recent_data);
         }
-        self.widgets.loading_spinner.start();
-        self.widgets.loading_parsing_label.set_visible(false);
-        self.widgets.loading_tshark_label.set_visible(true);
-        self.widgets
-            .root_stack
-            .set_visible_child_name(LOADING_STACK_NAME);
+        self.reset_open_file(Some(fname.clone()));
         let s = self.model.loaded_data_sender.clone();
-        let t = self.model.finished_tshark_sender.clone();
+        // self.init_remote_ips_streams_tree();
         self.model
             .bg_sender
             .send(BgFunc::new(move || {
-                Self::load_file(fname.clone(), s.clone(), t.clone());
+                Self::load_file(TSharkInputType::File, fname.clone(), s.clone());
             }))
             .unwrap();
         self.refresh_recent_files();
     }
 
-    fn load_file(
-        fname: PathBuf,
-        sender: relm::Sender<LoadedDataParams>,
-        finished_tshark: relm::Sender<()>,
-    ) {
-        match invoke_tshark(&fname, "http || pgsql || http2") {
-            Ok(packets) => {
-                finished_tshark.send(()).unwrap();
-                Self::handle_packets(fname, packets, sender)
-            }
-            Err(e) => {
-                sender
-                    .send(Err(format!("error invoking tshark: {}", e)))
-                    .unwrap();
-            }
-        }
+    fn load_file(file_type: TSharkInputType, fname: PathBuf, sender: relm::Sender<ParseInputStep>) {
+        invoke_tshark(file_type, &fname, "http || pgsql || http2", sender);
     }
 
-    fn handle_packets(
-        fname: PathBuf,
-        packets: Vec<tshark_communication::TSharkPacket>,
-        sender: relm::Sender<LoadedDataParams>,
-    ) {
-        let by_stream = {
-            let mut by_stream: Vec<_> = packets
-                .into_iter()
-                .map(|p| (p.basic_info.tcp_stream_id, p))
-                .into_group_map()
-                .into_iter()
-                .collect();
-            by_stream.sort_by_key(|p| Reverse(p.1.len()));
-            by_stream
-        };
+    // fn refresh_comm_targets(&mut self) {
+    //     for child in self.widgets.comm_target_list.get_children() {
+    //         self.widgets.comm_target_list.remove(&child);
+    //     }
+    //     self.model._comm_targets_components = self
+    //         .model
+    //         .comm_target_cards
+    //         .iter()
+    //         .map(|card| {
+    //             self.widgets
+    //                 .comm_target_list
+    //                 .add_widget::<CommTargetCard>(card.clone())
+    //         })
+    //         .collect();
+    //     self.widgets
+    //         .comm_target_list
+    //         .select_row(self.widgets.comm_target_list.get_row_at_index(0).as_ref());
+    //     // self.model.selected_card = self.model.comm_target_cards.first().cloned();
+    // }
 
-        let message_parsers = get_message_parsers();
-
-        let parsed_streams = {
-            let mut parsed_streams: Vec<_> = by_stream
-                .into_iter()
-                .filter_map(|(id, comms)| {
-                    let parser = comms
-                        .iter()
-                        .find_map(|c| message_parsers.iter().find(|p| p.is_my_message(c)));
-
-                    parser
-                        .map(|p| {
-                            let stream_data = p.parse_stream(comms);
-                            (p, id, stream_data)
-                        })
-                        .filter(|(_p, _id, stream_data)| {
-                            stream_data.is_err()
-                                || !stream_data.as_ref().unwrap().messages.is_empty()
-                        })
-                })
-                .collect();
-            parsed_streams.sort_by_key(|(_parser, id, _pstream)| *id);
-            parsed_streams
-        };
-
-        if let Some((_parser, id, Err(error))) = parsed_streams
-            .iter()
-            .find(|(_parser, id, pstream)| pstream.is_err())
-        {
-            sender
-                .send(Err(format!(
-                    "Error parsing file, in stream {}: {}",
-                    id, error
-                )))
-                .unwrap();
-            return;
-        }
-        // now I know there are no errors
-        let parsed_streams: Vec<_> = parsed_streams
-            .into_iter()
-            .map(|(p, id, s)| {
-                let stream_data = s.unwrap();
-                let card_key = (stream_data.server_ip, stream_data.server_port);
-                (
-                    p,
-                    id,
-                    stream_data.server_ip,
-                    stream_data.client_ip,
-                    card_key,
-                    stream_data,
-                )
-            })
-            .collect();
-
-        if parsed_streams
-            .iter()
-            .all(|(_parser, _id, _sip, _cip, _ck, stream)| stream.messages.is_empty())
-        {
-            sender
-                .send(Err(
-                    "Hotwire doesn't know how to read any useful data from this file".to_string(),
-                ))
-                .unwrap();
-            return;
-        }
-
-        let comm_target_cards = parsed_streams
-            .iter()
-            .fold(
-                HashMap::<(IpAddr, u32), CommTargetCardData>::new(),
-                |mut sofar, (parser, _stream_id, srv_ip, client_ip, card_key, items)| {
-                    if let Some(target_card) = sofar.get_mut(&card_key) {
-                        target_card.remote_hosts.insert(client_ip.to_string());
-                        target_card.incoming_session_count += 1;
-                        if target_card.summary_details.is_none() && items.summary_details.is_some()
-                        {
-                            target_card.summary_details = SummaryDetails::new(
-                                items.summary_details.as_deref().unwrap(),
-                                target_card.ip,
-                                target_card.port,
-                            );
-                        }
-                    } else {
-                        let mut remote_hosts = BTreeSet::new();
-                        remote_hosts.insert(client_ip.to_string());
-                        let protocol_index = message_parsers
-                            .iter()
-                            // comparing by the protocol icon is.. quite horrible..
-                            .position(|p| p.protocol_icon() == parser.protocol_icon())
-                            .unwrap();
-                        sofar.insert(
-                            *card_key,
-                            CommTargetCardData {
-                                ip: card_key.0,
-                                protocol_index,
-                                protocol_icon: parser.protocol_icon(),
-                                port: card_key.1,
-                                remote_hosts,
-                                incoming_session_count: 1,
-                                summary_details: items
-                                    .summary_details
-                                    .as_ref()
-                                    .and_then(|d| SummaryDetails::new(d, card_key.0, card_key.1)),
-                            },
-                        );
-                    }
-                    sofar
-                },
-            )
-            .into_iter()
-            .map(|(k, v)| v)
-            .collect();
-
-        let streams = parsed_streams
-            .into_iter()
-            .map(|(_parser, id, srv_ip, client_ip, card_key, pstream)| {
-                (
-                    StreamInfo {
-                        stream_id: id,
-                        target_ip: card_key.0,
-                        target_port: card_key.1,
-                        source_ip: client_ip,
-                    },
-                    pstream.messages,
-                )
-            })
-            .collect();
-
-        sender
-            .send(Ok((fname, comm_target_cards, streams)))
-            .unwrap();
+    fn init_remote_ips_streams_tree(&mut self) {
+        self.model.remote_ips_streams_iptopath.clear();
+        self.model.remote_ips_streams_treestore = gtk::TreeStore::new(&[
+            // TODO duplicated in model init
+            String::static_type(),
+            pango::Weight::static_type(),
+            u32::static_type(),
+        ]);
+        self.model.remote_ips_streams_treestore.insert_with_values(
+            None,
+            None,
+            &[0, 1],
+            &[&"All".to_value(), &pango::Weight::Bold.to_glib().to_value()],
+        );
     }
 
-    fn refresh_comm_targets(&mut self) {
-        for child in self.widgets.comm_target_list.get_children() {
-            self.widgets.comm_target_list.remove(&child);
-        }
-        self.model._comm_targets_components = self
-            .model
-            .comm_target_cards
-            .iter()
-            .map(|card| {
-                self.widgets
-                    .comm_target_list
-                    .add_widget::<CommTargetCard>(card.clone())
-            })
-            .collect();
+    fn connect_remote_ips_streams_tree(&mut self) {
+        let model_sort = gtk::TreeModelSort::new(&self.model.remote_ips_streams_treestore);
+        model_sort.set_sort_column_id(gtk::SortColumn::Index(2), gtk::SortType::Ascending);
         self.widgets
-            .comm_target_list
-            .select_row(self.widgets.comm_target_list.get_row_at_index(0).as_ref());
-        // self.model.selected_card = self.model.comm_target_cards.first().cloned();
+            .remote_ips_streams_treeview
+            .set_model(Some(&model_sort));
+        self.widgets.remote_ips_streams_treeview.expand_all();
     }
 
     fn refresh_remote_ips_streams_tree(
@@ -1093,17 +1498,6 @@ impl Widget for Win {
         card: &CommTargetCardData,
         remote_ips: &HashSet<IpAddr>,
     ) {
-        let remote_ips_streams_tree_store = gtk::TreeStore::new(&[
-            String::static_type(),
-            pango::Weight::static_type(),
-            u32::static_type(),
-        ]);
-        remote_ips_streams_tree_store.insert_with_values(
-            None,
-            None,
-            &[0, 1],
-            &[&"All".to_value(), &pango::Weight::Bold.to_glib().to_value()],
-        );
         // self.widgets.remote_ips_streams_treeview.set_cursor(
         //     &gtk::TreePath::new_first(),
         //     None::<&gtk::TreeViewColumn>,
@@ -1113,7 +1507,7 @@ impl Widget for Win {
         let target_port = card.port;
 
         for remote_ip in remote_ips {
-            let remote_ip_iter = remote_ips_streams_tree_store.insert_with_values(
+            let remote_ip_iter = self.model.remote_ips_streams_treestore.insert_with_values(
                 None,
                 None,
                 &[0, 1],
@@ -1122,14 +1516,21 @@ impl Widget for Win {
                     &pango::Weight::Normal.to_glib().to_value(),
                 ],
             );
-            for (stream_info, _messages) in &self.model.streams {
-                if stream_info.target_ip != target_ip
-                    || stream_info.target_port != target_port
-                    || stream_info.source_ip != *remote_ip
+            self.model.remote_ips_streams_iptopath.insert(
+                *remote_ip,
+                self.model
+                    .remote_ips_streams_treestore
+                    .get_path(&remote_ip_iter)
+                    .unwrap(),
+            );
+            for (stream_id, messages) in &self.model.streams {
+                if messages.client_server.as_ref().map(|cs| cs.server_ip) != Some(target_ip)
+                    || messages.client_server.as_ref().map(|cs| cs.server_port) != Some(target_port)
+                    || messages.client_server.as_ref().map(|cs| cs.client_ip) != Some(*remote_ip)
                 {
                     continue;
                 }
-                remote_ips_streams_tree_store.insert_with_values(
+                self.model.remote_ips_streams_treestore.insert_with_values(
                     Some(&remote_ip_iter),
                     None,
                     &[0, 1, 2],
@@ -1137,21 +1538,18 @@ impl Widget for Win {
                         &format!(
                             r#"<span foreground="{}" size="smaller">⬤</span> <span rise="-1700">Stream {}</span>"#,
                             colors::STREAM_COLORS
-                                [stream_info.stream_id as usize % colors::STREAM_COLORS.len()],
-                            stream_info.stream_id
+                                [*stream_id as usize % colors::STREAM_COLORS.len()],
+                            stream_id
                         )
                         .to_value(),
                         &pango::Weight::Normal.to_glib().to_value(),
-                        &stream_info.stream_id.to_value(),
+                        &stream_id.to_value(),
                     ],
                 );
             }
         }
 
-        self.widgets
-            .remote_ips_streams_treeview
-            .set_model(Some(&remote_ips_streams_tree_store));
-        self.widgets.remote_ips_streams_treeview.expand_all();
+        self.connect_remote_ips_streams_tree();
     }
 
     fn refresh_remote_servers(
@@ -1160,30 +1558,43 @@ impl Widget for Win {
         constrain_remote_ips: &[IpAddr],
         constrain_stream_ids: &[u32],
     ) {
+        self.init_remote_ips_streams_tree();
         self.setup_selection_signals(RefreshOngoing::Yes);
         if let Some(card) = self.model.selected_card.as_ref().cloned() {
             let target_ip = card.ip;
             let target_port = card.port;
             let mut by_remote_ip = HashMap::new();
             let parsers = get_message_parsers();
-            for (stream_info, messages) in &self.model.streams {
-                if stream_info.target_ip != target_ip || stream_info.target_port != target_port {
+            for (stream_id, messages) in &self.model.streams {
+                if messages.client_server.as_ref().map(|cs| cs.server_ip) != Some(target_ip)
+                    || messages.client_server.as_ref().map(|cs| cs.server_port) != Some(target_port)
+                {
                     continue;
                 }
                 let allowed_all =
                     constrain_remote_ips.is_empty() && constrain_stream_ids.is_empty();
 
-                let allowed_ip = constrain_remote_ips.contains(&stream_info.source_ip);
-                let allowed_stream = constrain_stream_ids.contains(&stream_info.stream_id);
+                let allowed_ip = messages
+                    .client_server
+                    .as_ref()
+                    .filter(|cs| constrain_remote_ips.contains(&cs.client_ip))
+                    .is_some();
+                let allowed_stream = constrain_stream_ids.contains(&stream_id);
                 let allowed = allowed_all || allowed_ip || allowed_stream;
 
                 if !allowed {
                     continue;
                 }
                 let remote_server_streams = by_remote_ip
-                    .entry(stream_info.source_ip)
+                    .entry(
+                        messages
+                            .client_server
+                            .as_ref()
+                            .map(|cs| cs.client_ip)
+                            .unwrap_or(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))),
+                    )
                     .or_insert_with(Vec::new);
-                remote_server_streams.push((stream_info.stream_id, messages));
+                remote_server_streams.push((stream_id, messages));
             }
             let mp = parsers.get(card.protocol_index).unwrap();
             self.widgets
@@ -1198,8 +1609,8 @@ impl Widget for Win {
             for (remote_ip, tcp_sessions) in &by_remote_ip {
                 for (session_id, session) in tcp_sessions {
                     let mut idx = 0;
-                    for chunk in session.chunks(100) {
-                        mp.populate_treeview(&ls, *session_id, chunk, idx);
+                    for chunk in session.messages.chunks(100) {
+                        mp.populate_treeview(&ls, **session_id, chunk, idx);
                         idx += 100;
                         // https://developer.gnome.org/gtk3/stable/gtk3-General.html#gtk-events-pending
                         // I've had this loop last almost 3 seconds!!
@@ -1277,6 +1688,19 @@ impl Widget for Win {
                             }
                         },
                     },
+                    #[name="capture_btn"]
+                    gtk::ToggleButton {
+                        toggled => Msg::CaptureToggled,
+                        gtk::Box {
+                            #[name="capture_spinner"]
+                            gtk::Spinner {
+                                visible: false,
+                            },
+                            gtk::Label {
+                                text: "Capture"
+                            }
+                        }
+                    },
                     gtk::MenuButton {
                         image: Some(&gtk::Image::from_icon_name(Some("open-menu-symbolic"), gtk::IconSize::Menu)),
                         child: {
@@ -1308,6 +1732,15 @@ impl Widget for Win {
                         },
                         HbsMsgSearchActiveChanged(is_active) => Msg::SearchActiveChanged(is_active),
                         HbsMsgSearchTextChanged(ref txt) => Msg::SearchTextChanged(txt.clone()),
+                    },
+                    #[name="save_capture_btn"]
+                    gtk::Button {
+                        child: {
+                            pack_type: gtk::PackType::End
+                        },
+                        visible: false,
+                        label: "Save capture...",
+                        clicked => Msg::SaveCapture,
                     },
                 }
             },

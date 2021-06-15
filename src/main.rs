@@ -4,6 +4,7 @@ use std::sync::mpsc;
 use std::thread;
 
 pub mod colors;
+pub mod config;
 pub mod icons;
 pub mod message_parser;
 #[macro_use]
@@ -19,12 +20,12 @@ pub mod pgsql;
 // seems more heavyweight than reusing a thread
 
 // https://stackoverflow.com/a/49122850/516188
-pub struct BgFunc(Box<dyn Fn() + Send + 'static>);
+pub struct BgFunc(Box<dyn FnMut() + Send + 'static>);
 
 impl BgFunc {
     pub fn new<T>(func: T) -> BgFunc
     where
-        T: Fn() + Send + 'static,
+        T: FnMut() + Send + 'static,
     {
         BgFunc(Box::new(func))
     }
@@ -38,10 +39,14 @@ fn main() {
 
     let (tx, rx) = mpsc::channel::<BgFunc>();
     thread::spawn(move || {
-        rx.into_iter().for_each(|fun| (fun.0)());
+        rx.into_iter().for_each(|mut fun| (fun.0)());
     });
     let mut args = std::env::args();
     args.next();
+
+    if let Err(e) = config::remove_obsolete_tcpdump_files(config::RemoveMode::OldFilesOnly) {
+        eprintln!("Error removing obsolete tcpdump files: {}", e);
+    }
 
     widgets::win::Win::run((tx, args.next().map(PathBuf::from))).unwrap();
 }

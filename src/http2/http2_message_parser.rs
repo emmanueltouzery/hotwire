@@ -4,23 +4,37 @@ use crate::http::http_message_parser::{
 };
 use crate::http2::tshark_http2::{Http2Data, TSharkHttp2Message};
 use crate::icons;
+use crate::message_parser::ClientServerInfo;
 use crate::message_parser::{MessageInfo, MessageParser, StreamData};
 use crate::tshark_communication::TSharkPacket;
+use crate::tshark_communication::TSharkPacketBasicInfo;
 use crate::widgets::comm_remote_server::MessageData;
+use crate::widgets::comm_remote_server::StreamGlobals;
 use crate::widgets::win;
 use crate::BgFunc;
 use chrono::NaiveDateTime;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::str;
 use std::sync::mpsc;
 
 #[cfg(test)]
-use crate::tshark_communication::parse_test_xml;
+use crate::tshark_communication::{parse_stream, parse_test_xml};
 #[cfg(test)]
 use chrono::NaiveDate;
 
 pub struct Http2;
+
+#[derive(Debug, Default)]
+pub struct Http2StreamProcessedContents {
+    cur_request: Option<HttpRequestResponseData>,
+    unfinished_basic_info: Option<TSharkPacketBasicInfo>,
+    unfinished_stream_messages: Vec<TSharkHttp2Message>,
+}
+
+#[derive(Debug, Default)]
+pub struct Http2StreamGlobals {
+    pub messages_per_stream: HashMap<u32, Http2StreamProcessedContents>,
+}
 
 impl MessageParser for Http2 {
     fn is_my_message(&self, msg: &TSharkPacket) -> bool {
@@ -31,101 +45,164 @@ impl MessageParser for Http2 {
         icons::Icon::HTTP
     }
 
-    fn parse_stream(&self, stream: Vec<TSharkPacket>) -> Result<StreamData, String> {
-        dbg!(&stream);
-        let mut server_ip = stream.first().unwrap().basic_info.ip_dst;
-        let mut client_ip = stream.first().unwrap().basic_info.ip_src;
-        let mut server_port = stream.first().unwrap().basic_info.port_dst;
-        let mut messages_per_stream = HashMap::new();
-        let mut packet_infos = vec![];
-        for msg in stream {
-            if let Some(http2) = msg.http2 {
-                packet_infos.push(msg.basic_info);
-                for http2_msg in http2 {
-                    let stream_msgs_entry = messages_per_stream
-                        .entry(http2_msg.stream_id)
-                        .or_insert(vec![]);
-                    stream_msgs_entry.push((packet_infos.len() - 1, http2_msg));
+    fn initial_globals(&self) -> StreamGlobals {
+        StreamGlobals::Http2(Http2StreamGlobals::default())
+    }
+
+    fn add_to_stream(
+        &self,
+        mut stream: StreamData,
+        new_packet: TSharkPacket,
+    ) -> Result<StreamData, String> {
+        let mut globals = stream.stream_globals.as_http2().unwrap();
+        let mut messages = stream.messages;
+        let cur_msg = new_packet.basic_info;
+        let http2 = new_packet.http2.unwrap();
+        for http2_msg in http2 {
+            if http2_msg.is_end_stream {
+                let http2_stream_id = http2_msg.stream_id;
+                // got all the elements of the message, add it to the result
+                let mut stream_messages = globals
+                    .messages_per_stream
+                    .remove(&http2_msg.stream_id)
+                    .unwrap_or_else(|| Http2StreamProcessedContents {
+                        cur_request: None,
+                        unfinished_basic_info: Some(cur_msg),
+                        unfinished_stream_messages: vec![],
+                    });
+                stream_messages.unfinished_stream_messages.push(http2_msg);
+                let (http_msg, msg_type) = prepare_http_message(
+                    cur_msg.tcp_stream_id,
+                    cur_msg.tcp_seq_number,
+                    cur_msg.frame_time,
+                    stream_messages.unfinished_stream_messages,
+                );
+                match msg_type {
+                    MsgType::Request => {
+                        if stream.summary_details.is_none() {
+                            stream.summary_details = http_message_parser::get_http_header_value(
+                                &http_msg.headers,
+                                ":authority",
+                            )
+                            .map(|c| c.to_string());
+                        }
+                        if stream.client_server.is_none() {
+                            stream.client_server = Some(ClientServerInfo {
+                                client_ip: cur_msg.ip_src,
+                                server_ip: cur_msg.ip_dst,
+                                server_port: cur_msg.port_dst,
+                            });
+                        }
+                        globals.messages_per_stream.insert(
+                            http2_stream_id,
+                            Http2StreamProcessedContents {
+                                cur_request: Some(http_msg),
+                                unfinished_basic_info: Some(cur_msg),
+                                unfinished_stream_messages: vec![],
+                            },
+                        );
+                    }
+                    MsgType::Response => {
+                        if stream.client_server.is_none() {
+                            stream.client_server = Some(ClientServerInfo {
+                                client_ip: cur_msg.ip_dst,
+                                server_ip: cur_msg.ip_src,
+                                server_port: cur_msg.port_src,
+                            });
+                        }
+                        messages.push(MessageData::Http(HttpMessageData {
+                            http_stream_id: http2_stream_id,
+                            request: stream_messages.cur_request,
+                            response: Some(http_msg),
+                        }));
+                    }
                 }
+            } else {
+                // collecting more elements for this message
+                let stream_msgs_entry = globals
+                    .messages_per_stream
+                    .entry(http2_msg.stream_id)
+                    .or_insert(Http2StreamProcessedContents {
+                        cur_request: None,
+                        unfinished_basic_info: Some(cur_msg),
+                        unfinished_stream_messages: vec![],
+                    });
+                stream_msgs_entry.unfinished_stream_messages.push(http2_msg);
             }
         }
-        let mut summary_details = None;
-        let mut messages = vec![];
-        for (_http2_stream_id, stream_messages) in messages_per_stream {
-            let mut cur_request = None;
-            let mut cur_stream_messages = vec![];
-            let stream_messages_len = stream_messages.len();
-            for (idx, (packet_info_idx, http2_msg)) in stream_messages.into_iter().enumerate() {
-                let cur_msg = &packet_infos[packet_info_idx];
-                // dbg!(&http2_msg);
-                let is_end_stream = http2_msg.is_end_stream;
-                cur_stream_messages.push(http2_msg);
-                if is_end_stream || idx == stream_messages_len - 1 {
+        stream.stream_globals = StreamGlobals::Http2(globals);
+        stream.messages = messages;
+        Ok(stream)
+    }
+
+    fn finish_stream(&self, mut stream: StreamData) -> Result<StreamData, String> {
+        // flush all the incomplete messages as best we can
+        let mut globals = stream.stream_globals.as_http2().unwrap();
+        let mut messages = stream.messages;
+        for (http2_stream_id, stream_contents) in globals.messages_per_stream {
+            let cur_msg = stream_contents.unfinished_basic_info.unwrap();
+            match (
+                stream_contents.cur_request,
+                stream_contents.unfinished_stream_messages,
+            ) {
+                (Some(r), leftover) if leftover.is_empty() => {
+                    messages.push(MessageData::Http(HttpMessageData {
+                        http_stream_id: http2_stream_id,
+                        request: Some(r),
+                        response: None,
+                    }))
+                }
+                (req, leftover) => {
                     let (http_msg, msg_type) = prepare_http_message(
                         cur_msg.tcp_stream_id,
                         cur_msg.tcp_seq_number,
                         cur_msg.frame_time,
-                        cur_stream_messages,
+                        leftover,
                     );
-                    cur_stream_messages = vec![];
                     match msg_type {
                         MsgType::Request => {
-                            if summary_details.is_none() {
-                                summary_details = http_message_parser::get_http_header_value(
-                                    &http_msg.headers,
-                                    ":authority",
-                                )
-                                .map(|c| c.to_string());
+                            if stream.summary_details.is_none() {
+                                stream.summary_details =
+                                    http_message_parser::get_http_header_value(
+                                        &http_msg.headers,
+                                        ":authority",
+                                    )
+                                    .map(|c| c.to_string());
                             }
-                            let msg_server_ip = &cur_msg.ip_dst;
-                            if *msg_server_ip != server_ip {
-                                server_ip = *msg_server_ip;
+                            if stream.client_server.is_none() {
+                                stream.client_server = Some(ClientServerInfo {
+                                    client_ip: cur_msg.ip_src,
+                                    server_ip: cur_msg.ip_dst,
+                                    server_port: cur_msg.port_dst,
+                                });
                             }
-                            let msg_client_ip = &cur_msg.ip_src;
-                            if *msg_client_ip != client_ip {
-                                client_ip = *msg_client_ip;
-                            }
-                            server_port = cur_msg.port_dst;
-                            cur_request = Some(http_msg);
+                            messages.push(MessageData::Http(HttpMessageData {
+                                http_stream_id: http2_stream_id,
+                                request: Some(http_msg),
+                                response: None,
+                            }));
                         }
                         MsgType::Response => {
-                            let msg_server_ip = &cur_msg.ip_src;
-                            if *msg_server_ip != server_ip {
-                                server_ip = *msg_server_ip;
+                            if stream.client_server.is_none() {
+                                stream.client_server = Some(ClientServerInfo {
+                                    client_ip: cur_msg.ip_dst,
+                                    server_ip: cur_msg.ip_src,
+                                    server_port: cur_msg.port_src,
+                                });
                             }
-                            let msg_client_ip = &cur_msg.ip_dst;
-                            if *msg_client_ip != client_ip {
-                                client_ip = *msg_client_ip;
-                            }
-                            server_port = cur_msg.port_src;
                             messages.push(MessageData::Http(HttpMessageData {
-                                request: cur_request,
+                                http_stream_id: http2_stream_id,
+                                request: req,
                                 response: Some(http_msg),
                             }));
-                            cur_request = None;
                         }
                     }
                 }
             }
-            if let Some(r) = cur_request {
-                if summary_details.is_none() {
-                    summary_details =
-                        http_message_parser::get_http_header_value(&r.headers, ":authority")
-                            .map(|c| c.to_string());
-                }
-                messages.push(MessageData::Http(HttpMessageData {
-                    request: Some(r),
-                    response: None,
-                }));
-            }
         }
-        Ok(StreamData {
-            server_ip,
-            server_port,
-            client_ip,
-            messages,
-            summary_details,
-        })
+        stream.stream_globals = StreamGlobals::Http2(Http2StreamGlobals::default());
+        stream.messages = messages;
+        Ok(stream)
     }
 
     fn populate_treeview(
@@ -144,7 +221,7 @@ impl MessageParser for Http2 {
         overlay: Option<&gtk::Overlay>,
         bg_sender: mpsc::Sender<BgFunc>,
         win_msg_sender: relm::StreamHandle<win::Msg>,
-    ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, PathBuf, MessageInfo)> {
+    ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, MessageInfo)> {
         http_message_parser::Http.add_details_to_scroll(parent, overlay, bg_sender, win_msg_sender)
     }
 
@@ -270,8 +347,8 @@ fn prepare_http_message(
 
 #[test]
 fn should_parse_simple_comm() {
-    let parsed = Http2 {}
-        .parse_stream(parse_test_xml(
+    let parsed =
+        parse_stream(Http2, parse_test_xml(
             r#"
   <proto name="http2" showname="HyperText Transfer Protocol 2" size="341" pos="0">
     <field name="http2.stream" showname="Stream: HEADERS, Stream ID: 1, Length 332, GET /libraries/gbuemRf7.js" size="341" pos="0" show="" value="">
@@ -330,6 +407,7 @@ fn should_parse_simple_comm() {
         ))
         .unwrap().messages;
     let expected = vec![MessageData::Http(HttpMessageData {
+        http_stream_id: 1,
         request: Some(HttpRequestResponseData {
             tcp_stream_no: 4,
             tcp_seq_number: 1963007432,

@@ -18,7 +18,9 @@ pub struct TSharkHttp {
     pub content_type: Option<String>,
 }
 
-pub fn parse_http_info<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> TSharkHttp {
+pub fn parse_http_info<B: BufRead>(
+    xml_reader: &mut quick_xml::Reader<B>,
+) -> Result<TSharkHttp, String> {
     let mut http_type = None;
     let mut http_host = None;
     let mut first_line = None;
@@ -80,14 +82,14 @@ pub fn parse_http_info<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> TSh
         }
         Ok(Event::End(ref e)) => {
             if e.name() == b"proto" {
-                return TSharkHttp {
+                return Ok(TSharkHttp {
                     http_type: http_type.unwrap(),
                     http_host,
                     first_line: first_line.unwrap_or_default(),
                     other_lines: other_lines.join(""),
                     body,
                     content_type,
-                };
+                });
             }
         }
     )

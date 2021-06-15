@@ -13,12 +13,11 @@ use itertools::Itertools;
 use relm::Widget;
 use relm_derive::{widget, Msg};
 use std::net::IpAddr;
-use std::path::PathBuf;
 use std::sync::mpsc;
 
 #[derive(Msg, Debug)]
 pub enum Msg {
-    DisplayDetails(mpsc::Sender<BgFunc>, PathBuf, MessageInfo),
+    DisplayDetails(mpsc::Sender<BgFunc>, MessageInfo),
     RemoveFormatToggled,
 }
 
@@ -81,7 +80,6 @@ impl Widget for HttpCommEntry {
         match event {
             Msg::DisplayDetails(
                 bg_sender,
-                file_path,
                 MessageInfo {
                     client_ip,
                     stream_id,
@@ -98,13 +96,11 @@ impl Widget for HttpCommEntry {
                     .request_body
                     .emit(http_body_widget::Msg::RequestResponseChanged(
                         self.model.data.request.clone(),
-                        file_path.clone(),
                     ));
                 self.streams
                     .response_body
                     .emit(http_body_widget::Msg::RequestResponseChanged(
                         self.model.data.response.clone(),
-                        file_path,
                     ));
             }
             Msg::RemoveFormatToggled => {
