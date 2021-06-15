@@ -1,7 +1,9 @@
 use relm::Widget;
+use std::os::unix::fs::FileTypeExt;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
+use widgets::win;
 
 pub mod colors;
 pub mod config;
@@ -48,5 +50,20 @@ fn main() {
         eprintln!("Error removing obsolete tcpdump files: {}", e);
     }
 
-    widgets::win::Win::run((tx, args.next().map(PathBuf::from))).unwrap();
+    let path = args.next().map(|p| {
+        let is_fifo = std::fs::metadata(&p)
+            .ok()
+            .map(|m| m.file_type().is_fifo())
+            .is_some();
+        (
+            PathBuf::from(p),
+            if is_fifo {
+                win::FileType::Fifo
+            } else {
+                win::FileType::File
+            },
+        )
+    });
+
+    win::Win::run((tx, path)).unwrap();
 }

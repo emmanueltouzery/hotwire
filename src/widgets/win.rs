@@ -31,6 +31,7 @@ use std::io::BufRead;
 use std::io::BufReader;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
+use std::os::unix::fs::FileTypeExt;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Child;
@@ -123,13 +124,21 @@ pub struct CommTargetCardKey {
     pub protocol_index: usize,
 }
 
+#[derive(PartialEq, Eq)]
+pub enum FileType {
+    File,
+    Fifo,
+}
+
 pub struct Model {
     relm: relm::Relm<Win>,
     bg_sender: mpsc::Sender<BgFunc>,
 
     window_subtitle: Option<String>,
-    current_file_path: Option<PathBuf>,
+    current_file: Option<(PathBuf, FileType)>,
     recent_files: Vec<PathBuf>,
+
+    capture_toggle_signal: Option<glib::SignalHandlerId>,
 
     infobar_spinner: gtk::Spinner,
     infobar_label: gtk::Label,
@@ -266,6 +275,12 @@ impl Widget for Win {
         }
         self.widgets.infobar.set_visible(false);
 
+        let stream = self.model.relm.stream().clone();
+        self.model.capture_toggle_signal =
+            Some(self.widgets.capture_btn.connect_toggled(move |_| {
+                stream.emit(Msg::CaptureToggled);
+            }));
+
         self.model.sidebar_selection_change_signal_id = {
             let stream = self.model.relm.stream().clone();
             Some(
@@ -312,7 +327,7 @@ impl Widget for Win {
 
         // self.refresh_comm_targets();
         // self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
-        let path = self.model.current_file_path.as_ref().cloned();
+        let path = self.model.current_file.as_ref().map(|(p, _t)| p).cloned();
         if let Some(p) = path {
             self.gui_load_file(p);
         }
@@ -530,8 +545,11 @@ impl Widget for Win {
         Ok(())
     }
 
-    fn model(relm: &relm::Relm<Self>, params: (mpsc::Sender<BgFunc>, Option<PathBuf>)) -> Model {
-        let (bg_sender, current_file_path) = params;
+    fn model(
+        relm: &relm::Relm<Self>,
+        params: (mpsc::Sender<BgFunc>, Option<(PathBuf, FileType)>),
+    ) -> Model {
+        let (bg_sender, current_file) = params;
         gtk::IconTheme::get_default()
             .unwrap()
             .add_resource_path("/icons");
@@ -564,7 +582,8 @@ impl Widget for Win {
             comm_target_cards: vec![],
             streams: HashMap::new(),
             cur_liststore: None,
-            current_file_path,
+            current_file,
+            capture_toggle_signal: None,
             window_subtitle: None,
             remote_ips_streams_iptopath: HashMap::new(),
             remote_ips_streams_treestore: gtk::TreeStore::new(&[
@@ -653,7 +672,7 @@ impl Widget for Win {
                     .root_stack
                     .set_visible_child_name(WELCOME_STACK_NAME);
                 self.model.window_subtitle = None;
-                self.model.current_file_path = None;
+                self.model.current_file = None;
                 self.model.streams = HashMap::new();
                 // self.refresh_comm_targets();
                 self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
@@ -979,7 +998,7 @@ impl Widget for Win {
                     store.2 += added_messages as i32;
                     self.model.cur_liststore = Some(store);
 
-                    if self.model.current_file_path.is_none() {
+                    if self.model.current_file.is_none() {
                         // we're capturing network traffic. scroll to
                         // reveal new packets (TODO don't scroll if we're not
                         // scrolled to the bottom beforehand)
@@ -1008,7 +1027,14 @@ impl Widget for Win {
                             .get_selection()
                             .select_path(&gtk::TreePath::new_first());
 
-                        if self.model.current_file_path.is_none() {
+                        if self.model.current_file.is_none()
+                            || self
+                                .model
+                                .current_file
+                                .as_ref()
+                                .filter(|f| f.1 == FileType::Fifo)
+                                .is_some()
+                        {
                             // we're capturing network traffic. start displaying data
                             // realtime as we're receiving packets.
                             self.widgets
@@ -1393,7 +1419,7 @@ impl Widget for Win {
         }
     }
 
-    fn reset_open_file(&mut self, fname: Option<PathBuf>) {
+    fn reset_open_file(&mut self, fname: Option<(PathBuf, FileType)>) {
         let pcap_output_file = config::get_tshark_pcap_output_path();
         if pcap_output_file.exists() {
             if let Err(e) = std::fs::remove_file(pcap_output_file) {
@@ -1409,11 +1435,11 @@ impl Widget for Win {
         self.model.window_subtitle = Some(
             fname
                 .as_ref()
-                .map(|p| p.to_string_lossy())
+                .map(|(p, _t)| p.to_string_lossy())
                 .unwrap_or(std::borrow::Cow::Borrowed("Network Capture"))
                 .to_string(),
         );
-        self.model.current_file_path = fname;
+        self.model.current_file = fname;
         self.widgets.loading_spinner.start();
         self.widgets.loading_parsing_label.set_visible(false);
         self.widgets.loading_tshark_label.set_visible(true);
@@ -1433,26 +1459,60 @@ impl Widget for Win {
 
     fn gui_load_file(&mut self, fname: PathBuf) {
         self.widgets.open_btn.set_active(false);
-        let rm = gtk::RecentManager::get_default().unwrap();
-        if let Some(fname_str) = fname.to_str() {
-            let recent_data = gtk::RecentData {
-                display_name: None,
-                description: None,
-                mime_type: "application/vnd.tcpdump.pcap".to_string(),
-                app_name: "hotwire".to_string(),
-                app_exec: "hotwire".to_string(),
-                groups: vec![],
-                is_private: false,
-            };
-            rm.add_full(fname_str, &recent_data);
+        if let Some(rm) = gtk::RecentManager::get_default() {
+            if let Some(fname_str) = fname.to_str() {
+                let recent_data = gtk::RecentData {
+                    display_name: None,
+                    description: None,
+                    mime_type: "application/vnd.tcpdump.pcap".to_string(),
+                    app_name: "hotwire".to_string(),
+                    app_exec: "hotwire".to_string(),
+                    groups: vec![],
+                    is_private: false,
+                };
+                rm.add_full(fname_str, &recent_data);
+            }
         }
-        self.reset_open_file(Some(fname.clone()));
+        let is_fifo = std::fs::metadata(&fname)
+            .ok()
+            .map(|m| m.file_type().is_fifo())
+            .is_some();
+
+        self.reset_open_file(Some((
+            fname.clone(),
+            if is_fifo {
+                FileType::Fifo
+            } else {
+                FileType::File
+            },
+        )));
+
+        if is_fifo {
+            self.widgets
+                .capture_btn
+                .block_signal(&self.model.capture_toggle_signal.as_ref().unwrap());
+            self.widgets.capture_btn.set_active(true);
+            self.widgets.capture_spinner.set_visible(true);
+            self.widgets.capture_spinner.start();
+            self.widgets
+                .capture_btn
+                .unblock_signal(&self.model.capture_toggle_signal.as_ref().unwrap());
+        }
+
         let s = self.model.loaded_data_sender.clone();
         // self.init_remote_ips_streams_tree();
         self.model
             .bg_sender
             .send(BgFunc::new(move || {
-                Self::load_file(TSharkInputType::File, fname.clone(), s.clone());
+                Self::load_file(
+                    if is_fifo {
+                        TSharkInputType::Fifo
+                    } else {
+                        TSharkInputType::File
+                    },
+                    fname.clone(),
+                    s.clone(),
+                );
             }))
             .unwrap();
         self.refresh_recent_files();
@@ -1704,7 +1764,6 @@ impl Widget for Win {
                     },
                     #[name="capture_btn"]
                     gtk::ToggleButton {
-                        toggled => Msg::CaptureToggled,
                         gtk::Box {
                             #[name="capture_spinner"]
                             gtk::Spinner {
