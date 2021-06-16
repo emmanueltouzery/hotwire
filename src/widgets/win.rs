@@ -21,6 +21,8 @@ use crate::BgFunc;
 use gdk::prelude::*;
 use glib::translate::ToGlib;
 use gtk::prelude::*;
+use nix::sys::signal::Signal;
+use nix::unistd::Pid;
 use quick_xml::events::Event;
 use relm::{Component, ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
@@ -29,6 +31,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io::BufRead;
 use std::io::BufReader;
+use std::io::Read;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::os::unix::fs::FileTypeExt;
@@ -1366,7 +1369,19 @@ impl Widget for Win {
             }
             if let Some(_tshark_child) = self.model.tshark_child.take() {
                 let mut tshark_child = _tshark_child;
-                tshark_child.kill()?;
+
+                // soooooooo... if I use child.kill() then when I read from a local fifo file (mkfifo)
+                // and I cancel the reading from the fifo, and nothing was written to the fifo at all,
+                // we do kill the tshark process, but our read() on the pipe from tshark hangs.
+                // I don't know why. However if I use nix to send a SIGINT, our read() is interrupted
+                // and all is good...
+                //
+                // tshark_child.kill()?;
+                nix::sys::signal::kill(
+                    Pid::from_raw(tshark_child.id() as libc::pid_t),
+                    Some(Signal::SIGINT),
+                )?;
+
                 // try_wait doesn't work, wait hangs, not doing anything leaves zombie processes
                 // i found this way of regularly calling try_wait until it succeeds...
                 glib::idle_add_local(move || {
