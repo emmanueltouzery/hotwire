@@ -22,10 +22,14 @@ use gdk::prelude::*;
 use glib::translate::ToGlib;
 use gtk::prelude::*;
 use nix::sys::signal::Signal;
+use nix::sys::time::TimeSpec;
+use nix::sys::time::TimeValLike;
 use nix::unistd::Pid;
 use quick_xml::events::Event;
 use relm::{Component, ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
+use signal_hook::consts::signal::*;
+use signal_hook::iterator::Signals;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -42,6 +46,7 @@ use std::process::Child;
 use std::process::Command;
 use std::process::Stdio;
 use std::sync::mpsc;
+use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -79,6 +84,7 @@ pub enum Msg {
     DisplayAbout,
     CaptureToggled,
     SaveCapture,
+    ChildDied,
 
     KeyPress(gdk::EventKey),
     SearchActiveChanged(bool),
@@ -565,6 +571,32 @@ impl Widget for Win {
             })
         };
 
+        {
+            // the problem i'm trying to fix is the user triggering
+            // a capture... so we call pkexec to launch tcpdump.. but the user closes pkexec and
+            // so tcpdump will never be launched.
+            // then we have tshark blocking on the fifo, forever.
+            // i catch the SIGCHLD signal, which tells me that one of my child processes died
+            // (potentially pkexec). At that point if the capture is running, I stop it and clean up.
+            let stream = relm.stream().clone();
+
+            let (_channel, sender) = relm::Channel::new(move |()| {
+                // This closure is executed whenever a message is received from the sender.
+                // We send a message to the current widget.
+                stream.emit(Msg::ChildDied);
+            });
+            thread::spawn(move || {
+                const SIGNALS: &[libc::c_int] = &[signal_hook::consts::signal::SIGCHLD];
+                let mut sigs = Signals::new(SIGNALS).unwrap();
+                for signal in &mut sigs {
+                    sender.send(()).expect("send child died msg");
+                    if let Err(e) = signal_hook::low_level::emulate_default_handler(signal) {
+                        eprintln!("Error calling the low-level signal hook handling: {:?}", e);
+                    }
+                }
+            });
+        }
+
         Model {
             relm: relm.clone(),
             bg_sender,
@@ -626,6 +658,15 @@ impl Widget for Win {
             Msg::SaveCapture => {
                 self.handle_save_capture();
             }
+            Msg::ChildDied => {
+                // the problem i'm trying to fix is the user triggering
+                // a capture... so we call pkexec to launch tcpdump.. but the user closes pkexec and
+                // so tcpdump will never be launched.
+                // then we have tshark blocking on the fifo, forever.
+                // i catch the SIGCHLD signal, which tells me that one of my child processes died
+                // (potentially pkexec). At that point if the capture is running, I stop it and clean up.
+                self.widgets.capture_btn.set_active(false);
+            }
             Msg::KeyPress(e) => {
                 self.handle_keypress(e);
             }
@@ -671,6 +712,15 @@ impl Widget for Win {
             Msg::InfoBarEvent(_) => {}
             Msg::LoadedData(Err(msg)) => {
                 // TODO clear the streams like we do when opening a new file?
+                self.widgets
+                    .capture_btn
+                    .block_signal(&self.model.capture_toggle_signal.as_ref().unwrap());
+                self.widgets.capture_btn.set_active(false);
+                self.widgets.capture_spinner.set_visible(false);
+                self.widgets.capture_spinner.stop();
+                self.widgets
+                    .capture_btn
+                    .unblock_signal(&self.model.capture_toggle_signal.as_ref().unwrap());
                 self.widgets.loading_spinner.stop();
                 self.widgets
                     .root_stack
