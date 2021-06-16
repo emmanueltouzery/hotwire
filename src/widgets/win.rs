@@ -32,6 +32,7 @@ use std::io::BufReader;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::os::unix::fs::FileTypeExt;
+use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Child;
@@ -1359,7 +1360,7 @@ impl Widget for Win {
                 // i found this way of regularly calling try_wait until it succeeds...
                 glib::idle_add_local(move || {
                     glib::Continue(
-                        !matches!(tcpdump_child.try_wait(), Ok(Some(s)) if s.code().is_some()),
+                        !matches!(tcpdump_child.try_wait(), Ok(Some(s)) if s.code().is_some() || s.signal().is_some()),
                     )
                 });
             }
@@ -1370,7 +1371,7 @@ impl Widget for Win {
                 // i found this way of regularly calling try_wait until it succeeds...
                 glib::idle_add_local(move || {
                     glib::Continue(
-                        !matches!(tshark_child.try_wait(), Ok(Some(s)) if s.code().is_some()),
+                        !matches!(tshark_child.try_wait(), Ok(Some(s)) if s.code().is_some() || s.signal().is_some()),
                     )
                 });
             }
