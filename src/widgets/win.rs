@@ -1476,7 +1476,7 @@ impl Widget for Win {
         }
         let is_fifo = std::fs::metadata(&fname)
             .ok()
-            .map(|m| m.file_type().is_fifo())
+            .filter(|m| m.file_type().is_fifo())
             .is_some();
 
         self.reset_open_file(Some((
