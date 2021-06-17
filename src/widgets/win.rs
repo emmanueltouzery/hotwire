@@ -1500,8 +1500,12 @@ impl Widget for Win {
         dialog.set_filter(&filter);
         if dialog.run() == gtk::ResponseType::Accept {
             if let Some(fname) = dialog.get_filename() {
-                if let Err(e) = std::fs::copy(config::get_tshark_pcap_output_path(), fname) {
+                if let Err(e) = std::fs::copy(config::get_tshark_pcap_output_path(), fname.clone())
+                {
                     Self::display_error_block("Error saving capture file", Some(&e.to_string()));
+                } else {
+                    Self::add_to_recent_files(&fname);
+                    self.refresh_recent_files();
                 }
             }
         }
@@ -1562,8 +1566,7 @@ impl Widget for Win {
         self.model.remote_ips_streams_iptopath.clear();
     }
 
-    fn gui_load_file(&mut self, fname: PathBuf) {
-        self.widgets.open_btn.set_active(false);
+    fn add_to_recent_files(fname: &Path) {
         if let Some(rm) = gtk::RecentManager::get_default() {
             if let Some(fname_str) = fname.to_str() {
                 let recent_data = gtk::RecentData {
@@ -1578,6 +1581,11 @@ impl Widget for Win {
                 rm.add_full(fname_str, &recent_data);
             }
         }
+    }
+
+    fn gui_load_file(&mut self, fname: PathBuf) {
+        self.widgets.open_btn.set_active(false);
+        Self::add_to_recent_files(&fname);
         let is_fifo = std::fs::metadata(&fname)
             .ok()
             .filter(|m| m.file_type().is_fifo())
