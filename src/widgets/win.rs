@@ -712,6 +712,11 @@ impl Widget for Win {
             Msg::InfoBarEvent(_) => {}
             Msg::LoadedData(Err(msg)) => {
                 // TODO clear the streams like we do when opening a new file?
+                if let Err(e) = self.cleanup_child_processes() {
+                    // not sure why loading failed.. maybe don't get too hung up
+                    // about error handling in this case?
+                    eprintln!("Error cleaning up child processes: {:?}", e);
+                }
                 self.widgets
                     .capture_btn
                     .block_signal(&self.model.capture_toggle_signal.as_ref().unwrap());
@@ -866,6 +871,12 @@ impl Widget for Win {
                 }
             }
             Msg::LoadedData(Ok(InputStep::Eof)) => {
+                if let Err(e) = self.cleanup_child_processes() {
+                    self.model.relm.stream().emit(Msg::LoadedData(Err(format!(
+                        "Error cleaning up children processes: {}",
+                        e
+                    ))));
+                }
                 let keys: Vec<u32> = self.model.streams.keys().map(|k| *k).collect();
                 for stream_id in keys {
                     let stream_data = self.model.streams.remove(&stream_id).unwrap();
@@ -1400,51 +1411,56 @@ impl Widget for Win {
                 } else {
                     NORMAL_STACK_NAME
                 });
-            if let Some(_tcpdump_child) = self.model.tcpdump_child.take() {
-                let mut tcpdump_child = _tcpdump_child;
-                // seems like we can't kill tcpdump, even though it's our child (owned by another user),
-                // but it's not needed (presumably because we kill tshark, which reads from the fifo,
-                // and the fifo itself)
-                // if let Err(e) = tcpdump_pid.kill() {
-                //     eprintln!("kill1 fails {:?}", e);
-                // }
-
-                // try_wait doesn't work, wait hangs, not doing anything leaves zombie processes
-                // i found this way of regularly calling try_wait until it succeeds...
-                glib::idle_add_local(move || {
-                    glib::Continue(
-                        !matches!(tcpdump_child.try_wait(), Ok(Some(s)) if s.code().is_some() || s.signal().is_some()),
-                    )
-                });
-            }
-            if let Some(_tshark_child) = self.model.tshark_child.take() {
-                let mut tshark_child = _tshark_child;
-
-                // soooooooo... if I use child.kill() then when I read from a local fifo file (mkfifo)
-                // and I cancel the reading from the fifo, and nothing was written to the fifo at all,
-                // we do kill the tshark process, but our read() on the pipe from tshark hangs.
-                // I don't know why. However if I use nix to send a SIGINT, our read() is interrupted
-                // and all is good...
-                //
-                // tshark_child.kill()?;
-                nix::sys::signal::kill(
-                    Pid::from_raw(tshark_child.id() as libc::pid_t),
-                    Some(Signal::SIGINT),
-                )?;
-
-                // try_wait doesn't work, wait hangs, not doing anything leaves zombie processes
-                // i found this way of regularly calling try_wait until it succeeds...
-                glib::idle_add_local(move || {
-                    glib::Continue(
-                        !matches!(tshark_child.try_wait(), Ok(Some(s)) if s.code().is_some() || s.signal().is_some()),
-                    )
-                });
-            }
+            self.cleanup_child_processes()?;
             let fifo_path = config::get_tcpdump_fifo_path();
             if fifo_path.exists() {
                 std::fs::remove_file(fifo_path)?;
             }
             self.widgets.save_capture_btn.set_visible(true);
+        }
+        Ok(())
+    }
+
+    fn cleanup_child_processes(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(_tcpdump_child) = self.model.tcpdump_child.take() {
+            let mut tcpdump_child = _tcpdump_child;
+            // seems like we can't kill tcpdump, even though it's our child (owned by another user),
+            // but it's not needed (presumably because we kill tshark, which reads from the fifo,
+            // and the fifo itself)
+            // if let Err(e) = tcpdump_pid.kill() {
+            //     eprintln!("kill1 fails {:?}", e);
+            // }
+
+            // try_wait doesn't work, wait hangs, not doing anything leaves zombie processes
+            // i found this way of regularly calling try_wait until it succeeds...
+            glib::idle_add_local(move || {
+                glib::Continue(
+                    !matches!(tcpdump_child.try_wait(), Ok(Some(s)) if s.code().is_some() || s.signal().is_some()),
+                )
+            });
+        }
+        if let Some(_tshark_child) = self.model.tshark_child.take() {
+            let mut tshark_child = _tshark_child;
+
+            // soooooooo... if I use child.kill() then when I read from a local fifo file (mkfifo)
+            // and I cancel the reading from the fifo, and nothing was written to the fifo at all,
+            // we do kill the tshark process, but our read() on the pipe from tshark hangs.
+            // I don't know why. However if I use nix to send a SIGINT, our read() is interrupted
+            // and all is good...
+            //
+            // tshark_child.kill()?;
+            nix::sys::signal::kill(
+                Pid::from_raw(tshark_child.id() as libc::pid_t),
+                Some(Signal::SIGINT),
+            )?;
+
+            // try_wait doesn't work, wait hangs, not doing anything leaves zombie processes
+            // i found this way of regularly calling try_wait until it succeeds...
+            glib::idle_add_local(move || {
+                glib::Continue(
+                    !matches!(tshark_child.try_wait(), Ok(Some(s)) if s.code().is_some() || s.signal().is_some()),
+                )
+            });
         }
         Ok(())
     }
