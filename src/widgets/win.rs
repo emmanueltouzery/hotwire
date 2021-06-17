@@ -288,7 +288,9 @@ impl Widget for Win {
 
         // the capture depends on pkexec for privilege escalation
         // which is linux-specific, and then fifos which are unix-specific.
-        self.widgets.capture_btn.set_visible(cfg!(linux));
+        self.widgets
+            .capture_btn
+            .set_visible(Self::is_display_capture_btn());
 
         let stream = self.model.relm.stream().clone();
         self.model.capture_toggle_signal =
@@ -346,6 +348,10 @@ impl Widget for Win {
         if let Some(p) = path {
             self.gui_load_file(p);
         }
+    }
+
+    fn is_display_capture_btn() -> bool {
+        cfg!(target_os = "linux")
     }
 
     fn refresh_recent_files(&mut self) {
@@ -1431,7 +1437,9 @@ impl Widget for Win {
                 std::fs::remove_file(fifo_path)?;
             }
             self.widgets.save_capture_btn.set_visible(true);
-            self.widgets.capture_btn.set_visible(cfg!(linux));
+            self.widgets
+                .capture_btn
+                .set_visible(Self::is_display_capture_btn());
         }
         Ok(())
     }
