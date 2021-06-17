@@ -30,6 +30,7 @@ use relm::{Component, ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
 use signal_hook::consts::signal::*;
 use signal_hook::iterator::Signals;
+use std::cmp::Reverse;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -354,13 +355,26 @@ impl Widget for Win {
         self.model.recent_files.clear();
         self.model._recent_file_item_components.clear();
         let rm = gtk::RecentManager::get_default().unwrap();
-        rm.get_items()
-            .into_iter()
-            .filter(|fi| {
-                fi.get_mime_type()
-                    .filter(|m| m.as_str() == "application/vnd.tcpdump.pcap")
-                    .is_some()
+        let mut items = rm.get_items();
+        let normalize_uri = |uri: Option<glib::GString>| {
+            uri.map(|u| u.to_string()).map(|u| {
+                if u.starts_with("/") {
+                    format!("file://{}", u)
+                } else {
+                    u
+                }
             })
+        };
+        items.sort_by_key(|i| normalize_uri(i.get_uri()));
+        items.dedup_by_key(|i| normalize_uri(i.get_uri()));
+        dbg!(items
+            .iter()
+            .map(|i| i.get_uri().map(|u| u.to_string()))
+            .collect::<Vec<_>>());
+        items.sort_by_key(|i| Reverse(i.get_modified()));
+        items
+            .into_iter()
+            .filter(|i| i.last_application().map(|a| a.to_string()) == Some("hotwire".to_string()))
             .take(5)
             .flat_map(|fi| fi.get_uri())
             .map(|gs| PathBuf::from(gs.as_str()))
