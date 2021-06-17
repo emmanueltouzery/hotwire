@@ -285,6 +285,10 @@ impl Widget for Win {
         }
         self.widgets.infobar.set_visible(false);
 
+        // the capture depends on pkexec for privilege escalation
+        // which is linux-specific, and then fifos which are unix-specific.
+        self.widgets.capture_btn.set_visible(cfg!(linux));
+
         let stream = self.model.relm.stream().clone();
         self.model.capture_toggle_signal =
             Some(self.widgets.capture_btn.connect_toggled(move |_| {
@@ -1417,6 +1421,7 @@ impl Widget for Win {
                 std::fs::remove_file(fifo_path)?;
             }
             self.widgets.save_capture_btn.set_visible(true);
+            self.widgets.capture_btn.set_visible(cfg!(linux));
         }
         Ok(())
     }
@@ -1573,6 +1578,10 @@ impl Widget for Win {
             self.widgets
                 .capture_btn
                 .block_signal(&self.model.capture_toggle_signal.as_ref().unwrap());
+            // the capture button is invisible by default except on linux
+            // in case of file opening through fifo, make it visible always
+            // (so the user can stop the import)
+            self.widgets.capture_btn.set_visible(true);
             self.widgets.capture_btn.set_active(true);
             self.widgets.capture_spinner.set_visible(true);
             self.widgets.capture_spinner.start();
