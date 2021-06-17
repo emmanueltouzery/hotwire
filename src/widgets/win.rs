@@ -367,10 +367,6 @@ impl Widget for Win {
         };
         items.sort_by_key(|i| normalize_uri(i.get_uri()));
         items.dedup_by_key(|i| normalize_uri(i.get_uri()));
-        dbg!(items
-            .iter()
-            .map(|i| i.get_uri().map(|u| u.to_string()))
-            .collect::<Vec<_>>());
         items.sort_by_key(|i| Reverse(i.get_modified()));
         items
             .into_iter()
@@ -1626,26 +1622,6 @@ impl Widget for Win {
     fn load_file(file_type: TSharkInputType, fname: PathBuf, sender: relm::Sender<ParseInputStep>) {
         invoke_tshark(file_type, &fname, "http || pgsql || http2", sender);
     }
-
-    // fn refresh_comm_targets(&mut self) {
-    //     for child in self.widgets.comm_target_list.get_children() {
-    //         self.widgets.comm_target_list.remove(&child);
-    //     }
-    //     self.model._comm_targets_components = self
-    //         .model
-    //         .comm_target_cards
-    //         .iter()
-    //         .map(|card| {
-    //             self.widgets
-    //                 .comm_target_list
-    //                 .add_widget::<CommTargetCard>(card.clone())
-    //         })
-    //         .collect();
-    //     self.widgets
-    //         .comm_target_list
-    //         .select_row(self.widgets.comm_target_list.get_row_at_index(0).as_ref());
-    //     // self.model.selected_card = self.model.comm_target_cards.first().cloned();
-    // }
 
     fn init_remote_ips_streams_tree(&mut self) {
         self.model.remote_ips_streams_iptopath.clear();
