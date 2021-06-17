@@ -1,4 +1,10 @@
-pub fn highlight_indent(do_format: bool, body: &str, content_type: Option<&str>) -> String {
+pub const BODY_TRUNCATE_LIMIT_BYTES: usize = 128 * 1024;
+
+pub fn highlight_indent_truncate(
+    do_format: bool,
+    body: &str,
+    content_type: Option<&str>,
+) -> String {
     // support eg "application/xml;charset=UTF8"
     let content_type_first_part = content_type.map(|c| {
         if let Some(semicolon_index) = c.find(';') {
@@ -7,10 +13,19 @@ pub fn highlight_indent(do_format: bool, body: &str, content_type: Option<&str>)
             c
         }
     });
+    let truncated_body = if body.len() > BODY_TRUNCATE_LIMIT_BYTES {
+        &body[0..BODY_TRUNCATE_LIMIT_BYTES]
+    } else {
+        body
+    };
     match content_type_first_part {
-        Some("application/xml") | Some("text/xml") if do_format => highlight_indent_xml(body),
-        Some("application/json") | Some("text/json") if do_format => highlight_indent_json(body),
-        _ => glib::markup_escape_text(body).to_string(),
+        Some("application/xml") | Some("text/xml") if do_format => {
+            highlight_indent_xml(truncated_body)
+        }
+        Some("application/json") | Some("text/json") if do_format => {
+            highlight_indent_json(truncated_body)
+        }
+        _ => glib::markup_escape_text(truncated_body).to_string(),
     }
 }
 

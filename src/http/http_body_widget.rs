@@ -8,7 +8,6 @@ use gtk::prelude::*;
 use relm::Widget;
 use relm_derive::{widget, Msg};
 use std::borrow::Cow;
-use std::path::PathBuf;
 use std::sync::mpsc;
 
 const TEXT_CONTENTS_STACK_NAME: &str = "text";
@@ -31,7 +30,7 @@ pub struct SavedBodyData {
 pub enum Msg {
     FormatCodeChanged(bool),
     RequestResponseChanged(Option<HttpRequestResponseData>),
-    SaveBinaryContents,
+    SaveContents,
 }
 
 pub struct Model {
@@ -46,6 +45,14 @@ pub struct Model {
 
 #[widget]
 impl Widget for HttpBodyWidget {
+    fn init_view(&mut self) {
+        self.widgets.too_long_infobar.get_content_area().add(
+            &gtk::LabelBuilder::new()
+                .label("The message body is too large, has been truncated for display")
+                .build(),
+        );
+    }
+
     fn model(
         relm: &relm::Relm<Self>,
         params: (relm::StreamHandle<win::Msg>, mpsc::Sender<BgFunc>),
@@ -103,13 +110,22 @@ impl Widget for HttpBodyWidget {
                             .set_visible_child_name(BINARY_CONTENTS_STACK_NAME);
                     }
                     _ => {
+                        self.widgets.too_long_header.set_visible(
+                            self.model
+                                .data
+                                .as_ref()
+                                .and_then(|d| d.body_as_str())
+                                .unwrap_or(Cow::Borrowed(""))
+                                .len()
+                                > code_formatting::BODY_TRUNCATE_LIMIT_BYTES,
+                        );
                         self.widgets
                             .contents_stack
                             .set_visible_child_name(TEXT_CONTENTS_STACK_NAME);
                     }
                 }
             }
-            Msg::SaveBinaryContents => {
+            Msg::SaveContents => {
                 let dialog = gtk::FileChooserNativeBuilder::new()
                     .action(gtk::FileChooserAction::Save)
                     .title("Export to...")
@@ -126,19 +142,21 @@ impl Widget for HttpBodyWidget {
                         )),
                         win::InfobarOptions::ShowSpinner,
                     ));
-                    if let Some(HttpBody::Binary(ref bytes)) =
-                        self.model.data.as_ref().map(|d| &d.body)
-                    {
-                        // already have the data, just save it
-                        self.model
-                            .saved_body_sender
-                            .send(SavedBodyData {
-                                error_msg: std::fs::write(target_fname, bytes)
-                                    .err()
-                                    .map(|e| e.to_string()),
-                            })
-                            .unwrap()
-                    }
+                    self.model
+                        .saved_body_sender
+                        .send(SavedBodyData {
+                            error_msg: std::fs::write(
+                                target_fname,
+                                match self.model.data.as_ref().map(|d| &d.body) {
+                                    Some(HttpBody::Binary(ref bytes)) => bytes,
+                                    Some(HttpBody::Text(ref txt)) => txt.as_bytes(),
+                                    _ => &[],
+                                },
+                            )
+                            .err()
+                            .map(|e| e.to_string()),
+                        })
+                        .unwrap()
                 }
             }
         }
@@ -217,16 +235,35 @@ impl Widget for HttpBodyWidget {
        #[name="contents_stack"]
        gtk::Stack {
            visible: self.model.data.as_ref().filter(|d| !matches!(d.body, HttpBody::Missing)).is_some(),
-           gtk::Label {
+           gtk::Box {
                child: {
                    name: Some(TEXT_CONTENTS_STACK_NAME)
                },
-               markup: &code_formatting::highlight_indent(
-                   self.model.format_code,
-                   &self.model.data.as_ref().and_then(|d| d.body_as_str()).unwrap_or(Cow::Borrowed("")),
-                   self.model.data.as_ref().and_then(|d| d.content_type.as_deref())),
-               xalign: 0.0,
-               selectable: true,
+               orientation: gtk::Orientation::Vertical,
+               #[name="too_long_header"]
+               gtk::Box {
+                   #[name="too_long_infobar"]
+                   gtk::InfoBar {
+                   },
+                   gtk::Button {
+                       always_show_image: true,
+                       image: Some(&gtk::Image::from_icon_name(
+                           Some("document-save-symbolic"), gtk::IconSize::Menu)),
+                       button_press_event(_, _) => (Msg::SaveContents, Inhibit(false)),
+                       label: "Save contents"
+                   }
+               },
+               gtk::ScrolledWindow {
+                   property_vscrollbar_policy: gtk::PolicyType::Never,
+                   gtk::Label {
+                       markup: &code_formatting::highlight_indent_truncate(
+                           self.model.format_code,
+                           &self.model.data.as_ref().and_then(|d| d.body_as_str()).unwrap_or(Cow::Borrowed("")),
+                           self.model.data.as_ref().and_then(|d| d.content_type.as_deref())),
+                       xalign: 0.0,
+                       selectable: true,
+                   },
+               }
            },
            gtk::Box {
                child: {
@@ -242,7 +279,7 @@ impl Widget for HttpBodyWidget {
                    always_show_image: true,
                    image: Some(&gtk::Image::from_icon_name(
                         Some("document-save-symbolic"), gtk::IconSize::Menu)),
-                   button_press_event(_, _) => (Msg::SaveBinaryContents, Inhibit(false)),
+                   button_press_event(_, _) => (Msg::SaveContents, Inhibit(false)),
                    label: "Save image"
                }
            },
@@ -259,7 +296,7 @@ impl Widget for HttpBodyWidget {
                    always_show_image: true,
                    image: Some(&gtk::Image::from_icon_name(
                         Some("document-save-symbolic"), gtk::IconSize::Menu)),
-                    button_press_event(_, _) => (Msg::SaveBinaryContents, Inhibit(false)),
+                    button_press_event(_, _) => (Msg::SaveContents, Inhibit(false)),
                    label: "Save body contents",
                    halign: gtk::Align::Start,
                }
