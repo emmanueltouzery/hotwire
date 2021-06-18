@@ -48,7 +48,10 @@ impl MessageParser for Http {
     ) -> Result<StreamData, String> {
         let mut globals = stream.stream_globals.as_http().unwrap();
         let mut messages = stream.messages;
-        let rr = parse_request_response(new_packet);
+        let rr = parse_request_response(
+            new_packet,
+            stream.client_server.as_ref().map(|cs| cs.server_ip),
+        );
         // so, sometimes I see host headers like that: "Host: 10.215.215.9:8081".
         // That's completely useless to give me the real hostname, and if later
         // in the stream I get the real hostname, I ignore it because I "already got"
@@ -475,13 +478,21 @@ fn parse_body(body: Option<Vec<u8>>, headers: &[(String, String)]) -> HttpBody {
     .unwrap_or(HttpBody::Missing)
 }
 
-fn parse_request_response(comm: TSharkPacket) -> ReqRespInfo {
+fn parse_request_response(comm: TSharkPacket, server_ip_if_known: Option<IpAddr>) -> ReqRespInfo {
     let http = comm.http;
     let http_headers = http.as_ref().map(|h| parse_headers(&h.other_lines));
     let ip_src = comm.basic_info.ip_src;
     let ip_dst = comm.basic_info.ip_dst;
-    match http.map(|h| (h.http_type, h, http_headers)) {
-        Some((HttpType::Request, h, Some(headers))) => ReqRespInfo {
+    let http_type = http
+        .as_ref()
+        .and_then(|h| h.http_type)
+        .or_else(|| match server_ip_if_known {
+            Some(srv_ip) if srv_ip == ip_dst => Some(HttpType::Request),
+            Some(srv_ip) if srv_ip == ip_src => Some(HttpType::Response),
+            _ => None,
+        });
+    match http.map(|h| (http_type, h, http_headers)) {
+        Some((Some(HttpType::Request), h, Some(headers))) => ReqRespInfo {
             req_resp: RequestOrResponseOrOther::Request(HttpRequestResponseData {
                 tcp_stream_no: comm.basic_info.tcp_stream_id,
                 tcp_seq_number: comm.basic_info.tcp_seq_number,
@@ -497,7 +508,7 @@ fn parse_request_response(comm: TSharkPacket) -> ReqRespInfo {
             ip_src,
             host: h.http_host,
         },
-        Some((HttpType::Response, h, Some(headers))) => ReqRespInfo {
+        Some((Some(HttpType::Response), h, Some(headers))) => ReqRespInfo {
             req_resp: RequestOrResponseOrOther::Response(HttpRequestResponseData {
                 tcp_stream_no: comm.basic_info.tcp_stream_id,
                 tcp_seq_number: comm.basic_info.tcp_seq_number,

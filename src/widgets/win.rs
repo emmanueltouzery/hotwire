@@ -251,8 +251,18 @@ pub fn parse_pdml_stream<B: BufRead>(buf_reader: B, sender: relm::Sender<ParseIn
         match xml_reader.read_event(&mut buf) {
             Ok(Event::Start(ref e)) => {
                 if e.name() == b"packet" {
-                    if let Ok(packet) = tshark_communication::parse_packet(&mut xml_reader) {
-                        sender.send(Ok(InputStep::Packet(packet))).unwrap();
+                    match tshark_communication::parse_packet(&mut xml_reader) {
+                        Ok(packet) => sender.send(Ok(InputStep::Packet(packet))).unwrap(),
+                        Err(e) => {
+                            sender
+                                .send(Err(format!(
+                                    "xml parsing error: {} at tshark output offset {}",
+                                    e,
+                                    xml_reader.buffer_position()
+                                )))
+                                .unwrap();
+                            break;
+                        }
                     }
                 }
             }
@@ -262,7 +272,11 @@ pub fn parse_pdml_stream<B: BufRead>(buf_reader: B, sender: relm::Sender<ParseIn
             }
             Err(e) => {
                 sender
-                    .send(Err(format!("xml parsing error: {}", e)))
+                    .send(Err(format!(
+                        "xml parsing error: {} at tshark output offset {}",
+                        e,
+                        xml_reader.buffer_position()
+                    )))
                     .unwrap();
                 break;
             }

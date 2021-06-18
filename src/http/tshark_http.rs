@@ -10,7 +10,19 @@ pub enum HttpType {
 
 #[derive(Debug)]
 pub struct TSharkHttp {
-    pub http_type: HttpType,
+    // 99.99% of the time we can infer the HttpType, and so we wouldn't need Option.
+    // I have seen a weird response from httpstat.us though...
+    // The response was...
+    //   <proto name="http" showname="Hypertext Transfer Protocol" size="5" pos="60">
+    //     <field name="http.file_data" showname="File Data: 5 bytes" size="5" pos="60" show="0^M^M" value="300d0a0d0a"/>
+    //     <field name="data" value="300d0a0d0a">
+    //       <field name="data.data" showname="Data: 300d0a0d0a" size="5" pos="60" show="30:0d:0a:0d:0a" value="300d0a0d0a"/>
+    //       <field name="data.len" showname="Length: 5" size="0" pos="60" show="5"/>
+    //     </field>
+    //   </proto>
+    //   In other words the response contained only "0\r\n\r\n", without response code or anything.
+    //   Weird as it is, I'd like to make a best effort to support it.
+    pub http_type: Option<HttpType>,
     pub http_host: Option<String>,
     pub first_line: String,
     pub other_lines: String,
@@ -83,7 +95,7 @@ pub fn parse_http_info<B: BufRead>(
         Ok(Event::End(ref e)) => {
             if e.name() == b"proto" {
                 return Ok(TSharkHttp {
-                    http_type: http_type.unwrap(),
+                    http_type,
                     http_host,
                     first_line: first_line.unwrap_or_default(),
                     other_lines: other_lines.join(""),
