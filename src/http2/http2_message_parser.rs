@@ -8,6 +8,7 @@ use crate::message_parser::ClientServerInfo;
 use crate::message_parser::{MessageInfo, MessageParser, StreamData};
 use crate::tshark_communication::TSharkPacket;
 use crate::tshark_communication::TSharkPacketBasicInfo;
+use crate::tshark_communication::{TcpSeqNumber, TcpStreamId};
 use crate::widgets::comm_remote_server::MessageData;
 use crate::widgets::comm_remote_server::StreamGlobals;
 use crate::widgets::win;
@@ -208,7 +209,7 @@ impl MessageParser for Http2 {
     fn populate_treeview(
         &self,
         ls: &gtk::ListStore,
-        session_id: u32,
+        session_id: TcpStreamId,
         messages: &[MessageData],
         start_idx: i32,
     ) {
@@ -252,8 +253,8 @@ enum MsgType {
 }
 
 fn prepare_http_message(
-    tcp_stream_no: u32,
-    tcp_seq_number: u32,
+    tcp_stream_no: TcpStreamId,
+    tcp_seq_number: TcpSeqNumber,
     timestamp: NaiveDateTime,
     http2_msgs: Vec<TSharkHttp2Message>,
 ) -> (HttpRequestResponseData, MsgType) {
@@ -409,8 +410,8 @@ fn should_parse_simple_comm() {
     let expected = vec![MessageData::Http(HttpMessageData {
         http_stream_id: 1,
         request: Some(HttpRequestResponseData {
-            tcp_stream_no: 4,
-            tcp_seq_number: 1963007432,
+            tcp_stream_no: TcpStreamId(4),
+            tcp_seq_number: TcpSeqNumber(1963007432),
             timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
             first_line: "GET /libraries/gbuemRf7.js".to_string(),
             headers: vec![

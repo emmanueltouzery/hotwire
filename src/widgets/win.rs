@@ -15,7 +15,7 @@ use crate::message_parser::StreamData;
 use crate::message_parser::{MessageInfo, MessageParser};
 use crate::pgsql::postgres_message_parser::Postgres;
 use crate::tshark_communication;
-use crate::tshark_communication::TSharkPacket;
+use crate::tshark_communication::{NetworkPort, TSharkPacket, TcpStreamId};
 use crate::widgets::comm_target_card::CommTargetCardKey;
 use crate::widgets::comm_target_card::SummaryDetails;
 use crate::BgFunc;
@@ -100,18 +100,18 @@ pub enum Msg {
     InfoBarShow(Option<String>, InfobarOptions),
     InfoBarEvent(gtk::ResponseType),
 
-    SelectCardFromRemoteIpsAndStreams(CommTargetCardData, Vec<IpAddr>, Vec<u32>),
+    SelectCardFromRemoteIpsAndStreams(CommTargetCardData, Vec<IpAddr>, Vec<TcpStreamId>),
 
-    DisplayDetails(u32, u32),
+    DisplayDetails(TcpStreamId, u32),
 
     Quit,
 }
 
 #[derive(Debug)]
 pub struct StreamInfo {
-    stream_id: u32,
+    stream_id: TcpStreamId,
     target_ip: IpAddr,
-    target_port: u32,
+    target_port: NetworkPort,
     source_ip: IpAddr,
 }
 
@@ -148,7 +148,7 @@ pub struct Model {
 
     sidebar_selection_change_signal_id: Option<glib::SignalHandlerId>,
 
-    streams: HashMap<u32, StreamData>, // tcp_stream_id => streamdata
+    streams: HashMap<TcpStreamId, StreamData>,
     comm_target_cards: Vec<CommTargetCardData>,
     selected_card: Option<CommTargetCardData>,
 
@@ -564,7 +564,7 @@ impl Widget for Win {
             idx.get::<u32>().unwrap().unwrap()
         );
         rstream.emit(Msg::DisplayDetails(
-            stream_id.get::<u32>().unwrap().unwrap(),
+            TcpStreamId(stream_id.get::<u32>().unwrap().unwrap()),
             idx.get::<u32>().unwrap().unwrap(),
         ));
     }
@@ -876,12 +876,12 @@ impl Widget for Win {
                                     &format!(
                                         r#"<span foreground="{}" size="smaller">⬤</span> <span rise="-1700">Stream {}</span>"#,
                                         colors::STREAM_COLORS
-                                            [packet_stream_id as usize % colors::STREAM_COLORS.len()],
-                                        packet_stream_id
+                                            [packet_stream_id.as_u32() as usize % colors::STREAM_COLORS.len()],
+                                        packet_stream_id.as_u32()
                                     )
                                         .to_value(),
                                     &pango::Weight::Normal.to_glib().to_value(),
-                                    &packet_stream_id.to_value(),
+                                    &packet_stream_id.as_u32().to_value(),
                                 ],
                             );
                             }
@@ -903,7 +903,7 @@ impl Widget for Win {
                         e
                     ))));
                 }
-                let keys: Vec<u32> = self.model.streams.keys().map(|k| *k).collect();
+                let keys: Vec<TcpStreamId> = self.model.streams.keys().map(|k| *k).collect();
                 for stream_id in keys {
                     let stream_data = self.model.streams.remove(&stream_id).unwrap();
                     let message_count_before = stream_data.messages.len();
@@ -1034,7 +1034,7 @@ impl Widget for Win {
 
     fn refresh_grids_new_messages(
         &mut self,
-        stream_id: u32,
+        stream_id: TcpStreamId,
         parser_index: usize,
         message_count_before: usize,
         stream_data: StreamData,
@@ -1329,7 +1329,7 @@ impl Widget for Win {
                     // stream
                     let stream_iter = remote_ips_streams_tree_store.get_iter(&path).unwrap();
                     let stream_id = remote_ips_streams_tree_store.get_value(&stream_iter, 2);
-                    allowed_stream_ids.push(stream_id.get().unwrap().unwrap());
+                    allowed_stream_ids.push(TcpStreamId(stream_id.get().unwrap().unwrap()));
                 }
                 _ => panic!(path.get_depth()),
             }
@@ -1716,12 +1716,12 @@ impl Widget for Win {
                         &format!(
                             r#"<span foreground="{}" size="smaller">⬤</span> <span rise="-1700">Stream {}</span>"#,
                             colors::STREAM_COLORS
-                                [*stream_id as usize % colors::STREAM_COLORS.len()],
-                            stream_id
+                                [stream_id.as_u32() as usize % colors::STREAM_COLORS.len()],
+                            stream_id.as_u32()
                         )
                         .to_value(),
                         &pango::Weight::Normal.to_glib().to_value(),
-                        &stream_id.to_value(),
+                        &stream_id.as_u32().to_value(),
                     ],
                 );
             }
@@ -1734,7 +1734,7 @@ impl Widget for Win {
         &mut self,
         refresh_remote_ips_and_streams: RefreshRemoteIpsAndStreams,
         constrain_remote_ips: &[IpAddr],
-        constrain_stream_ids: &[u32],
+        constrain_stream_ids: &[TcpStreamId],
     ) {
         self.init_remote_ips_streams_tree();
         self.setup_selection_signals(RefreshOngoing::Yes);

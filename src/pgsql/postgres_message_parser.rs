@@ -5,7 +5,7 @@ use crate::icons::Icon;
 use crate::message_parser::ClientServerInfo;
 use crate::message_parser::{MessageInfo, MessageParser, StreamData};
 use crate::pgsql::tshark_pgsql::{PostgresColType, PostgresWireMessage};
-use crate::tshark_communication::TSharkPacket;
+use crate::tshark_communication::{TSharkPacket, TcpStreamId};
 use crate::widgets::comm_remote_server::MessageData;
 use crate::widgets::comm_remote_server::StreamGlobals;
 use crate::widgets::win;
@@ -15,7 +15,6 @@ use gtk::prelude::*;
 use relm::ContainerWidget;
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::mpsc;
 
 #[cfg(test)]
@@ -421,7 +420,7 @@ impl MessageParser for Postgres {
     fn populate_treeview(
         &self,
         ls: &gtk::ListStore,
-        session_id: u32,
+        session_id: TcpStreamId,
         messages: &[MessageData],
         start_idx: i32,
     ) {
@@ -440,7 +439,7 @@ impl MessageParser for Postgres {
                         .replace("\n", "")
                         .to_value(),
                     &format!("{} rows", postgres.resultset_row_count).to_value(),
-                    &session_id.to_value(),
+                    &session_id.as_u32().to_value(),
                     &(start_idx + idx as i32).to_value(),
                     &postgres.query_timestamp.to_string().to_value(),
                     &postgres.query_timestamp.timestamp_nanos().to_value(),
@@ -454,8 +453,9 @@ impl MessageParser for Postgres {
                     .to_value(),
                     &(postgres.resultset_row_count as u32).to_value(),
                     &get_query_type_desc(&postgres.query).to_value(),
-                    &colors::STREAM_COLORS[session_id as usize % colors::STREAM_COLORS.len()]
-                        .to_value(),
+                    &colors::STREAM_COLORS
+                        [session_id.as_u32() as usize % colors::STREAM_COLORS.len()]
+                    .to_value(),
                 ],
             );
         }
@@ -489,7 +489,7 @@ impl MessageParser for Postgres {
         win_msg_sender: relm::StreamHandle<win::Msg>,
     ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, MessageInfo)> {
         let component = Box::leak(Box::new(parent.add_widget::<PostgresCommEntry>((
-            0,
+            TcpStreamId(0),
             "0.0.0.0".parse().unwrap(),
             PostgresMessageData {
                 query: None,

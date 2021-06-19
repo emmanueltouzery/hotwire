@@ -5,7 +5,7 @@ use crate::http::tshark_http::HttpType;
 use crate::icons::Icon;
 use crate::message_parser::ClientServerInfo;
 use crate::message_parser::{MessageInfo, MessageParser, StreamData};
-use crate::tshark_communication::TSharkPacket;
+use crate::tshark_communication::{NetworkPort, TSharkPacket, TcpSeqNumber, TcpStreamId};
 use crate::widgets::comm_remote_server::MessageData;
 use crate::widgets::comm_remote_server::StreamGlobals;
 use crate::widgets::win;
@@ -219,7 +219,7 @@ impl MessageParser for Http {
     fn populate_treeview(
         &self,
         ls: &gtk::ListStore,
-        session_id: u32,
+        session_id: TcpStreamId,
         messages: &[MessageData],
         start_idx: i32,
     ) {
@@ -246,7 +246,7 @@ impl MessageParser for Http {
                     .unwrap_or("Missing response info")
                     .to_value(),
             );
-            ls.set_value(&iter, 2, &session_id.to_value());
+            ls.set_value(&iter, 2, &session_id.as_u32().to_value());
             ls.set_value(&iter, 3, &(start_idx + idx as i32).to_value());
             if let Some(ref rq) = http.request {
                 ls.set_value(&iter, 4, &rq.timestamp.to_string().to_value());
@@ -265,13 +265,13 @@ impl MessageParser for Http {
                     );
                     ls.set_value(&iter, 8, &rq.content_type.to_value());
                     ls.set_value(&iter, 9, &rs.content_type.to_value());
-                    ls.set_value(&iter, 10, &rs.tcp_seq_number.to_value());
+                    ls.set_value(&iter, 10, &rs.tcp_seq_number.as_u32().to_value());
                 }
             }
             ls.set_value(
                 &iter,
                 11,
-                &colors::STREAM_COLORS[session_id as usize % colors::STREAM_COLORS.len()]
+                &colors::STREAM_COLORS[session_id.as_u32() as usize % colors::STREAM_COLORS.len()]
                     .to_value(),
             );
         }
@@ -328,7 +328,7 @@ impl MessageParser for Http {
     ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, MessageInfo)> {
         let component = Box::leak(Box::new(parent.add_widget::<HttpCommEntry>((
             win_msg_sender,
-            0,
+            TcpStreamId(0),
             "0.0.0.0".parse().unwrap(),
             HttpMessageData {
                 http_stream_id: 0,
@@ -393,8 +393,8 @@ pub enum HttpBody {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HttpRequestResponseData {
-    pub tcp_stream_no: u32,
-    pub tcp_seq_number: u32,
+    pub tcp_stream_no: TcpStreamId,
+    pub tcp_seq_number: TcpSeqNumber,
     pub timestamp: NaiveDateTime,
     pub first_line: String,
     // no hashmap, i want to preserve the order,
@@ -463,7 +463,7 @@ impl RequestOrResponseOrOther {
 struct ReqRespInfo {
     req_resp: RequestOrResponseOrOther,
     ip_src: IpAddr,
-    port_dst: u32,
+    port_dst: NetworkPort,
     ip_dst: IpAddr,
     host: Option<String>,
 }

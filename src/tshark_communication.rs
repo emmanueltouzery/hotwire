@@ -2,8 +2,6 @@ use crate::http::tshark_http;
 use crate::http2::tshark_http2;
 use crate::message_parser::{MessageParser, StreamData};
 use crate::pgsql::tshark_pgsql;
-use crate::tshark_communication;
-use crate::widgets::win::ParseInputStep;
 use chrono::NaiveDateTime;
 use quick_xml::events::Event;
 use std::fmt::Debug;
@@ -46,15 +44,45 @@ macro_rules! xml_event_loop {
 //     }
 // }
 
+#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, derive_more::Display)]
+pub struct NetworkPort(pub u16);
+
+impl NetworkPort {
+    pub fn as_u16(&self) -> u16 {
+        let NetworkPort(v) = self;
+        *v
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, derive_more::Display)]
+pub struct TcpStreamId(pub u32);
+
+impl TcpStreamId {
+    pub fn as_u32(&self) -> u32 {
+        let TcpStreamId(v) = self;
+        *v
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, derive_more::Display)]
+pub struct TcpSeqNumber(pub u32);
+
+impl TcpSeqNumber {
+    pub fn as_u32(&self) -> u32 {
+        let TcpSeqNumber(v) = self;
+        *v
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct TSharkPacketBasicInfo {
     pub frame_time: NaiveDateTime,
     pub ip_src: IpAddr,
     pub ip_dst: IpAddr,
-    pub tcp_seq_number: u32,
-    pub tcp_stream_id: u32,
-    pub port_src: u32,
-    pub port_dst: u32,
+    pub tcp_seq_number: TcpSeqNumber,
+    pub tcp_stream_id: TcpStreamId,
+    pub port_src: NetworkPort,
+    pub port_dst: NetworkPort,
 }
 
 #[derive(Debug)]
@@ -71,10 +99,10 @@ pub fn parse_packet<B: BufRead>(
     let mut frame_time = NaiveDateTime::from_timestamp(0, 0);
     let mut ip_src = None;
     let mut ip_dst = None;
-    let mut tcp_seq_number = 0;
-    let mut tcp_stream_id = 0;
-    let mut port_src = 0;
-    let mut port_dst = 0;
+    let mut tcp_seq_number = TcpSeqNumber(0);
+    let mut tcp_stream_id = TcpStreamId(0);
+    let mut port_src = NetworkPort(0);
+    let mut port_dst = NetworkPort(0);
     let mut http = None;
     let mut http2 = None::<Vec<tshark_http2::TSharkHttp2Message>>;
     let mut pgsql = None::<Vec<tshark_pgsql::PostgresWireMessage>>;
@@ -222,11 +250,11 @@ fn parse_ip_info<B: BufRead>(
 
 fn parse_tcp_info<B: BufRead>(
     xml_reader: &mut quick_xml::Reader<B>,
-) -> Result<(u32, u32, u32, u32), String> {
-    let mut tcp_seq_number = 0;
-    let mut tcp_stream_id = 0;
-    let mut port_src = 0;
-    let mut port_dst = 0;
+) -> Result<(TcpSeqNumber, TcpStreamId, NetworkPort, NetworkPort), String> {
+    let mut tcp_seq_number = TcpSeqNumber(0);
+    let mut tcp_stream_id = TcpStreamId(0);
+    let mut port_src = NetworkPort(0);
+    let mut port_dst = NetworkPort(0);
     let buf = &mut vec![];
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Empty(ref e)) => {
@@ -237,16 +265,16 @@ fn parse_tcp_info<B: BufRead>(
                     .map(|kv| kv.unwrap().value);
                 match name.as_deref() {
                     Some(b"tcp.srcport") => {
-                        port_src = element_attr_val_number(e, b"show").unwrap();
+                        port_src = NetworkPort(element_attr_val_number(e, b"show").unwrap());
                     }
                     Some(b"tcp.dstport") => {
-                        port_dst = element_attr_val_number(e, b"show").unwrap();
+                        port_dst = NetworkPort(element_attr_val_number(e, b"show").unwrap());
                     }
                     Some(b"tcp.seq_raw") => {
-                        tcp_seq_number = element_attr_val_number(e, b"show").unwrap();
+                        tcp_seq_number = TcpSeqNumber(element_attr_val_number(e, b"show").unwrap());
                     }
                     Some(b"tcp.stream") => {
-                        tcp_stream_id = element_attr_val_number(e, b"show").unwrap();
+                        tcp_stream_id = TcpStreamId(element_attr_val_number(e, b"show").unwrap());
                     }
                     _ => {}
                 }
@@ -331,7 +359,7 @@ pub fn parse_test_xml(xml: &str) -> Result<Vec<TSharkPacket>, String> {
         match xml_reader.read_event(&mut buf) {
             Ok(Event::Start(ref e)) => {
                 if e.name() == b"packet" {
-                    if let Ok(packet) = tshark_communication::parse_packet(&mut xml_reader) {
+                    if let Ok(packet) = parse_packet(&mut xml_reader) {
                         res.push(packet);
                     }
                 }

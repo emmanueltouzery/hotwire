@@ -1,3 +1,4 @@
+use crate::tshark_communication::TcpStreamId;
 use gtk::prelude::*;
 use relm::Widget;
 use relm_derive::{widget, Msg};
@@ -5,17 +6,17 @@ use std::net::IpAddr;
 
 #[derive(Msg)]
 pub enum Msg {
-    Update(IpAddr, u32),
+    Update(IpAddr, TcpStreamId),
 }
 
 pub struct Model {
     client_ip: IpAddr,
-    stream_id: u32,
+    stream_id: TcpStreamId,
 }
 
 #[widget]
 impl Widget for CommInfoHeader {
-    fn model(relm: &relm::Relm<Self>, data: (IpAddr, u32)) -> Model {
+    fn model(relm: &relm::Relm<Self>, data: (IpAddr, TcpStreamId)) -> Model {
         let (client_ip, stream_id) = data;
         Model {
             client_ip,
@@ -32,7 +33,7 @@ impl Widget for CommInfoHeader {
         }
     }
 
-    fn format_stream_id(stream_id: u32) -> String {
+    fn format_stream_id(stream_id: TcpStreamId) -> String {
         format!("{}", stream_id)
     }
 

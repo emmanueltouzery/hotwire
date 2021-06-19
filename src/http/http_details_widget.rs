@@ -3,6 +3,7 @@ use super::http_body_widget::HttpBodyWidget;
 use super::http_message_parser::HttpMessageData;
 use crate::icons::Icon;
 use crate::message_parser::MessageInfo;
+use crate::tshark_communication::TcpStreamId;
 use crate::widgets::comm_info_header;
 use crate::widgets::comm_info_header::CommInfoHeader;
 use crate::widgets::comm_remote_server::MessageData;
@@ -24,7 +25,7 @@ pub enum Msg {
 pub struct Model {
     win_msg_sender: relm::StreamHandle<win::Msg>,
     bg_sender: mpsc::Sender<BgFunc>,
-    stream_id: u32,
+    stream_id: TcpStreamId,
     client_ip: IpAddr,
     data: HttpMessageData,
 
@@ -37,7 +38,7 @@ impl Widget for HttpCommEntry {
         relm: &relm::Relm<Self>,
         params: (
             relm::StreamHandle<win::Msg>,
-            u32,
+            TcpStreamId,
             IpAddr,
             HttpMessageData,
             gtk::Overlay,

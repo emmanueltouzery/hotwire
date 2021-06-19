@@ -1,6 +1,7 @@
 use super::postgres_message_parser::PostgresMessageData;
 use crate::message_parser::MessageInfo;
 use crate::pgsql::tshark_pgsql::PostgresColType;
+use crate::tshark_communication::TcpStreamId;
 use crate::widgets::comm_info_header;
 use crate::widgets::comm_info_header::CommInfoHeader;
 use crate::widgets::comm_remote_server::MessageData;
@@ -18,13 +19,12 @@ use std::io::BufWriter;
 use std::io::Write;
 use std::net::IpAddr;
 use std::path::Path;
-use std::path::PathBuf;
 use std::sync::mpsc;
 
 pub struct Model {
     bg_sender: mpsc::Sender<BgFunc>,
     win_msg_sender: relm::StreamHandle<win::Msg>,
-    stream_id: u32,
+    stream_id: TcpStreamId,
     client_ip: IpAddr,
     data: PostgresMessageData,
     list_store: Option<gtk::ListStore>,
@@ -47,7 +47,7 @@ impl Widget for PostgresCommEntry {
     fn model(
         _relm: &relm::Relm<Self>,
         params: (
-            u32,
+            TcpStreamId,
             IpAddr,
             PostgresMessageData,
             relm::StreamHandle<win::Msg>,

@@ -1,4 +1,5 @@
 use crate::icons::Icon;
+use crate::tshark_communication::{NetworkPort, TcpStreamId};
 use gtk::prelude::*;
 use relm::Widget;
 use relm_derive::{widget, Msg};
@@ -16,7 +17,7 @@ pub struct SummaryDetails {
 }
 
 impl SummaryDetails {
-    pub fn new(details: &str, ip: IpAddr, port: u32) -> Option<SummaryDetails> {
+    pub fn new(details: &str, ip: IpAddr, port: NetworkPort) -> Option<SummaryDetails> {
         // meant to avoid for http to have ip+port repeated for ip+port display,
         // and then again for the details, which is the hostname, in case the hostname
         // was just the IP
@@ -33,14 +34,14 @@ impl SummaryDetails {
 #[derive(PartialEq, Eq, Hash)]
 pub struct CommTargetCardKey {
     pub ip: IpAddr,
-    pub port: u32,
+    pub port: NetworkPort,
     pub protocol_index: usize,
 }
 
 #[derive(Clone, Debug)]
 pub struct CommTargetCardData {
     pub ip: IpAddr,
-    pub port: u32,
+    pub port: NetworkPort,
     pub protocol_index: usize,
     pub remote_hosts: BTreeSet<String>, // TODO change String to IpAddr?
     pub protocol_icon: Icon,
@@ -52,7 +53,7 @@ pub struct CommTargetCardData {
 impl CommTargetCardData {
     pub fn new(
         ip: IpAddr,
-        port: u32,
+        port: NetworkPort,
         protocol_index: usize,
         remote_hosts: BTreeSet<String>,
         protocol_icon: Icon,
@@ -119,7 +120,7 @@ impl Widget for CommTargetCard {
         Self::server_ip_port_display_format(data.ip, data.port)
     }
 
-    fn server_ip_port_display_format(ip: IpAddr, port: u32) -> String {
+    fn server_ip_port_display_format(ip: IpAddr, port: NetworkPort) -> String {
         format!("{}:{}", ip, port)
     }
 

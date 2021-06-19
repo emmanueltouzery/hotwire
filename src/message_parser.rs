@@ -1,5 +1,5 @@
 use crate::icons::Icon;
-use crate::tshark_communication::TSharkPacket;
+use crate::tshark_communication::{NetworkPort, TSharkPacket, TcpStreamId};
 use crate::widgets::comm_remote_server::MessageData;
 use crate::widgets::comm_remote_server::StreamGlobals;
 use crate::widgets::win;
@@ -14,7 +14,7 @@ pub struct ClientServerInfo {
     // client contacting the server, or the server responding
     // to the client
     pub server_ip: IpAddr,
-    pub server_port: u32,
+    pub server_port: NetworkPort,
     pub client_ip: IpAddr,
 }
 
@@ -41,7 +41,7 @@ pub trait MessageParser {
     fn populate_treeview(
         &self,
         ls: &gtk::ListStore,
-        session_id: u32,
+        session_id: TcpStreamId,
         messages: &[MessageData],
         start_idx: i32,
     );
@@ -59,7 +59,7 @@ pub trait MessageParser {
 
 #[derive(Debug)]
 pub struct MessageInfo {
-    pub stream_id: u32,
+    pub stream_id: TcpStreamId,
     pub client_ip: IpAddr,
     pub message_data: MessageData,
 }
