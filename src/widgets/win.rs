@@ -1376,6 +1376,7 @@ impl Widget for Win {
         dlg.add_credit_section("tshark", &[&tshark_version]);
         dlg.add_credit_section("pkexec", &[&pkexec_version]);
         dlg.add_credit_section("tcpdump", &[&tcpdump_version]);
+        dlg.set_license(Some(include_str!("../../LICENSE.md")));
         dlg.run();
         dlg.close();
     }
