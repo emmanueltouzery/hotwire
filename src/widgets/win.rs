@@ -89,6 +89,8 @@ pub enum Msg {
     SaveCapture,
     ChildProcessDied,
 
+    DragDataReceived(gdk::DragContext, gtk::SelectionData),
+
     KeyPress(gdk::EventKey),
     SearchActiveChanged(bool),
     SearchTextChanged(String),
@@ -292,6 +294,13 @@ impl Widget for Win {
             println!("Error loading the CSS: {}", err);
         }
         self.widgets.infobar.set_visible(false);
+
+        self.widgets.welcome_label.drag_dest_set(
+            gtk::DestDefaults::ALL,
+            &[],
+            gdk::DragAction::COPY,
+        );
+        self.widgets.welcome_label.drag_dest_add_uri_targets();
 
         // the capture depends on pkexec for privilege escalation
         // which is linux-specific, and then fifos which are unix-specific.
@@ -669,6 +678,16 @@ impl Widget for Win {
         match event {
             Msg::DisplayAbout => {
                 self.display_about();
+            }
+            Msg::DragDataReceived(context, sel_data) => {
+                if let Some(uri) = sel_data
+                    .get_uris()
+                    .first()
+                    .map(|u| u.as_str())
+                    .and_then(|u| u.strip_prefix("file://"))
+                {
+                    self.gui_load_file(uri.into());
+                }
             }
             Msg::OpenFile => {
                 self.open_file();
@@ -1936,11 +1955,13 @@ impl Widget for Win {
             },
             #[name="root_stack"]
             gtk::Stack {
+                #[name="welcome_label"]
                 gtk::Label {
                     child: {
                         name: Some(WELCOME_STACK_NAME)
                     },
-                    label: "Welcome to Hotwire!"
+                    label: "Welcome to Hotwire!",
+                    drag_data_received(_widget, ctx, _x, _y, sel_data, _info, _time) => Msg::DragDataReceived(ctx.clone(), sel_data.clone()),
                 },
                 gtk::Box {
                     child: {
