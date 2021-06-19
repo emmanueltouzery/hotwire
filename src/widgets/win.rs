@@ -725,166 +725,264 @@ impl Widget for Win {
                 self.gui_load_file(path);
             }
             Msg::InfoBarShow(Some(msg), options) => {
-                self.widgets.infobar.set_show_close_button(matches!(
-                    options,
-                    InfobarOptions::ShowCloseButton | InfobarOptions::TimeLimitedWithCloseButton
-                ));
-                let has_spinner = options == InfobarOptions::ShowSpinner;
-                if self.model.infobar_spinner.get_visible() != has_spinner {
-                    if has_spinner {
-                        println!("start spinner");
-                        self.model.infobar_spinner.start();
-                    } else {
-                        println!("stop spinner");
-                        self.model.infobar_spinner.stop();
-                    }
-                    self.model.infobar_spinner.set_visible(has_spinner);
-                }
-                if options == InfobarOptions::TimeLimitedWithCloseButton {
-                    relm::timeout(self.model.relm.stream(), 1500, || {
-                        Msg::InfoBarShow(None, InfobarOptions::Default)
-                    });
-                }
-                self.model.infobar_label.set_text(&msg);
-                self.widgets.infobar.set_visible(true);
+                self.handle_infobar_show(&msg, options);
             }
             Msg::InfoBarShow(None, _) | Msg::InfoBarEvent(gtk::ResponseType::Close) => {
                 self.widgets.infobar.set_visible(false);
             }
             Msg::InfoBarEvent(_) => {}
             Msg::LoadedData(Err(msg)) => {
-                // TODO clear the streams like we do when opening a new file?
-                if let Err(e) = self.cleanup_child_processes() {
-                    // not sure why loading failed.. maybe don't get too hung up
-                    // about error handling in this case?
-                    eprintln!("Error cleaning up child processes: {:?}", e);
-                }
-                self.widgets
-                    .capture_btn
-                    .block_signal(&self.model.capture_toggle_signal.as_ref().unwrap());
-                self.widgets.capture_btn.set_active(false);
-                self.widgets.capture_spinner.set_visible(false);
-                self.widgets.capture_spinner.stop();
-                self.widgets
-                    .capture_btn
-                    .unblock_signal(&self.model.capture_toggle_signal.as_ref().unwrap());
-                self.widgets.loading_spinner.stop();
-                self.widgets
-                    .root_stack
-                    .set_visible_child_name(WELCOME_STACK_NAME);
-                self.model.window_subtitle = None;
-                self.model.current_file = None;
-                self.model.streams = HashMap::new();
-                // self.refresh_comm_targets();
-                self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
-                Self::display_error_block("Cannot load file", Some(&msg));
+                self.handle_got_loading_error(&msg);
             }
             Msg::LoadedData(Ok(InputStep::StartedTShark(pid))) => {
                 self.model.tshark_child = Some(pid);
             }
             Msg::LoadedData(Ok(InputStep::Packet(p))) => {
-                if let Some((parser_index, parser)) = get_message_parsers()
-                    .iter()
-                    .enumerate()
-                    .find(|(_idx, ps)| ps.is_my_message(&p))
+                self.handle_got_packet(p);
+            }
+            Msg::LoadedData(Ok(InputStep::Eof)) => {
+                self.handle_got_input_eof();
+            }
+            Msg::SelectCard(maybe_idx) => {
+                self.handle_select_card(maybe_idx);
+            }
+            Msg::SelectRemoteIpStream(selection) => {
+                let (mut paths, model) = selection.get_selected_rows();
+                println!("remote selection changed");
+                self.refresh_remote_ip_stream(&mut paths);
+            }
+            Msg::SelectCardFromRemoteIpsAndStreams(_, remote_ips, stream_ids) => {
+                self.refresh_remote_servers(
+                    RefreshRemoteIpsAndStreams::No,
+                    &remote_ips,
+                    &stream_ids,
+                );
+            }
+            Msg::DisplayDetails(stream_id, idx) => {
+                self.handle_display_details(stream_id, idx);
+            }
+            Msg::Quit => {
+                // needed for the pcap save temp files at least
+                if let Err(e) =
+                    config::remove_obsolete_tcpdump_files(config::RemoveMode::OldFilesAndMyFiles)
                 {
-                    let packet_stream_id = p.basic_info.tcp_stream_id;
-                    let existing_stream = self.model.streams.remove(&packet_stream_id);
-                    let message_count_before;
-                    let stream_data = if let Some(stream_data) = existing_stream {
-                        message_count_before = stream_data.messages.len();
-                        let had_client_server = stream_data.client_server.is_some();
-                        let stream_data = match parser.add_to_stream(stream_data, p) {
-                            Ok(sd) => sd,
-                            Err(msg) => {
-                                self.model.relm.stream().emit(Msg::LoadedData(Err(format!(
-                                    "Error parsing file, in stream {}: {}",
-                                    packet_stream_id, msg
-                                ))));
-                                return;
-                            }
-                        };
-                        if !had_client_server && stream_data.client_server.is_some() {
-                            // we got the client-server info for this stream, add the
-                            // comm target data.
-                            self.add_comm_target_data(
-                                parser_index,
-                                &parser,
-                                stream_data.client_server.as_ref().unwrap(),
-                                stream_data.summary_details.as_deref(),
-                            );
-                        }
-                        stream_data
-                    } else {
-                        // new stream
-                        message_count_before = 0;
-                        let mut stream_data = StreamData {
-                            parser_index,
-                            stream_globals: parser.initial_globals(),
-                            client_server: None,
-                            messages: vec![],
-                            summary_details: None,
-                        };
-                        match parser.add_to_stream(stream_data, p) {
-                            Ok(sd) => {
-                                stream_data = sd;
-                            }
-                            Err(msg) => {
-                                self.model.relm.stream().emit(Msg::LoadedData(Err(format!(
-                                    "Error parsing file, in stream {}: {}",
-                                    packet_stream_id, msg
-                                ))));
-                                return;
-                            }
-                        }
-                        if stream_data.client_server.is_some() {
-                            // we got the client-server info for this stream, add the
-                            // comm target data.
-                            self.add_comm_target_data(
-                                parser_index,
-                                &parser,
-                                stream_data.client_server.as_ref().unwrap(),
-                                stream_data.summary_details.as_deref(),
-                            );
+                    eprintln!("Error removing the obsolete tcpdump files: {:?}", e);
+                }
+                gtk::main_quit()
+            }
+        }
+    }
 
-                            let is_for_current_card = matches!(
+    fn handle_infobar_show(&mut self, msg: &str, options: InfobarOptions) {
+        self.widgets.infobar.set_show_close_button(matches!(
+            options,
+            InfobarOptions::ShowCloseButton | InfobarOptions::TimeLimitedWithCloseButton
+        ));
+        let has_spinner = options == InfobarOptions::ShowSpinner;
+        if self.model.infobar_spinner.get_visible() != has_spinner {
+            if has_spinner {
+                self.model.infobar_spinner.start();
+            } else {
+                self.model.infobar_spinner.stop();
+            }
+            self.model.infobar_spinner.set_visible(has_spinner);
+        }
+        if options == InfobarOptions::TimeLimitedWithCloseButton {
+            relm::timeout(self.model.relm.stream(), 1500, || {
+                Msg::InfoBarShow(None, InfobarOptions::Default)
+            });
+        }
+        self.model.infobar_label.set_text(&msg);
+        self.widgets.infobar.set_visible(true);
+    }
+
+    fn handle_display_details(&mut self, stream_id: TcpStreamId, idx: u32) {
+        if let Some((stream_client_server, msg_data)) = self
+            .model
+            .streams
+            .get(&stream_id)
+            .and_then(|s| s.messages.get(idx as usize).map(|f| (&s.client_server, f)))
+        {
+            for adj in &self.model.details_adjustments {
+                adj.set_value(0.0);
+            }
+            for component_emitter in &self.model.details_component_emitters {
+                component_emitter(
+                    self.model.bg_sender.clone(),
+                    MessageInfo {
+                        stream_id,
+                        client_ip: stream_client_server.as_ref().unwrap().client_ip,
+                        message_data: msg_data.clone(),
+                    },
+                );
+            }
+        } else {
+            println!(
+                "NO DATA for {}/{} -- stream length {:?}",
+                stream_id,
+                idx,
+                self.model.streams.get(&stream_id).unwrap().messages.len()
+            );
+        }
+    }
+
+    fn handle_select_card(&mut self, maybe_idx: Option<usize>) {
+        let wait_cursor = gdk::Cursor::new_for_display(
+            &self.widgets.window.get_display(),
+            gdk::CursorType::Watch,
+        );
+        if let Some(p) = self.widgets.root_stack.get_parent_window() {
+            p.set_cursor(Some(&wait_cursor));
+        }
+        self.widgets.comm_target_list.set_sensitive(false);
+        self.widgets
+            .remote_ips_streams_treeview
+            .set_sensitive(false);
+        self.model.selected_card = maybe_idx
+            .and_then(|idx| self.model.comm_target_cards.get(idx as usize))
+            .cloned();
+        self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
+        if let Some(p) = self.widgets.root_stack.get_parent_window() {
+            p.set_cursor(None);
+        }
+        self.widgets.comm_target_list.set_sensitive(true);
+        self.widgets.remote_ips_streams_treeview.set_sensitive(true);
+        // if let Some(vadj) = self.widgets.remote_servers_scroll.get_vadjustment() {
+        //     vadj.set_value(0.0);
+        // }
+    }
+
+    fn handle_got_loading_error(&mut self, msg: &str) {
+        // TODO clear the streams like we do when opening a new file?
+        if let Err(e) = self.cleanup_child_processes() {
+            // not sure why loading failed.. maybe don't get too hung up
+            // about error handling in this case?
+            eprintln!("Error cleaning up child processes: {:?}", e);
+        }
+        self.widgets
+            .capture_btn
+            .block_signal(&self.model.capture_toggle_signal.as_ref().unwrap());
+        self.widgets.capture_btn.set_active(false);
+        self.widgets.capture_spinner.set_visible(false);
+        self.widgets.capture_spinner.stop();
+        self.widgets
+            .capture_btn
+            .unblock_signal(&self.model.capture_toggle_signal.as_ref().unwrap());
+        self.widgets.loading_spinner.stop();
+        self.widgets
+            .root_stack
+            .set_visible_child_name(WELCOME_STACK_NAME);
+        self.model.window_subtitle = None;
+        self.model.current_file = None;
+        self.model.streams = HashMap::new();
+        // self.refresh_comm_targets();
+        self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
+        Self::display_error_block("Cannot load file", Some(&msg));
+    }
+
+    fn handle_got_packet(&mut self, p: TSharkPacket) {
+        if let Some((parser_index, parser)) = get_message_parsers()
+            .iter()
+            .enumerate()
+            .find(|(_idx, ps)| ps.is_my_message(&p))
+        {
+            let packet_stream_id = p.basic_info.tcp_stream_id;
+            let existing_stream = self.model.streams.remove(&packet_stream_id);
+            let message_count_before;
+            let stream_data = if let Some(stream_data) = existing_stream {
+                message_count_before = stream_data.messages.len();
+                let had_client_server = stream_data.client_server.is_some();
+                let stream_data = match parser.add_to_stream(stream_data, p) {
+                    Ok(sd) => sd,
+                    Err(msg) => {
+                        self.model.relm.stream().emit(Msg::LoadedData(Err(format!(
+                            "Error parsing file, in stream {}: {}",
+                            packet_stream_id, msg
+                        ))));
+                        return;
+                    }
+                };
+                if !had_client_server && stream_data.client_server.is_some() {
+                    // we got the client-server info for this stream, add the
+                    // comm target data.
+                    self.add_comm_target_data(
+                        parser_index,
+                        &parser,
+                        stream_data.client_server.as_ref().unwrap(),
+                        stream_data.summary_details.as_deref(),
+                    );
+                }
+                stream_data
+            } else {
+                // new stream
+                message_count_before = 0;
+                let mut stream_data = StreamData {
+                    parser_index,
+                    stream_globals: parser.initial_globals(),
+                    client_server: None,
+                    messages: vec![],
+                    summary_details: None,
+                };
+                match parser.add_to_stream(stream_data, p) {
+                    Ok(sd) => {
+                        stream_data = sd;
+                    }
+                    Err(msg) => {
+                        self.model.relm.stream().emit(Msg::LoadedData(Err(format!(
+                            "Error parsing file, in stream {}: {}",
+                            packet_stream_id, msg
+                        ))));
+                        return;
+                    }
+                }
+                if stream_data.client_server.is_some() {
+                    // we got the client-server info for this stream, add the
+                    // comm target data.
+                    self.add_comm_target_data(
+                        parser_index,
+                        &parser,
+                        stream_data.client_server.as_ref().unwrap(),
+                        stream_data.summary_details.as_deref(),
+                    );
+
+                    let is_for_current_card = matches!(
                             (stream_data.client_server, self.model.selected_card.as_ref()),
                             (Some(clientserver), Some(card)) if clientserver.server_ip == card.ip
                                 && clientserver.server_port == card.port
                                 && parser_index == card.protocol_index);
 
-                            if is_for_current_card {
-                                let treestore = self.model.remote_ips_streams_treestore.clone();
+                    if is_for_current_card {
+                        let treestore = self.model.remote_ips_streams_treestore.clone();
 
-                                let remote_ip_iter = self
-                                    .model
-                                    .remote_ips_streams_iptopath
-                                    .get(&stream_data.client_server.as_ref().unwrap().client_ip)
-                                    .and_then(|path| treestore.get_iter(&path))
-                                    .unwrap_or_else(|| {
-                                        let new_iter = treestore.insert_with_values(
-                                            None,
-                                            None,
-                                            &[0, 1],
-                                            &[
-                                                &stream_data
-                                                    .client_server
-                                                    .as_ref()
-                                                    .unwrap()
-                                                    .client_ip
-                                                    .to_string()
-                                                    .to_value(),
-                                                &pango::Weight::Normal.to_glib().to_value(),
-                                            ],
-                                        );
-                                        self.model.remote_ips_streams_iptopath.insert(
-                                            stream_data.client_server.as_ref().unwrap().client_ip,
-                                            treestore.get_path(&new_iter).unwrap(),
-                                        );
-                                        new_iter
-                                    });
-                                // TODO some duplication with refresh_remote_ips_streams_tree()
-                                self.model.remote_ips_streams_treestore.insert_with_values(
+                        let remote_ip_iter = self
+                            .model
+                            .remote_ips_streams_iptopath
+                            .get(&stream_data.client_server.as_ref().unwrap().client_ip)
+                            .and_then(|path| treestore.get_iter(&path))
+                            .unwrap_or_else(|| {
+                                let new_iter = treestore.insert_with_values(
+                                    None,
+                                    None,
+                                    &[0, 1],
+                                    &[
+                                        &stream_data
+                                            .client_server
+                                            .as_ref()
+                                            .unwrap()
+                                            .client_ip
+                                            .to_string()
+                                            .to_value(),
+                                        &pango::Weight::Normal.to_glib().to_value(),
+                                    ],
+                                );
+                                self.model.remote_ips_streams_iptopath.insert(
+                                    stream_data.client_server.as_ref().unwrap().client_ip,
+                                    treestore.get_path(&new_iter).unwrap(),
+                                );
+                                new_iter
+                            });
+                        // TODO some duplication with refresh_remote_ips_streams_tree()
+                        self.model.remote_ips_streams_treestore.insert_with_values(
                                 Some(&remote_ip_iter),
                                 None,
                                 &[0, 1, 2],
@@ -900,141 +998,63 @@ impl Widget for Win {
                                     &packet_stream_id.as_u32().to_value(),
                                 ],
                             );
-                            }
-                        }
-                        stream_data
-                    };
+                    }
+                }
+                stream_data
+            };
+            self.refresh_grids_new_messages(
+                packet_stream_id,
+                parser_index,
+                message_count_before,
+                stream_data,
+            );
+        }
+    }
+
+    fn handle_got_input_eof(&mut self) {
+        if let Err(e) = self.cleanup_child_processes() {
+            self.model.relm.stream().emit(Msg::LoadedData(Err(format!(
+                "Error cleaning up children processes: {}",
+                e
+            ))));
+        }
+        let keys: Vec<TcpStreamId> = self.model.streams.keys().map(|k| *k).collect();
+        for stream_id in keys {
+            let stream_data = self.model.streams.remove(&stream_id).unwrap();
+            let message_count_before = stream_data.messages.len();
+            let parsers = get_message_parsers();
+            let parser_index = stream_data.parser_index;
+            let parser = parsers.get(parser_index).unwrap();
+            match parser.finish_stream(stream_data) {
+                Ok(sd) => {
                     self.refresh_grids_new_messages(
-                        packet_stream_id,
+                        stream_id,
                         parser_index,
                         message_count_before,
-                        stream_data,
+                        sd,
                     );
                 }
-            }
-            Msg::LoadedData(Ok(InputStep::Eof)) => {
-                if let Err(e) = self.cleanup_child_processes() {
+                Err(e) => {
                     self.model.relm.stream().emit(Msg::LoadedData(Err(format!(
-                        "Error cleaning up children processes: {}",
+                        "Error parsing file after collecting the final packets: {}",
                         e
                     ))));
-                }
-                let keys: Vec<TcpStreamId> = self.model.streams.keys().map(|k| *k).collect();
-                for stream_id in keys {
-                    let stream_data = self.model.streams.remove(&stream_id).unwrap();
-                    let message_count_before = stream_data.messages.len();
-                    let parsers = get_message_parsers();
-                    let parser_index = stream_data.parser_index;
-                    let parser = parsers.get(parser_index).unwrap();
-                    match parser.finish_stream(stream_data) {
-                        Ok(sd) => {
-                            self.refresh_grids_new_messages(
-                                stream_id,
-                                parser_index,
-                                message_count_before,
-                                sd,
-                            );
-                        }
-                        Err(e) => {
-                            self.model.relm.stream().emit(Msg::LoadedData(Err(format!(
-                                "Error parsing file after collecting the final packets: {}",
-                                e
-                            ))));
-                            return;
-                        }
-                    }
-                }
-                if self.model.streams.is_empty() {
-                    self.model.relm.stream().emit(Msg::LoadedData(Err(
-                        "Hotwire doesn't know how to read any useful data from this file"
-                            .to_string(),
-                    )));
                     return;
                 }
-                self.widgets.loading_spinner.stop();
-                self.widgets.open_btn.set_sensitive(true);
-                self.widgets.capture_btn.set_sensitive(true);
-                self.widgets
-                    .root_stack
-                    .set_visible_child_name(NORMAL_STACK_NAME);
-            }
-            Msg::SelectCard(maybe_idx) => {
-                println!("card changed");
-                let wait_cursor = gdk::Cursor::new_for_display(
-                    &self.widgets.window.get_display(),
-                    gdk::CursorType::Watch,
-                );
-                if let Some(p) = self.widgets.root_stack.get_parent_window() {
-                    p.set_cursor(Some(&wait_cursor));
-                }
-                self.widgets.comm_target_list.set_sensitive(false);
-                self.widgets
-                    .remote_ips_streams_treeview
-                    .set_sensitive(false);
-                self.model.selected_card = maybe_idx
-                    .and_then(|idx| self.model.comm_target_cards.get(idx as usize))
-                    .cloned();
-                self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
-                if let Some(p) = self.widgets.root_stack.get_parent_window() {
-                    p.set_cursor(None);
-                }
-                self.widgets.comm_target_list.set_sensitive(true);
-                self.widgets.remote_ips_streams_treeview.set_sensitive(true);
-                // if let Some(vadj) = self.widgets.remote_servers_scroll.get_vadjustment() {
-                //     vadj.set_value(0.0);
-                // }
-            }
-            Msg::SelectRemoteIpStream(selection) => {
-                let (mut paths, model) = selection.get_selected_rows();
-                println!("remote selection changed");
-                self.refresh_remote_ip_stream(&mut paths);
-            }
-            Msg::SelectCardFromRemoteIpsAndStreams(_, remote_ips, stream_ids) => {
-                self.refresh_remote_servers(
-                    RefreshRemoteIpsAndStreams::No,
-                    &remote_ips,
-                    &stream_ids,
-                );
-            }
-            Msg::DisplayDetails(stream_id, idx) => {
-                if let Some((stream_client_server, msg_data)) = self
-                    .model
-                    .streams
-                    .get(&stream_id)
-                    .and_then(|s| s.messages.get(idx as usize).map(|f| (&s.client_server, f)))
-                {
-                    for adj in &self.model.details_adjustments {
-                        adj.set_value(0.0);
-                    }
-                    for component_emitter in &self.model.details_component_emitters {
-                        component_emitter(
-                            self.model.bg_sender.clone(),
-                            MessageInfo {
-                                stream_id,
-                                client_ip: stream_client_server.as_ref().unwrap().client_ip,
-                                message_data: msg_data.clone(),
-                            },
-                        );
-                    }
-                } else {
-                    println!(
-                        "NO DATA for {}/{} -- stream length {:?}",
-                        stream_id,
-                        idx,
-                        self.model.streams.get(&stream_id).unwrap().messages.len()
-                    );
-                }
-            }
-            Msg::Quit => {
-                // needed for the pcap save temp files at least
-                if let Err(e) =
-                    config::remove_obsolete_tcpdump_files(config::RemoveMode::OldFilesAndMyFiles)
-                {
-                    eprintln!("Error removing the obsolete tcpdump files: {:?}", e);
-                }
-                gtk::main_quit()
             }
         }
+        if self.model.streams.is_empty() {
+            self.model.relm.stream().emit(Msg::LoadedData(Err(
+                "Hotwire doesn't know how to read any useful data from this file".to_string(),
+            )));
+            return;
+        }
+        self.widgets.loading_spinner.stop();
+        self.widgets.open_btn.set_sensitive(true);
+        self.widgets.capture_btn.set_sensitive(true);
+        self.widgets
+            .root_stack
+            .set_visible_child_name(NORMAL_STACK_NAME);
     }
 
     fn display_error_block(msg: &str, secondary: Option<&str>) {
