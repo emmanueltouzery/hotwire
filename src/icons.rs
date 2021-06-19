@@ -25,5 +25,6 @@ impl Icon {
     pub const BOOKMARK: Icon = Icon("bookmark");
     pub const REMOVE_FORMAT: Icon = Icon("remove-format");
     pub const OTHER: Icon = Icon("other");
+    pub const ANGLE_DOUBLE_DOWN: Icon = Icon("angle-double-down");
     pub const APP_ICON: Icon = Icon("com.github.emmanueltouzery.hotwire");
 }

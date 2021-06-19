@@ -16,6 +16,7 @@ use crate::message_parser::{MessageInfo, MessageParser};
 use crate::pgsql::postgres_message_parser::Postgres;
 use crate::tshark_communication;
 use crate::tshark_communication::TSharkPacket;
+use crate::widgets::comm_target_card::CommTargetCardKey;
 use crate::widgets::comm_target_card::SummaryDetails;
 use crate::BgFunc;
 use gdk::prelude::*;
@@ -124,15 +125,6 @@ pub struct StreamInfo {
 #[derive(Debug)]
 struct TreeViewSignals {
     selection_change_signal_id: glib::SignalHandlerId,
-    // row activation disabled due to https://github.com/antoyo/relm/issues/281
-    // row_activation_signal_id: glib::SignalHandlerId,
-}
-
-#[derive(PartialEq, Eq, Hash)]
-pub struct CommTargetCardKey {
-    pub ip: IpAddr,
-    pub port: u32,
-    pub protocol_index: usize,
 }
 
 #[derive(PartialEq, Eq)]
@@ -407,7 +399,7 @@ impl Widget for Win {
     fn add_message_parser_grid_and_pane(
         &mut self,
         message_parser: &Box<dyn MessageParser>,
-        idx: usize,
+        mp_idx: usize,
     ) {
         let tv = gtk::TreeViewBuilder::new()
             .activate_on_single_click(true)
@@ -499,7 +491,7 @@ impl Widget for Win {
 
         self.widgets
             .comm_remote_servers_stack
-            .add_named(&paned, &idx.to_string());
+            .add_named(&paned, &mp_idx.to_string());
         paned.show_all();
     }
 
@@ -1071,11 +1063,7 @@ impl Widget for Win {
                         })
                         .map(|(_c, s, _l)| s.clone())
                         .unwrap_or_else(|| {
-                            let key = CommTargetCardKey {
-                                ip: card.ip,
-                                port: card.port,
-                                protocol_index: card.protocol_index,
-                            };
+                            let key = card.to_key();
                             let ls = parser.get_empty_liststore();
                             self.model.cur_liststore = Some((key, ls.clone(), 0));
                             let (ref tv, ref _signals) = &self
@@ -1097,10 +1085,11 @@ impl Widget for Win {
                     store.2 += added_messages as i32;
                     self.model.cur_liststore = Some(store);
 
-                    if self.model.current_file.is_none() {
+                    if self.widgets.follow_packets_btn.is_visible()
+                        && self.widgets.follow_packets_btn.get_active()
+                    {
                         // we're capturing network traffic. scroll to
-                        // reveal new packets (TODO don't scroll if we're not
-                        // scrolled to the bottom beforehand)
+                        // reveal new packets
                         let scrolledwindow = self
                             .widgets
                             .comm_remote_servers_stack
@@ -1113,6 +1102,8 @@ impl Widget for Win {
                             .dynamic_cast::<gtk::ScrolledWindow>()
                             .unwrap();
                         let vadj = scrolledwindow.get_vadjustment().unwrap();
+                        // new packets were added to the view,
+                        // => scroll to reveal new packets
                         vadj.set_value(vadj.get_upper());
                     }
 
@@ -1392,6 +1383,8 @@ impl Widget for Win {
         // TODO don't call from the GUI thread
         let is_active = self.widgets.capture_btn.get_active();
         self.widgets.capture_spinner.set_visible(is_active);
+        self.widgets.follow_packets_btn.set_active(true);
+        self.widgets.follow_packets_btn.set_visible(is_active);
         if is_active {
             self.widgets.capture_spinner.start();
             // i wanted to use the temp folder but I got permissions issues,
@@ -1884,6 +1877,13 @@ impl Widget for Win {
                                 text: "Capture"
                             }
                         }
+                    },
+                    #[name="follow_packets_btn"]
+                    gtk::ToggleButton {
+                        image: Some(&gtk::Image::from_icon_name(Some("angle-double-down"), gtk::IconSize::Menu)),
+                        always_show_image: true,
+                        label: "Scroll to follow packets",
+                        visible: false,
                     },
                     gtk::MenuButton {
                         image: Some(&gtk::Image::from_icon_name(Some("open-menu-symbolic"), gtk::IconSize::Menu)),

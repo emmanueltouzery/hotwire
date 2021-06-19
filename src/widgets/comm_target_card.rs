@@ -30,6 +30,13 @@ impl SummaryDetails {
     }
 }
 
+#[derive(PartialEq, Eq, Hash)]
+pub struct CommTargetCardKey {
+    pub ip: IpAddr,
+    pub port: u32,
+    pub protocol_index: usize,
+}
+
 #[derive(Clone, Debug)]
 pub struct CommTargetCardData {
     pub ip: IpAddr,
@@ -79,6 +86,14 @@ impl CommTargetCardData {
             remote_hosts.len(),
             incoming_session_count
         )
+    }
+
+    pub fn to_key(&self) -> CommTargetCardKey {
+        CommTargetCardKey {
+            ip: self.ip,
+            port: self.port,
+            protocol_index: self.protocol_index,
+        }
     }
 }
 
