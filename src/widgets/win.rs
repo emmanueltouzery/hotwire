@@ -87,7 +87,7 @@ pub enum Msg {
     DisplayAbout,
     CaptureToggled,
     SaveCapture,
-    ChildDied,
+    ChildProcessDied,
 
     KeyPress(gdk::EventKey),
     SearchActiveChanged(bool),
@@ -610,7 +610,7 @@ impl Widget for Win {
             let (_channel, sender) = relm::Channel::new(move |()| {
                 // This closure is executed whenever a message is received from the sender.
                 // We send a message to the current widget.
-                stream.emit(Msg::ChildDied);
+                stream.emit(Msg::ChildProcessDied);
             });
             thread::spawn(move || {
                 const SIGNALS: &[libc::c_int] = &[signal_hook::consts::signal::SIGCHLD];
@@ -685,7 +685,7 @@ impl Widget for Win {
             Msg::SaveCapture => {
                 self.handle_save_capture();
             }
-            Msg::ChildDied => {
+            Msg::ChildProcessDied => {
                 // the problem i'm trying to fix is the user triggering
                 // a capture... so we call pkexec to launch tcpdump.. but the user closes pkexec and
                 // so tcpdump will never be launched.
