@@ -24,13 +24,10 @@ use glib::translate::ToGlib;
 use gtk::prelude::*;
 use itertools::Itertools;
 use nix::sys::signal::Signal;
-use nix::sys::time::TimeSpec;
-use nix::sys::time::TimeValLike;
 use nix::unistd::Pid;
 use quick_xml::events::Event;
 use relm::{Component, ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
-use signal_hook::consts::signal::*;
 use signal_hook::iterator::Signals;
 use std::cmp::Reverse;
 use std::collections::BTreeSet;
@@ -38,7 +35,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io::BufRead;
 use std::io::BufReader;
-use std::io::Read;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::os::unix::fs::FileTypeExt;
@@ -130,7 +126,7 @@ struct TreeViewSignals {
     selection_change_signal_id: glib::SignalHandlerId,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub enum FileType {
     File,
     Fifo,
@@ -956,6 +952,8 @@ impl Widget for Win {
                     return;
                 }
                 self.widgets.loading_spinner.stop();
+                self.widgets.open_btn.set_sensitive(true);
+                self.widgets.capture_btn.set_sensitive(true);
                 self.widgets
                     .root_stack
                     .set_visible_child_name(NORMAL_STACK_NAME);
@@ -1417,7 +1415,7 @@ impl Widget for Win {
                     nix::sys::stat::Mode::S_IRUSR | nix::sys::stat::Mode::S_IWUSR,
                 )?;
             }
-            self.reset_open_file(None);
+            self.reset_open_file(None, FileType::Fifo);
             let mut tcpdump_child = Command::new("pkexec")
                 .args(&[
                     "tcpdump",
@@ -1452,6 +1450,8 @@ impl Widget for Win {
                 .unwrap();
         } else {
             self.widgets.capture_spinner.stop();
+            self.widgets.open_btn.set_sensitive(true);
+            self.widgets.capture_btn.set_sensitive(true);
             self.widgets
                 .root_stack
                 .set_visible_child_name(if self.model.streams.is_empty() {
@@ -1556,7 +1556,13 @@ impl Widget for Win {
         }
     }
 
-    fn reset_open_file(&mut self, fname: Option<(PathBuf, FileType)>) {
+    fn reset_open_file(&mut self, fname: Option<PathBuf>, filetype: FileType) {
+        self.widgets.open_btn.set_sensitive(false);
+        if filetype != FileType::Fifo {
+            // prevent capture when we're opening a file, but obviously
+            // we want it when capturing (to stop the capture)
+            self.widgets.capture_btn.set_sensitive(false);
+        }
         let pcap_output_file = config::get_tshark_pcap_output_path();
         if pcap_output_file.exists() {
             if let Err(e) = std::fs::remove_file(pcap_output_file) {
@@ -1572,11 +1578,11 @@ impl Widget for Win {
         self.model.window_subtitle = Some(
             fname
                 .as_ref()
-                .map(|(p, _t)| p.to_string_lossy())
+                .map(|p| p.to_string_lossy())
                 .unwrap_or(std::borrow::Cow::Borrowed("Network Capture"))
                 .to_string(),
         );
-        self.model.current_file = fname;
+        self.model.current_file = fname.map(|p| (p, filetype));
         self.widgets.loading_spinner.start();
         self.widgets.loading_parsing_label.set_visible(false);
         self.widgets.loading_tshark_label.set_visible(true);
@@ -1619,14 +1625,14 @@ impl Widget for Win {
             .filter(|m| m.file_type().is_fifo())
             .is_some();
 
-        self.reset_open_file(Some((
-            fname.clone(),
+        self.reset_open_file(
+            Some(fname.clone()),
             if is_fifo {
                 FileType::Fifo
             } else {
                 FileType::File
             },
-        )));
+        );
 
         if is_fifo {
             self.widgets
