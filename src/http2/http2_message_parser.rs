@@ -42,6 +42,10 @@ impl MessageParser for Http2 {
         msg.http2.is_some()
     }
 
+    fn tshark_filter_string(&self) -> &'static str {
+        "http2"
+    }
+
     fn protocol_icon(&self) -> icons::Icon {
         icons::Icon::HTTP
     }

@@ -29,6 +29,10 @@ impl MessageParser for Postgres {
         msg.pgsql.is_some()
     }
 
+    fn tshark_filter_string(&self) -> &'static str {
+        "pgsql"
+    }
+
     fn protocol_icon(&self) -> Icon {
         Icon::DATABASE
     }

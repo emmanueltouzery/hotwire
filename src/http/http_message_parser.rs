@@ -33,6 +33,10 @@ impl MessageParser for Http {
         msg.http.is_some()
     }
 
+    fn tshark_filter_string(&self) -> &'static str {
+        "http"
+    }
+
     fn protocol_icon(&self) -> Icon {
         Icon::HTTP
     }

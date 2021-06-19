@@ -28,6 +28,12 @@ pub struct StreamData {
 
 pub trait MessageParser {
     fn is_my_message(&self, msg: &TSharkPacket) -> bool;
+
+    /// by restricting tshark to only the packets we can decode,
+    /// we can possibly speed up things... so tell me how to filter
+    /// for your protocol (for instance 'http2', 'pgsql' and so on)
+    fn tshark_filter_string(&self) -> &'static str;
+
     fn protocol_icon(&self) -> Icon;
     fn initial_globals(&self) -> StreamGlobals;
     fn add_to_stream(

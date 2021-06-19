@@ -22,6 +22,7 @@ use crate::BgFunc;
 use gdk::prelude::*;
 use glib::translate::ToGlib;
 use gtk::prelude::*;
+use itertools::Itertools;
 use nix::sys::signal::Signal;
 use nix::sys::time::TimeSpec;
 use nix::sys::time::TimeValLike;
@@ -1643,7 +1644,11 @@ impl Widget for Win {
     }
 
     fn load_file(file_type: TSharkInputType, fname: PathBuf, sender: relm::Sender<ParseInputStep>) {
-        invoke_tshark(file_type, &fname, "http || pgsql || http2", sender);
+        let filter = get_message_parsers()
+            .into_iter()
+            .map(|p| p.tshark_filter_string())
+            .join(" || ");
+        invoke_tshark(file_type, &fname, &filter, sender);
     }
 
     fn init_remote_ips_streams_tree(&mut self) {
