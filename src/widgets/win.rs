@@ -13,8 +13,9 @@ use crate::icons::Icon;
 use crate::message_parser::ClientServerInfo;
 use crate::message_parser::StreamData;
 use crate::message_parser::{MessageInfo, MessageParser};
+use crate::packets_read;
+use crate::packets_read::{InputStep, ParseInputStep, TSharkInputType};
 use crate::pgsql::postgres_message_parser::Postgres;
-use crate::tshark_communication;
 use crate::tshark_communication::{NetworkPort, TSharkPacket, TcpStreamId};
 use crate::widgets::comm_target_card::CommTargetCardKey;
 use crate::widgets::comm_target_card::SummaryDetails;
@@ -23,30 +24,20 @@ use gdk::prelude::*;
 use glib::translate::ToGlib;
 use gtk::prelude::*;
 use itertools::Itertools;
-use nix::sys::signal::Signal;
-use nix::unistd::Pid;
-use quick_xml::events::Event;
 use relm::{Component, ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
-use signal_hook::iterator::Signals;
 use std::cmp::Reverse;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::io::BufRead;
-use std::io::BufReader;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::os::unix::fs::FileTypeExt;
-use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Child;
 use std::process::Command;
-use std::process::Stdio;
 use std::sync::mpsc;
-use std::thread;
-use std::time::Duration;
 use std::time::Instant;
 
 const CSS_DATA: &[u8] = include_bytes!("../../resources/style.css");
@@ -58,15 +49,6 @@ const NORMAL_STACK_NAME: &str = "normal";
 pub fn get_message_parsers() -> Vec<Box<dyn MessageParser>> {
     vec![Box::new(Http), Box::new(Postgres), Box::new(Http2)]
 }
-
-#[derive(Debug)]
-pub enum InputStep {
-    StartedTShark(Child),
-    Packet(TSharkPacket),
-    Eof,
-}
-
-pub type ParseInputStep = Result<InputStep, String>;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum InfobarOptions {
@@ -126,18 +108,12 @@ struct TreeViewSignals {
     selection_change_signal_id: glib::SignalHandlerId,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
-pub enum FileType {
-    File,
-    Fifo,
-}
-
 pub struct Model {
     relm: relm::Relm<Win>,
     bg_sender: mpsc::Sender<BgFunc>,
 
     window_subtitle: Option<String>,
-    current_file: Option<(PathBuf, FileType)>,
+    current_file: Option<(PathBuf, TSharkInputType)>,
     recent_files: Vec<PathBuf>,
 
     capture_toggle_signal: Option<glib::SignalHandlerId>,
@@ -174,107 +150,6 @@ pub struct Model {
 enum RefreshRemoteIpsAndStreams {
     Yes,
     No,
-}
-
-#[derive(PartialEq, Eq)]
-pub enum TSharkInputType {
-    File,
-    Fifo,
-}
-
-// it would be possible to ask tshark to "mix in" a keylog file
-// when opening the pcap file
-// (obtain the keylog file through `SSLKEYLOGFILE=browser_keylog.txt google-chrome` or firefox,
-// pass it to tshark through -o ssh.keylog_file:/path/to/keylog)
-// but we get in flatpak limitations (can only access the file that the user opened
-// due to the sandbox) => better to just mix in the secrets manually and open a single
-// file. this is done through => editcap --inject-secrets tls,/path/to/keylog.txt ~/testtls.pcap ~/outtls.pcapng
-pub fn invoke_tshark(
-    input_type: TSharkInputType,
-    fname: &Path,
-    filters: &str,
-    sender: relm::Sender<ParseInputStep>,
-) {
-    dbg!(&filters);
-    // piping from tshark, not to load the entire JSON in ram...
-    let mut tshark_params = vec![
-        if input_type == TSharkInputType::File {
-            "-r"
-        } else {
-            "-i"
-        },
-        fname.to_str().expect("invalid filename"),
-        "-Tpdml",
-        // "-o",
-        // "ssl.keylog_file:/home/emmanuel/chrome_keylog.txt",
-        // "tcp.stream eq 104",
-    ];
-    let pcap_output = config::get_tshark_pcap_output_path();
-    if input_type == TSharkInputType::Fifo {
-        // -l == flush after each packet
-        tshark_params.extend(&["-w", pcap_output.to_str().unwrap(), "-l"]);
-    } else {
-        // if I filter in fifo mode then tshark doesn't write the output pcap file
-        tshark_params.extend(&[filters]);
-    }
-    let tshark_child = Command::new("tshark")
-        .args(&tshark_params)
-        .stdout(Stdio::piped())
-        .spawn();
-    if tshark_child.is_err() {
-        sender
-            .send(Err(format!("Error launching tshark: {:?}", tshark_child)))
-            .unwrap();
-        return;
-    }
-    let mut tshark_child = tshark_child.unwrap();
-    let buf_reader = BufReader::new(tshark_child.stdout.take().unwrap());
-    sender
-        .send(Ok(InputStep::StartedTShark(tshark_child)))
-        .unwrap();
-    parse_pdml_stream(buf_reader, sender);
-}
-
-pub fn parse_pdml_stream<B: BufRead>(buf_reader: B, sender: relm::Sender<ParseInputStep>) {
-    let mut xml_reader = quick_xml::Reader::from_reader(buf_reader);
-    let mut buf = vec![];
-    loop {
-        match xml_reader.read_event(&mut buf) {
-            Ok(Event::Start(ref e)) => {
-                if e.name() == b"packet" {
-                    match tshark_communication::parse_packet(&mut xml_reader) {
-                        Ok(packet) => sender.send(Ok(InputStep::Packet(packet))).unwrap(),
-                        Err(e) => {
-                            sender
-                                .send(Err(format!(
-                                    "xml parsing error: {} at tshark output offset {}",
-                                    e,
-                                    xml_reader.buffer_position()
-                                )))
-                                .unwrap();
-                            break;
-                        }
-                    }
-                }
-            }
-            Ok(Event::Eof) => {
-                sender.send(Ok(InputStep::Eof)).unwrap();
-                break;
-            }
-            Err(e) => {
-                sender
-                    .send(Err(format!(
-                        "xml parsing error: {} at tshark output offset {}",
-                        e,
-                        xml_reader.buffer_position()
-                    )))
-                    .unwrap();
-                break;
-            }
-            _ => {}
-        };
-        buf.clear();
-    }
 }
 
 #[derive(Debug)]
@@ -589,7 +464,7 @@ impl Widget for Win {
 
     fn model(
         relm: &relm::Relm<Self>,
-        params: (mpsc::Sender<BgFunc>, Option<(PathBuf, FileType)>),
+        params: (mpsc::Sender<BgFunc>, Option<(PathBuf, TSharkInputType)>),
     ) -> Model {
         let (bg_sender, current_file) = params;
         gtk::IconTheme::get_default()
@@ -603,31 +478,21 @@ impl Widget for Win {
             })
         };
 
-        {
-            // the problem i'm trying to fix is the user triggering
-            // a capture... so we call pkexec to launch tcpdump.. but the user closes pkexec and
-            // so tcpdump will never be launched.
-            // then we have tshark blocking on the fifo, forever.
-            // i catch the SIGCHLD signal, which tells me that one of my child processes died
-            // (potentially pkexec). At that point if the capture is running, I stop it and clean up.
-            let stream = relm.stream().clone();
-
-            let (_channel, sender) = relm::Channel::new(move |()| {
+        // the problem i'm trying to fix is the user triggering
+        // a capture... so we call pkexec to launch tcpdump.. but the user closes pkexec and
+        // so tcpdump will never be launched.
+        // then we have tshark blocking on the fifo, forever.
+        // i catch the SIGCHLD signal, which tells me that one of my child processes died
+        // (potentially pkexec). At that point if the capture is running, I stop it and clean up.
+        let stream = relm.stream().clone();
+        packets_read::register_child_process_death(
+            relm::Channel::new(move |()| {
                 // This closure is executed whenever a message is received from the sender.
                 // We send a message to the current widget.
                 stream.emit(Msg::ChildProcessDied);
-            });
-            thread::spawn(move || {
-                const SIGNALS: &[libc::c_int] = &[signal_hook::consts::signal::SIGCHLD];
-                let mut sigs = Signals::new(SIGNALS).unwrap();
-                for signal in &mut sigs {
-                    sender.send(()).expect("send child died msg");
-                    if let Err(e) = signal_hook::low_level::emulate_default_handler(signal) {
-                        eprintln!("Error calling the low-level signal hook handling: {:?}", e);
-                    }
-                }
-            });
-        }
+            })
+            .1,
+        );
 
         Model {
             relm: relm.clone(),
@@ -854,7 +719,10 @@ impl Widget for Win {
 
     fn handle_got_loading_error(&mut self, msg: &str) {
         // TODO clear the streams like we do when opening a new file?
-        if let Err(e) = self.cleanup_child_processes() {
+        if let Err(e) = packets_read::cleanup_child_processes(
+            self.model.tcpdump_child.take(),
+            self.model.tshark_child.take(),
+        ) {
             // not sure why loading failed.. maybe don't get too hung up
             // about error handling in this case?
             eprintln!("Error cleaning up child processes: {:?}", e);
@@ -1012,7 +880,10 @@ impl Widget for Win {
     }
 
     fn handle_got_input_eof(&mut self) {
-        if let Err(e) = self.cleanup_child_processes() {
+        if let Err(e) = packets_read::cleanup_child_processes(
+            self.model.tcpdump_child.take(),
+            self.model.tshark_child.take(),
+        ) {
             self.model.relm.stream().emit(Msg::LoadedData(Err(format!(
                 "Error cleaning up children processes: {}",
                 e
@@ -1160,7 +1031,7 @@ impl Widget for Win {
                                 .model
                                 .current_file
                                 .as_ref()
-                                .filter(|f| f.1 == FileType::Fifo)
+                                .filter(|f| f.1 == TSharkInputType::Fifo)
                                 .is_some()
                         {
                             // we're capturing network traffic. start displaying data
@@ -1426,39 +1297,8 @@ impl Widget for Win {
         self.widgets.follow_packets_btn.set_visible(is_active);
         if is_active {
             self.widgets.capture_spinner.start();
-            // i wanted to use the temp folder but I got permissions issues,
-            // which I don't fully understand.
-            let fifo_path = config::get_tcpdump_fifo_path();
-            if !fifo_path.exists() {
-                nix::unistd::mkfifo(
-                    &fifo_path,
-                    nix::sys::stat::Mode::S_IRUSR | nix::sys::stat::Mode::S_IWUSR,
-                )?;
-            }
-            self.reset_open_file(None, FileType::Fifo);
-            let mut tcpdump_child = Command::new("pkexec")
-                .args(&[
-                    "tcpdump",
-                    "-ni",
-                    "any",
-                    "-s0",
-                    "--immediate-mode",
-                    "--packet-buffered",
-                    "-w",
-                    fifo_path.to_str().unwrap(),
-                ])
-                .spawn()
-                .map_err(|e| format!("Error launching pkexec: {:?}", e))?;
-
-            // yeah sleeping 50ms in the gui thread...
-            // but it's the easiest. pkexec needs some tome to init, try to launch that
-            // app and fail... on my computer 50ms is consistently enough.
-            std::thread::sleep(Duration::from_millis(50));
-            if let Ok(Some(status)) = tcpdump_child.try_wait() {
-                return Err(
-                    format!("Failed to execute tcpdump, pkexec exit code {}", status).into(),
-                );
-            }
+            self.reset_open_file(None, TSharkInputType::Fifo);
+            let (tcpdump_child, fifo_path) = packets_read::invoke_tcpdump()?;
 
             self.model.tcpdump_child = Some(tcpdump_child);
             let s = self.model.loaded_data_sender.clone();
@@ -1479,7 +1319,10 @@ impl Widget for Win {
                 } else {
                     NORMAL_STACK_NAME
                 });
-            self.cleanup_child_processes()?;
+            packets_read::cleanup_child_processes(
+                self.model.tcpdump_child.take(),
+                self.model.tshark_child.take(),
+            )?;
             let fifo_path = config::get_tcpdump_fifo_path();
             if fifo_path.exists() {
                 std::fs::remove_file(fifo_path)?;
@@ -1488,50 +1331,6 @@ impl Widget for Win {
             self.widgets
                 .capture_btn
                 .set_visible(Self::is_display_capture_btn());
-        }
-        Ok(())
-    }
-
-    fn cleanup_child_processes(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(_tcpdump_child) = self.model.tcpdump_child.take() {
-            let mut tcpdump_child = _tcpdump_child;
-            // seems like we can't kill tcpdump, even though it's our child (owned by another user),
-            // but it's not needed (presumably because we kill tshark, which reads from the fifo,
-            // and the fifo itself)
-            // if let Err(e) = tcpdump_pid.kill() {
-            //     eprintln!("kill1 fails {:?}", e);
-            // }
-
-            // try_wait doesn't work, wait hangs, not doing anything leaves zombie processes
-            // i found this way of regularly calling try_wait until it succeeds...
-            glib::idle_add_local(move || {
-                glib::Continue(
-                    !matches!(tcpdump_child.try_wait(), Ok(Some(s)) if s.code().is_some() || s.signal().is_some()),
-                )
-            });
-        }
-        if let Some(_tshark_child) = self.model.tshark_child.take() {
-            let mut tshark_child = _tshark_child;
-
-            // soooooooo... if I use child.kill() then when I read from a local fifo file (mkfifo)
-            // and I cancel the reading from the fifo, and nothing was written to the fifo at all,
-            // we do kill the tshark process, but our read() on the pipe from tshark hangs.
-            // I don't know why. However if I use nix to send a SIGINT, our read() is interrupted
-            // and all is good...
-            //
-            // tshark_child.kill()?;
-            nix::sys::signal::kill(
-                Pid::from_raw(tshark_child.id() as libc::pid_t),
-                Some(Signal::SIGINT),
-            )?;
-
-            // try_wait doesn't work, wait hangs, not doing anything leaves zombie processes
-            // i found this way of regularly calling try_wait until it succeeds...
-            glib::idle_add_local(move || {
-                glib::Continue(
-                    !matches!(tshark_child.try_wait(), Ok(Some(s)) if s.code().is_some() || s.signal().is_some()),
-                )
-            });
         }
         Ok(())
     }
@@ -1576,9 +1375,9 @@ impl Widget for Win {
         }
     }
 
-    fn reset_open_file(&mut self, fname: Option<PathBuf>, filetype: FileType) {
+    fn reset_open_file(&mut self, fname: Option<PathBuf>, filetype: TSharkInputType) {
         self.widgets.open_btn.set_sensitive(false);
-        if filetype != FileType::Fifo {
+        if filetype != TSharkInputType::Fifo {
             // prevent capture when we're opening a file, but obviously
             // we want it when capturing (to stop the capture)
             self.widgets.capture_btn.set_sensitive(false);
@@ -1648,9 +1447,9 @@ impl Widget for Win {
         self.reset_open_file(
             Some(fname.clone()),
             if is_fifo {
-                FileType::Fifo
+                TSharkInputType::Fifo
             } else {
-                FileType::File
+                TSharkInputType::File
             },
         );
 
@@ -1694,7 +1493,7 @@ impl Widget for Win {
             .into_iter()
             .map(|p| p.tshark_filter_string())
             .join(" || ");
-        invoke_tshark(file_type, &fname, &filter, sender);
+        packets_read::invoke_tshark(file_type, &fname, &filter, sender);
     }
 
     fn init_remote_ips_streams_tree(&mut self) {

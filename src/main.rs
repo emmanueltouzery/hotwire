@@ -9,6 +9,7 @@ pub mod colors;
 pub mod config;
 pub mod icons;
 pub mod message_parser;
+pub mod packets_read;
 #[macro_use]
 mod tshark_communication;
 mod widgets;
@@ -58,9 +59,9 @@ fn main() {
         (
             PathBuf::from(p),
             if is_fifo {
-                win::FileType::Fifo
+                packets_read::TSharkInputType::Fifo
             } else {
-                win::FileType::File
+                packets_read::TSharkInputType::File
             },
         )
     });
