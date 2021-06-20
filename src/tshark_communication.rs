@@ -1,6 +1,7 @@
 use crate::http::tshark_http;
 use crate::http2::tshark_http2;
-use crate::message_parser::{MessageParser, StreamData};
+use crate::message_parser::MessageParser;
+use crate::message_parser::StreamData;
 use crate::pgsql::tshark_pgsql;
 use chrono::NaiveDateTime;
 use quick_xml::events::Event;
