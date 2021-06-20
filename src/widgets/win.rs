@@ -81,7 +81,6 @@ pub enum Msg {
     InfoBarEvent(gtk::ResponseType),
 
     SelectCardFromRemoteIpsAndStreams(CommTargetCardData, Vec<IpAddr>, Vec<TcpStreamId>),
-    RefreshRemoteIpsStreamsTree(CommTargetCardData, HashSet<IpAddr>),
 
     DisplayDetails(TcpStreamId, u32),
 
@@ -132,9 +131,8 @@ pub struct Model {
     tshark_child: Option<Child>,
 }
 
-#[derive(PartialEq, Eq)]
 pub enum RefreshRemoteIpsAndStreams {
-    Yes,
+    Yes(CommTargetCardData, HashSet<IpAddr>),
     No,
 }
 
@@ -470,13 +468,15 @@ impl Widget for Win {
                     &self.model.streams,
                     &self.widgets.remote_ips_streams_treeview,
                     self.model.sidebar_selection_change_signal_id.as_ref(),
-                    RefreshRemoteIpsAndStreams::No,
                     &remote_ips,
                     &stream_ids,
                 );
-            }
-            Msg::RefreshRemoteIpsStreamsTree(card, ip_hash) => {
-                self.refresh_remote_ips_streams_tree(&card, &ip_hash);
+                messages_treeview::refresh_remote_servers_after(
+                    self.model.messages_treeview_state.as_ref().unwrap(),
+                    self.model.selected_card.as_ref(),
+                    &self.widgets.remote_ips_streams_treeview,
+                    self.model.sidebar_selection_change_signal_id.as_ref(),
+                );
             }
             Msg::DisplayDetails(stream_id, idx) => {
                 if let Some((stream_client_server, msg_data)) = self
@@ -552,16 +552,24 @@ impl Widget for Win {
             .and_then(|idx| self.model.comm_target_cards.get(idx as usize))
             .cloned();
         self.init_remote_ips_streams_tree();
-        messages_treeview::refresh_remote_servers(
+        let refresh_streams_tree = messages_treeview::refresh_remote_servers(
             self.model.messages_treeview_state.as_ref().unwrap(),
             self.model.relm.stream(),
             self.model.selected_card.as_ref(),
             &self.model.streams,
             &self.widgets.remote_ips_streams_treeview,
             self.model.sidebar_selection_change_signal_id.as_ref(),
-            RefreshRemoteIpsAndStreams::Yes,
             &[],
             &[],
+        );
+        if let RefreshRemoteIpsAndStreams::Yes(card, ips) = refresh_streams_tree {
+            self.refresh_remote_ips_streams_tree(&card, &ips);
+        }
+        messages_treeview::refresh_remote_servers_after(
+            self.model.messages_treeview_state.as_ref().unwrap(),
+            self.model.selected_card.as_ref(),
+            &self.widgets.remote_ips_streams_treeview,
+            self.model.sidebar_selection_change_signal_id.as_ref(),
         );
         if let Some(p) = self.widgets.root_stack.get_parent_window() {
             p.set_cursor(None);
@@ -601,16 +609,24 @@ impl Widget for Win {
         self.model.streams = HashMap::new();
         // self.refresh_comm_targets();
         self.init_remote_ips_streams_tree();
-        messages_treeview::refresh_remote_servers(
+        let refresh_streams_tree = messages_treeview::refresh_remote_servers(
             self.model.messages_treeview_state.as_ref().unwrap(),
             self.model.relm.stream(),
             self.model.selected_card.as_ref(),
             &self.model.streams,
             &self.widgets.remote_ips_streams_treeview,
             self.model.sidebar_selection_change_signal_id.as_ref(),
-            RefreshRemoteIpsAndStreams::Yes,
             &[],
             &[],
+        );
+        if let RefreshRemoteIpsAndStreams::Yes(card, ips) = refresh_streams_tree {
+            self.refresh_remote_ips_streams_tree(&card, &ips);
+        }
+        messages_treeview::refresh_remote_servers_after(
+            self.model.messages_treeview_state.as_ref().unwrap(),
+            self.model.selected_card.as_ref(),
+            &self.widgets.remote_ips_streams_treeview,
+            self.model.sidebar_selection_change_signal_id.as_ref(),
         );
         Self::display_error_block("Cannot load file", Some(&msg));
     }

@@ -200,10 +200,9 @@ pub fn refresh_remote_servers(
     streams: &HashMap<TcpStreamId, StreamData>,
     remote_ips_streams_treeview: &gtk::TreeView,
     sidebar_selection_change_signal_id: Option<&glib::SignalHandlerId>,
-    refresh_remote_ips_and_streams: RefreshRemoteIpsAndStreams,
     constrain_remote_ips: &[IpAddr],
     constrain_stream_ids: &[TcpStreamId],
-) {
+) -> RefreshRemoteIpsAndStreams {
     setup_selection_signals(
         tv_state,
         remote_ips_streams_treeview,
@@ -270,11 +269,18 @@ pub fn refresh_remote_servers(
             }
         }
         mp.end_populate_treeview(tv, &ls);
-        if refresh_remote_ips_and_streams == RefreshRemoteIpsAndStreams::Yes {
-            let ip_hash = by_remote_ip.keys().copied().collect::<HashSet<_>>();
-            win_stream.emit(win::Msg::RefreshRemoteIpsStreamsTree(card, ip_hash));
-        }
+        let ip_hash = by_remote_ip.keys().copied().collect::<HashSet<_>>();
+        return RefreshRemoteIpsAndStreams::Yes(card, ip_hash);
     }
+    RefreshRemoteIpsAndStreams::No
+}
+
+pub fn refresh_remote_servers_after(
+    tv_state: &MessagesTreeviewState,
+    selected_card: Option<&CommTargetCardData>,
+    remote_ips_streams_treeview: &gtk::TreeView,
+    sidebar_selection_change_signal_id: Option<&glib::SignalHandlerId>,
+) {
     setup_selection_signals(
         tv_state,
         &remote_ips_streams_treeview,
