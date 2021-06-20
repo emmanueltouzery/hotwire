@@ -275,7 +275,7 @@ pub fn refresh_remote_servers(
     RefreshRemoteIpsAndStreams::No
 }
 
-pub fn refresh_remote_servers_after(
+pub fn refresh_remote_servers_handle_selection(
     tv_state: &MessagesTreeviewState,
     selected_card: Option<&CommTargetCardData>,
     remote_ips_streams_treeview: &gtk::TreeView,
