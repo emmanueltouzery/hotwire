@@ -1197,6 +1197,9 @@ impl Widget for Win {
             .root_stack
             .set_visible_child_name(LOADING_STACK_NAME);
         self.model.streams.clear();
+        if let Some(ref mut tv_state) = self.model.messages_treeview_state {
+            tv_state.file_closed();
+        }
         self.model.selected_card = None;
         self.model.comm_target_cards.clear();
         for child in self.widgets.comm_target_list.get_children() {

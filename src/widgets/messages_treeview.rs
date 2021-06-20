@@ -43,6 +43,12 @@ pub struct MessagesTreeviewState {
     cur_liststore: Option<(CommTargetCardKey, gtk::ListStore, i32)>,
 }
 
+impl MessagesTreeviewState {
+    pub fn file_closed(&mut self) {
+        self.cur_liststore = None;
+    }
+}
+
 pub fn init_grids_and_panes(
     relm: &relm::Relm<win::Win>,
     bg_sender: &mpsc::Sender<BgFunc>,
