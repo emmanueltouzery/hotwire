@@ -463,7 +463,6 @@ impl Widget for Win {
                 self.init_remote_ips_streams_tree();
                 messages_treeview::refresh_remote_servers(
                     self.model.messages_treeview_state.as_ref().unwrap(),
-                    self.model.relm.stream(),
                     self.model.selected_card.as_ref(),
                     &self.model.streams,
                     &self.widgets.remote_ips_streams_treeview,
@@ -554,7 +553,6 @@ impl Widget for Win {
         self.init_remote_ips_streams_tree();
         let refresh_streams_tree = messages_treeview::refresh_remote_servers(
             self.model.messages_treeview_state.as_ref().unwrap(),
-            self.model.relm.stream(),
             self.model.selected_card.as_ref(),
             &self.model.streams,
             &self.widgets.remote_ips_streams_treeview,
@@ -611,7 +609,6 @@ impl Widget for Win {
         self.init_remote_ips_streams_tree();
         let refresh_streams_tree = messages_treeview::refresh_remote_servers(
             self.model.messages_treeview_state.as_ref().unwrap(),
-            self.model.relm.stream(),
             self.model.selected_card.as_ref(),
             &self.model.streams,
             &self.widgets.remote_ips_streams_treeview,

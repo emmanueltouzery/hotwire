@@ -195,7 +195,6 @@ fn row_selected(
 
 pub fn refresh_remote_servers(
     tv_state: &MessagesTreeviewState,
-    win_stream: &relm::StreamHandle<win::Msg>,
     selected_card: Option<&CommTargetCardData>,
     streams: &HashMap<TcpStreamId, StreamData>,
     remote_ips_streams_treeview: &gtk::TreeView,
