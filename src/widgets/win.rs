@@ -4,6 +4,7 @@ use super::headerbar_search::HeaderbarSearch;
 use super::headerbar_search::Msg as HeaderbarSearchMsg;
 use super::headerbar_search::Msg::SearchActiveChanged as HbsMsgSearchActiveChanged;
 use super::headerbar_search::Msg::SearchTextChanged as HbsMsgSearchTextChanged;
+use super::messages_treeview;
 use super::recent_file_item::RecentFileItem;
 use crate::colors;
 use crate::config;
@@ -11,8 +12,8 @@ use crate::http::http_message_parser::Http;
 use crate::http2::http2_message_parser::Http2;
 use crate::icons::Icon;
 use crate::message_parser::ClientServerInfo;
+use crate::message_parser::MessageParser;
 use crate::message_parser::StreamData;
-use crate::message_parser::{MessageInfo, MessageParser};
 use crate::packets_read;
 use crate::packets_read::{InputStep, ParseInputStep, TSharkInputType};
 use crate::pgsql::postgres_message_parser::Postgres;
@@ -31,14 +32,12 @@ use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::net::IpAddr;
-use std::net::Ipv4Addr;
 use std::os::unix::fs::FileTypeExt;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Child;
 use std::process::Command;
 use std::sync::mpsc;
-use std::time::Instant;
 
 const CSS_DATA: &[u8] = include_bytes!("../../resources/style.css");
 
@@ -82,6 +81,7 @@ pub enum Msg {
     InfoBarEvent(gtk::ResponseType),
 
     SelectCardFromRemoteIpsAndStreams(CommTargetCardData, Vec<IpAddr>, Vec<TcpStreamId>),
+    RefreshRemoteIpsStreamsTree(CommTargetCardData, HashSet<IpAddr>),
 
     DisplayDetails(TcpStreamId, u32),
 
@@ -94,18 +94,6 @@ pub struct StreamInfo {
     target_ip: IpAddr,
     target_port: NetworkPort,
     source_ip: IpAddr,
-}
-
-// when we reload treeview, tons of selection change signals
-// get emitted. So while we do that we disable those.
-// but in that time we still allow row selection,
-// which are always explicit user clicks.
-// And row activation is only active when loading.
-// Selection change is more precise: also follows keyboard
-// actions for instance
-#[derive(Debug)]
-struct TreeViewSignals {
-    selection_change_signal_id: glib::SignalHandlerId,
 }
 
 pub struct Model {
@@ -127,33 +115,31 @@ pub struct Model {
     comm_target_cards: Vec<CommTargetCardData>,
     selected_card: Option<CommTargetCardData>,
 
-    comm_remote_servers_treeviews: Vec<(gtk::TreeView, TreeViewSignals)>,
+    search_text: String,
+
+    messages_treeview_state: Option<messages_treeview::MessagesTreeviewState>,
 
     _loaded_data_channel: relm::Channel<ParseInputStep>,
     loaded_data_sender: relm::Sender<ParseInputStep>,
 
-    cur_liststore: Option<(CommTargetCardKey, gtk::ListStore, i32)>,
     remote_ips_streams_treestore: gtk::TreeStore,
     remote_ips_streams_iptopath: HashMap<IpAddr, gtk::TreePath>,
 
     comm_targets_components: HashMap<CommTargetCardKey, Component<CommTargetCard>>,
     _recent_file_item_components: Vec<Component<RecentFileItem>>,
 
-    details_component_emitters: Vec<Box<dyn Fn(mpsc::Sender<BgFunc>, MessageInfo)>>,
-    details_adjustments: Vec<gtk::Adjustment>,
-
     tcpdump_child: Option<Child>,
     tshark_child: Option<Child>,
 }
 
 #[derive(PartialEq, Eq)]
-enum RefreshRemoteIpsAndStreams {
+pub enum RefreshRemoteIpsAndStreams {
     Yes,
     No,
 }
 
 #[derive(Debug)]
-enum RefreshOngoing {
+pub enum RefreshOngoing {
     Yes,
     No,
 }
@@ -215,9 +201,11 @@ impl Widget for Win {
             .unwrap()
             .set_property_gtk_alternative_sort_arrows(true);
 
-        for (idx, message_parser) in get_message_parsers().iter().enumerate() {
-            self.add_message_parser_grid_and_pane(&message_parser, idx);
-        }
+        self.model.messages_treeview_state = Some(messages_treeview::init_grids_and_panes(
+            &self.model.relm,
+            &self.model.bg_sender,
+            self.widgets.comm_remote_servers_stack.clone(),
+        ));
 
         self.init_remote_ip_streams_tv();
 
@@ -277,105 +265,6 @@ impl Widget for Win {
             });
     }
 
-    fn add_message_parser_grid_and_pane(
-        &mut self,
-        message_parser: &Box<dyn MessageParser>,
-        mp_idx: usize,
-    ) {
-        let tv = gtk::TreeViewBuilder::new()
-            .activate_on_single_click(true)
-            .build();
-        message_parser.prepare_treeview(&tv);
-
-        let selection_change_signal_id = {
-            let rstream = self.model.relm.stream().clone();
-            let tv = tv.clone();
-            tv.get_selection().connect_changed(move |selection| {
-                if let Some((model, iter)) = selection.get_selected() {
-                    let (modelsort, path) = if model.is::<gtk::TreeModelFilter>() {
-                        let modelfilter = model.dynamic_cast::<gtk::TreeModelFilter>().unwrap();
-                        let model = modelfilter.get_model().unwrap();
-                        (
-                            model.dynamic_cast::<gtk::TreeModelSort>().unwrap(),
-                            modelfilter
-                                .get_path(&iter)
-                                .and_then(|p| modelfilter.convert_path_to_child_path(&p)),
-                        )
-                    } else {
-                        let smodel = model.dynamic_cast::<gtk::TreeModelSort>().unwrap();
-                        let path = smodel.get_path(&iter);
-                        (smodel, path)
-                    };
-                    let model = modelsort
-                        .get_model()
-                        .dynamic_cast::<gtk::ListStore>()
-                        .unwrap();
-                    if let Some(childpath) =
-                        path.and_then(|p| modelsort.convert_path_to_child_path(&p))
-                    {
-                        Self::row_selected(&model, &childpath, &rstream);
-                    }
-                }
-            })
-        };
-        // let rstream2 = self.model.relm.stream().clone();
-        // let st2 = store.clone();
-        // let ms2 = modelsort.clone();
-        // let row_activation_signal_id = tv.connect_row_activated(move |_tv, sort_path, _col| {
-        //     let mpath = ms2.convert_path_to_child_path(&sort_path);
-        //     if let Some(path) = mpath {
-        //         Self::row_selected(&st2, &path, &rstream2);
-        //     }
-        // });
-        // tv.block_signal(&row_activation_signal_id);
-
-        self.model.comm_remote_servers_treeviews.push((
-            tv.clone(),
-            TreeViewSignals {
-                selection_change_signal_id,
-                // row_activation_signal_id,
-            },
-        ));
-        let scroll = gtk::ScrolledWindowBuilder::new()
-            .expand(true)
-            .child(&tv)
-            .build();
-        let paned = gtk::PanedBuilder::new()
-            .orientation(gtk::Orientation::Vertical)
-            .build();
-        paned.pack1(&scroll, true, true);
-
-        let scroll2 = gtk::ScrolledWindowBuilder::new().margin_start(3).build();
-        scroll2.set_property_height_request(200);
-
-        let (child, overlay) = if message_parser.requests_details_overlay() {
-            let overlay = gtk::OverlayBuilder::new().child(&scroll2).build();
-            (
-                overlay.clone().dynamic_cast::<gtk::Widget>().unwrap(),
-                Some(overlay),
-            )
-        } else {
-            (scroll2.clone().dynamic_cast::<gtk::Widget>().unwrap(), None)
-        };
-        paned.pack2(&child, false, true);
-        self.model
-            .details_component_emitters
-            .push(message_parser.add_details_to_scroll(
-                &scroll2,
-                overlay.as_ref(),
-                self.model.bg_sender.clone(),
-                self.model.relm.stream().clone(),
-            ));
-        self.model
-            .details_adjustments
-            .push(scroll2.get_vadjustment().unwrap());
-
-        self.widgets
-            .comm_remote_servers_stack
-            .add_named(&paned, &mp_idx.to_string());
-        paned.show_all();
-    }
-
     fn init_remote_ip_streams_tv(&self) {
         let remote_ip_col = gtk::TreeViewColumnBuilder::new()
             .title("Incoming conns")
@@ -391,63 +280,6 @@ impl Widget for Win {
         self.widgets
             .remote_ips_streams_treeview
             .append_column(&remote_ip_col);
-    }
-
-    fn setup_selection_signals(&self, refresh_ongoing: RefreshOngoing) {
-        dbg!(&refresh_ongoing);
-        match refresh_ongoing {
-            RefreshOngoing::Yes => {
-                for (tv, signals) in &self.model.comm_remote_servers_treeviews {
-                    self.widgets
-                        .remote_ips_streams_treeview
-                        .get_selection()
-                        .block_signal(
-                            self.model
-                                .sidebar_selection_change_signal_id
-                                .as_ref()
-                                .unwrap(),
-                        );
-                    tv.get_selection()
-                        .block_signal(&signals.selection_change_signal_id);
-                    // tv.unblock_signal(&signals.row_activation_signal_id);
-                }
-            }
-            RefreshOngoing::No => {
-                for (tv, signals) in &self.model.comm_remote_servers_treeviews {
-                    self.widgets
-                        .remote_ips_streams_treeview
-                        .get_selection()
-                        .unblock_signal(
-                            self.model
-                                .sidebar_selection_change_signal_id
-                                .as_ref()
-                                .unwrap(),
-                        );
-                    tv.get_selection()
-                        .unblock_signal(&signals.selection_change_signal_id);
-                    // tv.block_signal(&signals.row_activation_signal_id);
-                }
-            }
-        }
-    }
-
-    fn row_selected(
-        store: &gtk::ListStore,
-        path: &gtk::TreePath,
-        rstream: &relm::StreamHandle<Msg>,
-    ) {
-        let iter = store.get_iter(&path).unwrap();
-        let stream_id = store.get_value(&iter, 2);
-        let idx = store.get_value(&iter, 3);
-        println!(
-            "stream: {} idx: {}",
-            stream_id.get::<u32>().unwrap().unwrap(),
-            idx.get::<u32>().unwrap().unwrap()
-        );
-        rstream.emit(Msg::DisplayDetails(
-            TcpStreamId(stream_id.get::<u32>().unwrap().unwrap()),
-            idx.get::<u32>().unwrap().unwrap(),
-        ));
     }
 
     fn load_style(&self) -> Result<(), Box<dyn std::error::Error>> {
@@ -506,15 +338,12 @@ impl Widget for Win {
             _recent_file_item_components: vec![],
             recent_files: vec![],
             selected_card: None,
-            comm_remote_servers_treeviews: vec![],
-            details_component_emitters: vec![],
-            details_adjustments: vec![],
             loaded_data_sender,
             _loaded_data_channel,
+            messages_treeview_state: None,
             sidebar_selection_change_signal_id: None,
             comm_target_cards: vec![],
             streams: HashMap::new(),
-            cur_liststore: None,
             current_file,
             capture_toggle_signal: None,
             window_subtitle: None,
@@ -524,6 +353,7 @@ impl Widget for Win {
                 pango::Weight::static_type(),
                 u32::static_type(),
             ]),
+            search_text: "".to_string(),
             tcpdump_child: None,
             tshark_child: None,
         }
@@ -578,12 +408,27 @@ impl Widget for Win {
                 self.handle_keypress(e);
             }
             Msg::SearchActiveChanged(is_active) => {
-                if let Some((protocol_index, tv, model_sort)) = self.get_model_sort() {
-                    tv.set_model(Some(&model_sort));
+                if let Some(card) = self.model.selected_card.as_ref() {
+                    messages_treeview::search_text_changed(
+                        self.model.messages_treeview_state.as_ref().unwrap(),
+                        card.protocol_index,
+                        if is_active {
+                            &self.model.search_text
+                        } else {
+                            ""
+                        },
+                    );
                 }
             }
             Msg::SearchTextChanged(txt) => {
-                self.search_text_changed(txt);
+                self.model.search_text = txt.clone();
+                if let Some(card) = self.model.selected_card.as_ref() {
+                    messages_treeview::search_text_changed(
+                        self.model.messages_treeview_state.as_ref().unwrap(),
+                        card.protocol_index,
+                        &txt,
+                    );
+                }
             }
             Msg::OpenRecentFile(idx) => {
                 let path = self.model.recent_files[idx].clone();
@@ -617,14 +462,44 @@ impl Widget for Win {
                 self.refresh_remote_ip_stream(&mut paths);
             }
             Msg::SelectCardFromRemoteIpsAndStreams(_, remote_ips, stream_ids) => {
-                self.refresh_remote_servers(
+                self.init_remote_ips_streams_tree();
+                messages_treeview::refresh_remote_servers(
+                    self.model.messages_treeview_state.as_ref().unwrap(),
+                    self.model.relm.stream(),
+                    self.model.selected_card.as_ref(),
+                    &self.model.streams,
+                    &self.widgets.remote_ips_streams_treeview,
+                    self.model.sidebar_selection_change_signal_id.as_ref(),
                     RefreshRemoteIpsAndStreams::No,
                     &remote_ips,
                     &stream_ids,
                 );
             }
+            Msg::RefreshRemoteIpsStreamsTree(card, ip_hash) => {
+                self.refresh_remote_ips_streams_tree(&card, &ip_hash);
+            }
             Msg::DisplayDetails(stream_id, idx) => {
-                self.handle_display_details(stream_id, idx);
+                if let Some((stream_client_server, msg_data)) = self
+                    .model
+                    .streams
+                    .get(&stream_id)
+                    .and_then(|s| s.messages.get(idx as usize).map(|f| (&s.client_server, f)))
+                {
+                    messages_treeview::handle_display_details(
+                        self.model.messages_treeview_state.as_ref().unwrap(),
+                        &self.model.bg_sender,
+                        stream_id,
+                        stream_client_server,
+                        msg_data,
+                    );
+                } else {
+                    println!(
+                        "NO DATA for {}/{} -- stream length {:?}",
+                        stream_id,
+                        idx,
+                        self.model.streams.get(&stream_id).unwrap().messages.len()
+                    );
+                }
             }
             Msg::Quit => {
                 // needed for the pcap save temp files at least
@@ -661,36 +536,6 @@ impl Widget for Win {
         self.widgets.infobar.set_visible(true);
     }
 
-    fn handle_display_details(&mut self, stream_id: TcpStreamId, idx: u32) {
-        if let Some((stream_client_server, msg_data)) = self
-            .model
-            .streams
-            .get(&stream_id)
-            .and_then(|s| s.messages.get(idx as usize).map(|f| (&s.client_server, f)))
-        {
-            for adj in &self.model.details_adjustments {
-                adj.set_value(0.0);
-            }
-            for component_emitter in &self.model.details_component_emitters {
-                component_emitter(
-                    self.model.bg_sender.clone(),
-                    MessageInfo {
-                        stream_id,
-                        client_ip: stream_client_server.as_ref().unwrap().client_ip,
-                        message_data: msg_data.clone(),
-                    },
-                );
-            }
-        } else {
-            println!(
-                "NO DATA for {}/{} -- stream length {:?}",
-                stream_id,
-                idx,
-                self.model.streams.get(&stream_id).unwrap().messages.len()
-            );
-        }
-    }
-
     fn handle_select_card(&mut self, maybe_idx: Option<usize>) {
         let wait_cursor = gdk::Cursor::new_for_display(
             &self.widgets.window.get_display(),
@@ -706,7 +551,18 @@ impl Widget for Win {
         self.model.selected_card = maybe_idx
             .and_then(|idx| self.model.comm_target_cards.get(idx as usize))
             .cloned();
-        self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
+        self.init_remote_ips_streams_tree();
+        messages_treeview::refresh_remote_servers(
+            self.model.messages_treeview_state.as_ref().unwrap(),
+            self.model.relm.stream(),
+            self.model.selected_card.as_ref(),
+            &self.model.streams,
+            &self.widgets.remote_ips_streams_treeview,
+            self.model.sidebar_selection_change_signal_id.as_ref(),
+            RefreshRemoteIpsAndStreams::Yes,
+            &[],
+            &[],
+        );
         if let Some(p) = self.widgets.root_stack.get_parent_window() {
             p.set_cursor(None);
         }
@@ -744,7 +600,18 @@ impl Widget for Win {
         self.model.current_file = None;
         self.model.streams = HashMap::new();
         // self.refresh_comm_targets();
-        self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
+        self.init_remote_ips_streams_tree();
+        messages_treeview::refresh_remote_servers(
+            self.model.messages_treeview_state.as_ref().unwrap(),
+            self.model.relm.stream(),
+            self.model.selected_card.as_ref(),
+            &self.model.streams,
+            &self.widgets.remote_ips_streams_treeview,
+            self.model.sidebar_selection_change_signal_id.as_ref(),
+            RefreshRemoteIpsAndStreams::Yes,
+            &[],
+            &[],
+        );
         Self::display_error_block("Cannot load file", Some(&msg));
     }
 
@@ -870,12 +737,51 @@ impl Widget for Win {
                 }
                 stream_data
             };
-            self.refresh_grids_new_messages(
+            let mut tv_state = self.model.messages_treeview_state.take().unwrap();
+            let view_added_info = messages_treeview::refresh_grids_new_messages(
+                &mut tv_state,
+                self.model.selected_card.clone(),
                 packet_stream_id,
                 parser_index,
                 message_count_before,
-                stream_data,
+                &stream_data,
+                self.get_follow_packets(),
             );
+            self.model.messages_treeview_state = Some(tv_state);
+            self.model.streams.insert(packet_stream_id, stream_data);
+            self.added_new_messages_display_data_if_needed(view_added_info);
+        }
+    }
+
+    fn added_new_messages_display_data_if_needed(
+        &mut self,
+        view_added_info: messages_treeview::ViewAddedInfo,
+    ) {
+        if view_added_info == messages_treeview::ViewAddedInfo::AddedFirstMessages {
+            if self.model.current_file.is_none()
+                || self
+                    .model
+                    .current_file
+                    .as_ref()
+                    .filter(|f| f.1 == TSharkInputType::Fifo)
+                    .is_some()
+            {
+                // we're capturing network traffic. start displaying data
+                // realtime as we're receiving packets.
+                self.widgets
+                    .root_stack
+                    .set_visible_child_name(NORMAL_STACK_NAME);
+            }
+        }
+    }
+
+    fn get_follow_packets(&self) -> messages_treeview::FollowPackets {
+        if self.widgets.follow_packets_btn.is_visible()
+            && self.widgets.follow_packets_btn.get_active()
+        {
+            messages_treeview::FollowPackets::Follow
+        } else {
+            messages_treeview::FollowPackets::DontFollow
         }
     }
 
@@ -898,12 +804,19 @@ impl Widget for Win {
             let parser = parsers.get(parser_index).unwrap();
             match parser.finish_stream(stream_data) {
                 Ok(sd) => {
-                    self.refresh_grids_new_messages(
+                    let mut tv_state = self.model.messages_treeview_state.take().unwrap();
+                    let view_added_info = messages_treeview::refresh_grids_new_messages(
+                        &mut tv_state,
+                        self.model.selected_card.clone(),
                         stream_id,
                         parser_index,
                         message_count_before,
-                        sd,
+                        &sd,
+                        self.get_follow_packets(),
                     );
+                    self.model.messages_treeview_state = Some(tv_state);
+                    self.model.streams.insert(stream_id, sd);
+                    self.added_new_messages_display_data_if_needed(view_added_info);
                 }
                 Err(e) => {
                     self.model.relm.stream().emit(Msg::LoadedData(Err(format!(
@@ -939,113 +852,6 @@ impl Widget for Win {
         dialog.set_property_secondary_text(secondary);
         let _r = dialog.run();
         dialog.close();
-    }
-
-    fn refresh_grids_new_messages(
-        &mut self,
-        stream_id: TcpStreamId,
-        parser_index: usize,
-        message_count_before: usize,
-        stream_data: StreamData,
-    ) {
-        let parsers = get_message_parsers();
-        let parser = parsers.get(parser_index).unwrap();
-        let added_messages = stream_data.messages.len() - message_count_before;
-        // self.refresh_comm_targets();
-
-        // self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
-        let selected_card = self.model.selected_card.clone();
-        match (stream_data.client_server, selected_card) {
-            (Some(client_server), Some(card)) => {
-                if client_server.server_ip == card.ip
-                    && client_server.server_port == card.port
-                    && parser_index == card.protocol_index
-                {
-                    let ls = self
-                        .model
-                        .cur_liststore
-                        .as_ref()
-                        .filter(|(c, _s, _l)| {
-                            c.ip == card.ip
-                                && c.port == card.port
-                                && c.protocol_index == card.protocol_index
-                        })
-                        .map(|(_c, s, _l)| s.clone())
-                        .unwrap_or_else(|| {
-                            let key = card.to_key();
-                            let ls = parser.get_empty_liststore();
-                            self.model.cur_liststore = Some((key, ls.clone(), 0));
-                            let (ref tv, ref _signals) = &self
-                                .model
-                                .comm_remote_servers_treeviews
-                                .get(card.protocol_index)
-                                .unwrap();
-                            parser.end_populate_treeview(tv, &ls);
-                            ls
-                        });
-                    // refresh_remote_ips_streams_tree() // <------
-                    parser.populate_treeview(
-                        &ls,
-                        stream_id,
-                        &stream_data.messages[stream_data.messages.len() - added_messages..],
-                        (stream_data.messages.len() - added_messages) as i32,
-                    );
-                    let mut store = self.model.cur_liststore.take().unwrap();
-                    store.2 += added_messages as i32;
-                    self.model.cur_liststore = Some(store);
-
-                    if self.widgets.follow_packets_btn.is_visible()
-                        && self.widgets.follow_packets_btn.get_active()
-                    {
-                        // we're capturing network traffic. scroll to
-                        // reveal new packets
-                        let scrolledwindow = self
-                            .widgets
-                            .comm_remote_servers_stack
-                            .get_visible_child()
-                            .unwrap()
-                            .dynamic_cast::<gtk::Paned>()
-                            .unwrap()
-                            .get_child1()
-                            .unwrap()
-                            .dynamic_cast::<gtk::ScrolledWindow>()
-                            .unwrap();
-                        let vadj = scrolledwindow.get_vadjustment().unwrap();
-                        // new packets were added to the view,
-                        // => scroll to reveal new packets
-                        vadj.set_value(vadj.get_upper());
-                    }
-
-                    if stream_data.messages.len() == added_messages {
-                        // just added the first rows to the grid. select the first row.
-                        self.model
-                            .comm_remote_servers_treeviews
-                            .get(card.protocol_index)
-                            .unwrap()
-                            .0
-                            .get_selection()
-                            .select_path(&gtk::TreePath::new_first());
-
-                        if self.model.current_file.is_none()
-                            || self
-                                .model
-                                .current_file
-                                .as_ref()
-                                .filter(|f| f.1 == TSharkInputType::Fifo)
-                                .is_some()
-                        {
-                            // we're capturing network traffic. start displaying data
-                            // realtime as we're receiving packets.
-                            self.widgets
-                                .root_stack
-                                .set_visible_child_name(NORMAL_STACK_NAME);
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-        self.model.streams.insert(stream_id, stream_data);
     }
 
     fn add_comm_target_data(
@@ -1152,45 +958,6 @@ impl Widget for Win {
                     HeaderbarSearchMsg::SearchTextChangedFromElsewhere((k.to_string(), e)),
                 );
             }
-        }
-    }
-
-    fn get_model_sort(&self) -> Option<(usize, &gtk::TreeView, gtk::TreeModelSort)> {
-        if let Some(card) = self.model.selected_card.as_ref() {
-            let (ref tv, ref _signals) = &self
-                .model
-                .comm_remote_servers_treeviews
-                .get(card.protocol_index)
-                .unwrap();
-            let model_sort = tv
-                .get_model()
-                .unwrap()
-                .dynamic_cast::<gtk::TreeModelSort>()
-                .unwrap_or_else(|_| {
-                    tv.get_model()
-                        .unwrap()
-                        .dynamic_cast::<gtk::TreeModelFilter>()
-                        .unwrap()
-                        .get_model()
-                        .unwrap()
-                        .dynamic_cast::<gtk::TreeModelSort>()
-                        .unwrap()
-                });
-            Some((card.protocol_index, tv, model_sort))
-        } else {
-            None
-        }
-    }
-
-    fn search_text_changed(&mut self, txt: String) {
-        if let Some((protocol_index, tv, model_sort)) = self.get_model_sort() {
-            let parsers = get_message_parsers();
-            let new_model_filter = gtk::TreeModelFilter::new(&model_sort, None);
-            new_model_filter.set_visible_func(move |model, iter| {
-                let mp = parsers.get(protocol_index).unwrap();
-                mp.matches_filter(&txt, model, iter)
-            });
-            tv.set_model(Some(&new_model_filter));
         }
     }
 
@@ -1409,7 +1176,6 @@ impl Widget for Win {
             .root_stack
             .set_visible_child_name(LOADING_STACK_NAME);
         self.model.streams.clear();
-        self.model.cur_liststore = None;
         self.model.selected_card = None;
         self.model.comm_target_cards.clear();
         for child in self.widgets.comm_target_list.get_children() {
@@ -1578,96 +1344,6 @@ impl Widget for Win {
         }
 
         self.connect_remote_ips_streams_tree();
-    }
-
-    fn refresh_remote_servers(
-        &mut self,
-        refresh_remote_ips_and_streams: RefreshRemoteIpsAndStreams,
-        constrain_remote_ips: &[IpAddr],
-        constrain_stream_ids: &[TcpStreamId],
-    ) {
-        self.init_remote_ips_streams_tree();
-        self.setup_selection_signals(RefreshOngoing::Yes);
-        if let Some(card) = self.model.selected_card.as_ref().cloned() {
-            let target_ip = card.ip;
-            let target_port = card.port;
-            let mut by_remote_ip = HashMap::new();
-            let parsers = get_message_parsers();
-            for (stream_id, messages) in &self.model.streams {
-                if messages.client_server.as_ref().map(|cs| cs.server_ip) != Some(target_ip)
-                    || messages.client_server.as_ref().map(|cs| cs.server_port) != Some(target_port)
-                {
-                    continue;
-                }
-                let allowed_all =
-                    constrain_remote_ips.is_empty() && constrain_stream_ids.is_empty();
-
-                let allowed_ip = messages
-                    .client_server
-                    .as_ref()
-                    .filter(|cs| constrain_remote_ips.contains(&cs.client_ip))
-                    .is_some();
-                let allowed_stream = constrain_stream_ids.contains(&stream_id);
-                let allowed = allowed_all || allowed_ip || allowed_stream;
-
-                if !allowed {
-                    continue;
-                }
-                let remote_server_streams = by_remote_ip
-                    .entry(
-                        messages
-                            .client_server
-                            .as_ref()
-                            .map(|cs| cs.client_ip)
-                            .unwrap_or(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))),
-                    )
-                    .or_insert_with(Vec::new);
-                remote_server_streams.push((stream_id, messages));
-            }
-            let mp = parsers.get(card.protocol_index).unwrap();
-            self.widgets
-                .comm_remote_servers_stack
-                .set_visible_child_name(&card.protocol_index.to_string());
-            let (ref tv, ref _signals) = &self
-                .model
-                .comm_remote_servers_treeviews
-                .get(card.protocol_index)
-                .unwrap();
-            let ls = mp.get_empty_liststore();
-            for (remote_ip, tcp_sessions) in &by_remote_ip {
-                for (session_id, session) in tcp_sessions {
-                    let mut idx = 0;
-                    for chunk in session.messages.chunks(100) {
-                        mp.populate_treeview(&ls, **session_id, chunk, idx);
-                        idx += 100;
-                        // https://developer.gnome.org/gtk3/stable/gtk3-General.html#gtk-events-pending
-                        // I've had this loop last almost 3 seconds!!
-                        let start = Instant::now();
-                        while gtk::events_pending() {
-                            gtk::main_iteration();
-                            if start.elapsed().as_millis() >= 70 {
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-            mp.end_populate_treeview(tv, &ls);
-            if refresh_remote_ips_and_streams == RefreshRemoteIpsAndStreams::Yes {
-                let ip_hash = by_remote_ip.keys().copied().collect::<HashSet<_>>();
-                self.refresh_remote_ips_streams_tree(&card, &ip_hash);
-            }
-        }
-        self.setup_selection_signals(RefreshOngoing::No);
-        if let Some(card) = self.model.selected_card.as_ref().cloned() {
-            self.model
-                .comm_remote_servers_treeviews
-                .get(card.protocol_index)
-                .unwrap()
-                .0
-                .get_selection()
-                .select_path(&gtk::TreePath::new_first());
-        }
     }
 
     view! {
