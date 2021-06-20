@@ -4,9 +4,9 @@ use super::headerbar_search::HeaderbarSearch;
 use super::headerbar_search::Msg as HeaderbarSearchMsg;
 use super::headerbar_search::Msg::SearchActiveChanged as HbsMsgSearchActiveChanged;
 use super::headerbar_search::Msg::SearchTextChanged as HbsMsgSearchTextChanged;
+use super::ips_and_streams_treeview;
 use super::messages_treeview;
 use super::recent_file_item::RecentFileItem;
-use crate::colors;
 use crate::config;
 use crate::http::http_message_parser::Http;
 use crate::http2::http2_message_parser::Http2;
@@ -22,7 +22,6 @@ use crate::widgets::comm_target_card::CommTargetCardKey;
 use crate::widgets::comm_target_card::SummaryDetails;
 use crate::BgFunc;
 use gdk::prelude::*;
-use glib::translate::ToGlib;
 use gtk::prelude::*;
 use itertools::Itertools;
 use relm::{Component, ContainerWidget, Widget};
@@ -117,12 +116,10 @@ pub struct Model {
     search_text: String,
 
     messages_treeview_state: Option<messages_treeview::MessagesTreeviewState>,
+    ips_and_streams_treeview_state: Option<ips_and_streams_treeview::IpsAndStreamsTreeviewState>,
 
     _loaded_data_channel: relm::Channel<ParseInputStep>,
     loaded_data_sender: relm::Sender<ParseInputStep>,
-
-    remote_ips_streams_treestore: gtk::TreeStore,
-    remote_ips_streams_iptopath: HashMap<IpAddr, gtk::TreePath>,
 
     comm_targets_components: HashMap<CommTargetCardKey, Component<CommTargetCard>>,
     _recent_file_item_components: Vec<Component<RecentFileItem>>,
@@ -205,7 +202,10 @@ impl Widget for Win {
             self.widgets.comm_remote_servers_stack.clone(),
         ));
 
-        self.init_remote_ip_streams_tv();
+        self.model.ips_and_streams_treeview_state =
+            Some(ips_and_streams_treeview::init_remote_ip_streams_tv(
+                &self.widgets.remote_ips_streams_treeview,
+            ));
 
         self.widgets
             .recent_files_list
@@ -261,23 +261,6 @@ impl Widget for Win {
                         .add_widget::<RecentFileItem>(pb),
                 );
             });
-    }
-
-    fn init_remote_ip_streams_tv(&self) {
-        let remote_ip_col = gtk::TreeViewColumnBuilder::new()
-            .title("Incoming conns")
-            .expand(true)
-            .build();
-        let cell_r_txt = gtk::CellRendererTextBuilder::new()
-            .weight(1)
-            .weight_set(true)
-            .build();
-        remote_ip_col.pack_start(&cell_r_txt, true);
-        remote_ip_col.add_attribute(&cell_r_txt, "markup", 0);
-        remote_ip_col.add_attribute(&cell_r_txt, "weight", 1);
-        self.widgets
-            .remote_ips_streams_treeview
-            .append_column(&remote_ip_col);
     }
 
     fn load_style(&self) -> Result<(), Box<dyn std::error::Error>> {
@@ -339,18 +322,13 @@ impl Widget for Win {
             loaded_data_sender,
             _loaded_data_channel,
             messages_treeview_state: None,
+            ips_and_streams_treeview_state: None,
             sidebar_selection_change_signal_id: None,
             comm_target_cards: vec![],
             streams: HashMap::new(),
             current_file,
             capture_toggle_signal: None,
             window_subtitle: None,
-            remote_ips_streams_iptopath: HashMap::new(),
-            remote_ips_streams_treestore: gtk::TreeStore::new(&[
-                String::static_type(),
-                pango::Weight::static_type(),
-                u32::static_type(),
-            ]),
             search_text: "".to_string(),
             tcpdump_child: None,
             tshark_child: None,
@@ -457,10 +435,18 @@ impl Widget for Win {
             Msg::SelectRemoteIpStream(selection) => {
                 let (mut paths, model) = selection.get_selected_rows();
                 println!("remote selection changed");
-                self.refresh_remote_ip_stream(&mut paths);
+                ips_and_streams_treeview::refresh_remote_ip_stream(
+                    self.model.relm.stream(),
+                    self.model.selected_card.as_ref(),
+                    &self.widgets.remote_ips_streams_treeview,
+                    &mut paths,
+                );
             }
             Msg::SelectCardFromRemoteIpsAndStreams(_, remote_ips, stream_ids) => {
-                self.init_remote_ips_streams_tree();
+                let mut ips_treeview_state =
+                    self.model.ips_and_streams_treeview_state.take().unwrap();
+                ips_and_streams_treeview::init_remote_ips_streams_tree(&mut ips_treeview_state);
+                self.model.ips_and_streams_treeview_state = Some(ips_treeview_state);
                 messages_treeview::refresh_remote_servers(
                     self.model.messages_treeview_state.as_ref().unwrap(),
                     self.model.selected_card.as_ref(),
@@ -550,7 +536,9 @@ impl Widget for Win {
         self.model.selected_card = maybe_idx
             .and_then(|idx| self.model.comm_target_cards.get(idx as usize))
             .cloned();
-        self.init_remote_ips_streams_tree();
+        let mut ips_treeview_state = self.model.ips_and_streams_treeview_state.take().unwrap();
+        ips_and_streams_treeview::init_remote_ips_streams_tree(&mut ips_treeview_state);
+        self.model.ips_and_streams_treeview_state = Some(ips_treeview_state);
         let refresh_streams_tree = messages_treeview::refresh_remote_servers(
             self.model.messages_treeview_state.as_ref().unwrap(),
             self.model.selected_card.as_ref(),
@@ -561,7 +549,15 @@ impl Widget for Win {
             &[],
         );
         if let RefreshRemoteIpsAndStreams::Yes(card, ips) = refresh_streams_tree {
-            self.refresh_remote_ips_streams_tree(&card, &ips);
+            let mut treeview_state = self.model.ips_and_streams_treeview_state.take().unwrap();
+            ips_and_streams_treeview::refresh_remote_ips_streams_tree(
+                &mut treeview_state,
+                &self.widgets.remote_ips_streams_treeview,
+                &self.model.streams,
+                &card,
+                &ips,
+            );
+            self.model.ips_and_streams_treeview_state = Some(treeview_state);
         }
         messages_treeview::refresh_remote_servers_handle_selection(
             self.model.messages_treeview_state.as_ref().unwrap(),
@@ -606,7 +602,9 @@ impl Widget for Win {
         self.model.current_file = None;
         self.model.streams = HashMap::new();
         // self.refresh_comm_targets();
-        self.init_remote_ips_streams_tree();
+        let mut ips_treeview_state = self.model.ips_and_streams_treeview_state.take().unwrap();
+        ips_and_streams_treeview::init_remote_ips_streams_tree(&mut ips_treeview_state);
+        self.model.ips_and_streams_treeview_state = Some(ips_treeview_state);
         let refresh_streams_tree = messages_treeview::refresh_remote_servers(
             self.model.messages_treeview_state.as_ref().unwrap(),
             self.model.selected_card.as_ref(),
@@ -617,7 +615,15 @@ impl Widget for Win {
             &[],
         );
         if let RefreshRemoteIpsAndStreams::Yes(card, ips) = refresh_streams_tree {
-            self.refresh_remote_ips_streams_tree(&card, &ips);
+            let mut treeview_state = self.model.ips_and_streams_treeview_state.take().unwrap();
+            ips_and_streams_treeview::refresh_remote_ips_streams_tree(
+                &mut treeview_state,
+                &self.widgets.remote_ips_streams_treeview,
+                &self.model.streams,
+                &card,
+                &ips,
+            );
+            self.model.ips_and_streams_treeview_state = Some(treeview_state);
         }
         messages_treeview::refresh_remote_servers_handle_selection(
             self.model.messages_treeview_state.as_ref().unwrap(),
@@ -700,7 +706,14 @@ impl Widget for Win {
                                 && parser_index == card.protocol_index);
 
                     if is_for_current_card {
-                        self.got_packet_refresh_remote_ips_treeview(&stream_data, packet_stream_id);
+                        let mut treeview_state =
+                            self.model.ips_and_streams_treeview_state.take().unwrap();
+                        ips_and_streams_treeview::got_packet_refresh_remote_ips_treeview(
+                            &mut treeview_state,
+                            &stream_data,
+                            packet_stream_id,
+                        );
+                        self.model.ips_and_streams_treeview_state = Some(treeview_state);
                     }
                 }
                 stream_data
@@ -719,59 +732,6 @@ impl Widget for Win {
             self.model.streams.insert(packet_stream_id, stream_data);
             self.added_new_messages_display_data_if_needed(view_added_info);
         }
-    }
-
-    fn got_packet_refresh_remote_ips_treeview(
-        &mut self,
-        stream_data: &StreamData,
-        packet_stream_id: TcpStreamId,
-    ) {
-        let treestore = self.model.remote_ips_streams_treestore.clone();
-
-        let remote_ip_iter = self
-            .model
-            .remote_ips_streams_iptopath
-            .get(&stream_data.client_server.as_ref().unwrap().client_ip)
-            .and_then(|path| treestore.get_iter(&path))
-            .unwrap_or_else(|| {
-                let new_iter = treestore.insert_with_values(
-                    None,
-                    None,
-                    &[0, 1],
-                    &[
-                        &stream_data
-                            .client_server
-                            .as_ref()
-                            .unwrap()
-                            .client_ip
-                            .to_string()
-                            .to_value(),
-                        &pango::Weight::Normal.to_glib().to_value(),
-                    ],
-                );
-                self.model.remote_ips_streams_iptopath.insert(
-                    stream_data.client_server.as_ref().unwrap().client_ip,
-                    treestore.get_path(&new_iter).unwrap(),
-                );
-                new_iter
-            });
-        // TODO some duplication with refresh_remote_ips_streams_tree()
-        self.model.remote_ips_streams_treestore.insert_with_values(
-            Some(&remote_ip_iter),
-            None,
-            &[0, 1, 2],
-            &[
-                &format!(
-                    r#"<span foreground="{}" size="smaller">⬤</span> <span rise="-1700">Stream {}</span>"#,
-                    colors::STREAM_COLORS
-                        [packet_stream_id.as_u32() as usize % colors::STREAM_COLORS.len()],
-                    packet_stream_id.as_u32()
-                )
-                    .to_value(),
-                &pango::Weight::Normal.to_glib().to_value(),
-                &packet_stream_id.as_u32().to_value(),
-            ],
-        );
     }
 
     fn added_new_messages_display_data_if_needed(
@@ -996,53 +956,6 @@ impl Widget for Win {
             && e.get_keyval() != gdk::keys::constants::Escape
     }
 
-    fn refresh_remote_ip_stream(&mut self, paths: &mut [gtk::TreePath]) {
-        let mut allowed_ips = vec![];
-        let mut allowed_stream_ids = vec![];
-        let remote_ips_streams_tree_store = self
-            .widgets
-            .remote_ips_streams_treeview
-            .get_model()
-            .unwrap();
-        for path in paths {
-            match path.get_indices_with_depth().as_slice() {
-                &[0] => {
-                    // everything is allowed
-                    allowed_ips.clear();
-                    allowed_stream_ids.clear();
-                    break;
-                }
-                x if x.len() == 1 => {
-                    // remote ip
-                    if let Some(iter) = remote_ips_streams_tree_store.get_iter(&path) {
-                        let remote_ip: Option<String> = remote_ips_streams_tree_store
-                            .get_value(&iter, 0)
-                            .get()
-                            .unwrap();
-                        allowed_ips.push(remote_ip.unwrap().parse::<IpAddr>().unwrap());
-                    }
-                }
-                x if x.len() == 2 => {
-                    // stream
-                    let stream_iter = remote_ips_streams_tree_store.get_iter(&path).unwrap();
-                    let stream_id = remote_ips_streams_tree_store.get_value(&stream_iter, 2);
-                    allowed_stream_ids.push(TcpStreamId(stream_id.get().unwrap().unwrap()));
-                }
-                _ => panic!(path.get_depth()),
-            }
-        }
-        if let Some(card) = self.model.selected_card.as_ref() {
-            self.model
-                .relm
-                .stream()
-                .emit(Msg::SelectCardFromRemoteIpsAndStreams(
-                    card.clone(),
-                    allowed_ips,
-                    allowed_stream_ids,
-                ));
-        }
-    }
-
     fn display_about(&mut self) {
         let tshark_version = Command::new("tshark")
             .args(&["--version"])
@@ -1177,8 +1090,13 @@ impl Widget for Win {
             }
         }
         self.widgets.save_capture_btn.set_visible(false);
-        self.init_remote_ips_streams_tree();
-        self.connect_remote_ips_streams_tree();
+        let mut ips_treeview_state = self.model.ips_and_streams_treeview_state.take().unwrap();
+        ips_and_streams_treeview::init_remote_ips_streams_tree(&mut ips_treeview_state);
+        ips_and_streams_treeview::connect_remote_ips_streams_tree(
+            &ips_treeview_state,
+            &self.widgets.remote_ips_streams_treeview,
+        );
+        self.model.ips_and_streams_treeview_state = Some(ips_treeview_state);
         self.components
             .headerbar_search
             .emit(HeaderbarSearchMsg::SearchActiveChanged(false));
@@ -1200,13 +1118,15 @@ impl Widget for Win {
         if let Some(ref mut tv_state) = self.model.messages_treeview_state {
             tv_state.file_closed();
         }
+        if let Some(ref mut tv_state) = self.model.ips_and_streams_treeview_state {
+            tv_state.file_closed();
+        }
         self.model.selected_card = None;
         self.model.comm_target_cards.clear();
         for child in self.widgets.comm_target_list.get_children() {
             self.widgets.comm_target_list.remove(&child);
         }
         self.model.comm_targets_components.clear();
-        self.model.remote_ips_streams_iptopath.clear();
     }
 
     fn add_to_recent_files(fname: &Path) {
@@ -1284,90 +1204,6 @@ impl Widget for Win {
             .map(|p| p.tshark_filter_string())
             .join(" || ");
         packets_read::invoke_tshark(file_type, &fname, &filter, sender);
-    }
-
-    fn init_remote_ips_streams_tree(&mut self) {
-        self.model.remote_ips_streams_iptopath.clear();
-        self.model.remote_ips_streams_treestore = gtk::TreeStore::new(&[
-            // TODO duplicated in model init
-            String::static_type(),
-            pango::Weight::static_type(),
-            u32::static_type(),
-        ]);
-        self.model.remote_ips_streams_treestore.insert_with_values(
-            None,
-            None,
-            &[0, 1],
-            &[&"All".to_value(), &pango::Weight::Bold.to_glib().to_value()],
-        );
-    }
-
-    fn connect_remote_ips_streams_tree(&mut self) {
-        let model_sort = gtk::TreeModelSort::new(&self.model.remote_ips_streams_treestore);
-        model_sort.set_sort_column_id(gtk::SortColumn::Index(2), gtk::SortType::Ascending);
-        self.widgets
-            .remote_ips_streams_treeview
-            .set_model(Some(&model_sort));
-        self.widgets.remote_ips_streams_treeview.expand_all();
-    }
-
-    fn refresh_remote_ips_streams_tree(
-        &mut self,
-        card: &CommTargetCardData,
-        remote_ips: &HashSet<IpAddr>,
-    ) {
-        // self.widgets.remote_ips_streams_treeview.set_cursor(
-        //     &gtk::TreePath::new_first(),
-        //     None::<&gtk::TreeViewColumn>,
-        //     false,
-        // );
-        let target_ip = card.ip;
-        let target_port = card.port;
-
-        for remote_ip in remote_ips {
-            let remote_ip_iter = self.model.remote_ips_streams_treestore.insert_with_values(
-                None,
-                None,
-                &[0, 1],
-                &[
-                    &remote_ip.to_string().to_value(),
-                    &pango::Weight::Normal.to_glib().to_value(),
-                ],
-            );
-            self.model.remote_ips_streams_iptopath.insert(
-                *remote_ip,
-                self.model
-                    .remote_ips_streams_treestore
-                    .get_path(&remote_ip_iter)
-                    .unwrap(),
-            );
-            for (stream_id, messages) in &self.model.streams {
-                if messages.client_server.as_ref().map(|cs| cs.server_ip) != Some(target_ip)
-                    || messages.client_server.as_ref().map(|cs| cs.server_port) != Some(target_port)
-                    || messages.client_server.as_ref().map(|cs| cs.client_ip) != Some(*remote_ip)
-                {
-                    continue;
-                }
-                self.model.remote_ips_streams_treestore.insert_with_values(
-                    Some(&remote_ip_iter),
-                    None,
-                    &[0, 1, 2],
-                    &[
-                        &format!(
-                            r#"<span foreground="{}" size="smaller">⬤</span> <span rise="-1700">Stream {}</span>"#,
-                            colors::STREAM_COLORS
-                                [stream_id.as_u32() as usize % colors::STREAM_COLORS.len()],
-                            stream_id.as_u32()
-                        )
-                        .to_value(),
-                        &pango::Weight::Normal.to_glib().to_value(),
-                        &stream_id.as_u32().to_value(),
-                    ],
-                );
-            }
-        }
-
-        self.connect_remote_ips_streams_tree();
     }
 
     view! {
