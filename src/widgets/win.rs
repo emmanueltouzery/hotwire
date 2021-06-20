@@ -757,21 +757,21 @@ impl Widget for Win {
             });
         // TODO some duplication with refresh_remote_ips_streams_tree()
         self.model.remote_ips_streams_treestore.insert_with_values(
-                                Some(&remote_ip_iter),
-                                None,
-                                &[0, 1, 2],
-                                &[
-                                    &format!(
-                                        r#"<span foreground="{}" size="smaller">⬤</span> <span rise="-1700">Stream {}</span>"#,
-                                        colors::STREAM_COLORS
-                                            [packet_stream_id.as_u32() as usize % colors::STREAM_COLORS.len()],
-                                        packet_stream_id.as_u32()
-                                    )
-                                        .to_value(),
-                                    &pango::Weight::Normal.to_glib().to_value(),
-                                    &packet_stream_id.as_u32().to_value(),
-                                ],
-                            );
+            Some(&remote_ip_iter),
+            None,
+            &[0, 1, 2],
+            &[
+                &format!(
+                    r#"<span foreground="{}" size="smaller">⬤</span> <span rise="-1700">Stream {}</span>"#,
+                    colors::STREAM_COLORS
+                        [packet_stream_id.as_u32() as usize % colors::STREAM_COLORS.len()],
+                    packet_stream_id.as_u32()
+                )
+                    .to_value(),
+                &pango::Weight::Normal.to_glib().to_value(),
+                &packet_stream_id.as_u32().to_value(),
+            ],
+        );
     }
 
     fn added_new_messages_display_data_if_needed(
