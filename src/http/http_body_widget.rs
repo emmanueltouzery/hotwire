@@ -29,7 +29,10 @@ pub struct SavedBodyData {
 #[derive(Msg, Debug)]
 pub enum Msg {
     FormatCodeChanged(bool),
-    RequestResponseChanged(Option<HttpRequestResponseData>),
+    RequestResponseChanged {
+        http_data: Option<HttpRequestResponseData>,
+        request_first_line_if_response: Option<String>,
+    },
     SaveContents,
 }
 
@@ -38,6 +41,8 @@ pub struct Model {
 
     format_code: bool,
     data: Option<HttpRequestResponseData>,
+
+    request_first_line_if_response: Option<String>,
 
     _saved_body_channel: relm::Channel<SavedBodyData>,
     saved_body_sender: relm::Sender<SavedBodyData>,
@@ -71,6 +76,7 @@ impl Widget for HttpBodyWidget {
             win_msg_sender,
             format_code: true,
             data: None,
+            request_first_line_if_response: None,
             _saved_body_channel,
             saved_body_sender,
         }
@@ -82,12 +88,16 @@ impl Widget for HttpBodyWidget {
             Msg::FormatCodeChanged(format_code) => {
                 self.model.format_code = format_code;
             }
-            Msg::RequestResponseChanged(http_data) => {
+            Msg::RequestResponseChanged {
+                http_data,
+                request_first_line_if_response,
+            } => {
                 // it's very important to set the model right now,
                 // because setting it resets the contents stack
                 // => need to reset the stack to display the "text"
                 // child after that, if needed.
                 self.model.data = http_data.clone();
+                self.model.request_first_line_if_response = request_first_line_if_response;
 
                 // need to try to decode as string.. the content-type may not be
                 // populated or be too exotic, and binary contents don't mean much
@@ -193,12 +203,35 @@ impl Widget for HttpBodyWidget {
         attachment_name
             .or_else(|| {
                 self.model
+                    .request_first_line_if_response
+                    .as_deref()
+                    .and_then(Self::extract_fname_from_get_request)
+            })
+            .or_else(|| {
+                self.model
                     .data
                     .as_ref()
                     .and_then(|d| d.content_type.as_ref())
                     .and_then(|ct| Self::filename_from_binary_content_type(ct))
             })
             .unwrap_or_else(|| "data.bin".to_string())
+    }
+
+    fn extract_fname_from_get_request(line: &str) -> Option<String> {
+        let url = match line.split(' ').collect::<Vec<_>>()[..] {
+            ["GET", url, "HTTP/1.1"] => Some(url),
+            ["GET", url] => Some(url),
+            _ => None,
+        };
+        url.and_then(|u| u.rsplit_once('/'))
+            .map(|(_s, fname)| fname.to_string())
+            .map(|fname| {
+                if let Some((f, params)) = fname.split_once('?') {
+                    f.to_string()
+                } else {
+                    fname
+                }
+            })
     }
 
     fn filename_from_binary_content_type(content_type: &str) -> Option<String> {
@@ -321,4 +354,22 @@ pub fn content_type_to_filename_tests() {
             HttpBodyWidget::filename_from_binary_content_type(ct).as_deref()
         );
     }
+}
+
+#[test]
+pub fn get_request_to_download_fname_http1() {
+    assert_eq!(
+        "65879907_fp-us.jpg",
+        HttpBodyWidget::extract_fname_from_get_request(
+            "GET /_up/upload/2021/04/14/65879907_fp-us.jpg HTTP/1.1"
+        )
+        .unwrap()
+    );
+}
+
+#[test]
+pub fn get_request_to_download_fname_http2_question_mark() {
+    assert_eq!("redot.gif",
+HttpBodyWidget::extract_fname_from_get_request(
+    "GET /_16189379808800/redot.gif?l=1&id=cthA3c_qM8KyoQ2BLdAWjqQPLU7G3Jss8tN5ZbOjVHf.J7&arg=0&sarg=OZS%3A%").unwrap());
 }

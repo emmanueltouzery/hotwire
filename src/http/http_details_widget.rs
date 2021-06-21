@@ -95,14 +95,21 @@ impl Widget for HttpCommEntry {
                 self.model.client_ip = client_ip;
                 self.streams
                     .request_body
-                    .emit(http_body_widget::Msg::RequestResponseChanged(
-                        self.model.data.request.clone(),
-                    ));
+                    .emit(http_body_widget::Msg::RequestResponseChanged {
+                        http_data: self.model.data.request.clone(),
+                        request_first_line_if_response: None,
+                    });
                 self.streams
                     .response_body
-                    .emit(http_body_widget::Msg::RequestResponseChanged(
-                        self.model.data.response.clone(),
-                    ));
+                    .emit(http_body_widget::Msg::RequestResponseChanged {
+                        http_data: self.model.data.response.clone(),
+                        request_first_line_if_response: self
+                            .model
+                            .data
+                            .request
+                            .as_ref()
+                            .map(|r| r.first_line.clone()),
+                    });
             }
             Msg::RemoveFormatToggled => {
                 self.model.format_request_response = !self.model.format_request_response;
