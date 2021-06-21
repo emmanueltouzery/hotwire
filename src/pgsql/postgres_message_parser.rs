@@ -2,12 +2,11 @@ use super::postgres_details_widget;
 use super::postgres_details_widget::PostgresCommEntry;
 use crate::colors;
 use crate::icons::Icon;
-use crate::message_parser::ClientServerInfo;
-use crate::message_parser::{MessageInfo, MessageParser, StreamData};
+use crate::message_parser::{
+  ClientServerInfo, MessageData, MessageInfo, MessageParser, StreamData, StreamGlobals,
+};
 use crate::pgsql::tshark_pgsql::{PostgresColType, PostgresWireMessage};
 use crate::tshark_communication::{TSharkPacket, TcpStreamId};
-use crate::widgets::comm_remote_server::MessageData;
-use crate::widgets::comm_remote_server::StreamGlobals;
 use crate::widgets::win;
 use crate::BgFunc;
 use chrono::{NaiveDateTime, Utc};

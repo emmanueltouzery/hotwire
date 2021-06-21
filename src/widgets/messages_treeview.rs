@@ -1,19 +1,14 @@
 use super::win;
-use crate::message_parser::ClientServerInfo;
-use crate::message_parser::MessageInfo;
-use crate::message_parser::MessageParser;
-use crate::message_parser::StreamData;
+use crate::message_parser::{
+    ClientServerInfo, MessageData, MessageInfo, MessageParser, StreamData,
+};
 use crate::tshark_communication::TcpStreamId;
-use crate::widgets::comm_remote_server::MessageData;
-use crate::widgets::comm_target_card::CommTargetCardData;
-use crate::widgets::comm_target_card::CommTargetCardKey;
+use crate::widgets::comm_target_card::{CommTargetCardData, CommTargetCardKey};
 use crate::win::{RefreshOngoing, RefreshRemoteIpsAndStreams};
 use crate::BgFunc;
 use gtk::prelude::*;
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::net::IpAddr;
-use std::net::Ipv4Addr;
+use std::collections::{HashMap, HashSet};
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::mpsc;
 use std::time::Instant;
 

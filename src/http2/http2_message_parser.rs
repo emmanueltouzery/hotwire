@@ -4,13 +4,10 @@ use crate::http::http_message_parser::{
 };
 use crate::http2::tshark_http2::{Http2Data, TSharkHttp2Message};
 use crate::icons;
-use crate::message_parser::ClientServerInfo;
-use crate::message_parser::{MessageInfo, MessageParser, StreamData};
-use crate::tshark_communication::TSharkPacket;
-use crate::tshark_communication::TSharkPacketBasicInfo;
-use crate::tshark_communication::{TcpSeqNumber, TcpStreamId};
-use crate::widgets::comm_remote_server::MessageData;
-use crate::widgets::comm_remote_server::StreamGlobals;
+use crate::message_parser::{
+    ClientServerInfo, MessageData, MessageInfo, MessageParser, StreamData, StreamGlobals,
+};
+use crate::tshark_communication::{TSharkPacket, TSharkPacketBasicInfo, TcpSeqNumber, TcpStreamId};
 use crate::widgets::win;
 use crate::BgFunc;
 use chrono::NaiveDateTime;

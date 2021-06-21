@@ -1,10 +1,9 @@
 use super::postgres_message_parser::PostgresMessageData;
-use crate::message_parser::MessageInfo;
+use crate::message_parser::{MessageData, MessageInfo};
 use crate::pgsql::tshark_pgsql::PostgresColType;
 use crate::tshark_communication::TcpStreamId;
 use crate::widgets::comm_info_header;
 use crate::widgets::comm_info_header::CommInfoHeader;
-use crate::widgets::comm_remote_server::MessageData;
 use crate::widgets::win;
 use crate::BgFunc;
 use chrono::NaiveDateTime;

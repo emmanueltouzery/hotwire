@@ -3,11 +3,10 @@ use super::http_details_widget::HttpCommEntry;
 use crate::colors;
 use crate::http::tshark_http::HttpType;
 use crate::icons::Icon;
-use crate::message_parser::ClientServerInfo;
-use crate::message_parser::{MessageInfo, MessageParser, StreamData};
+use crate::message_parser::{
+    ClientServerInfo, MessageData, MessageInfo, MessageParser, StreamData, StreamGlobals,
+};
 use crate::tshark_communication::{NetworkPort, TSharkPacket, TcpSeqNumber, TcpStreamId};
-use crate::widgets::comm_remote_server::MessageData;
-use crate::widgets::comm_remote_server::StreamGlobals;
 use crate::widgets::win;
 use crate::BgFunc;
 use chrono::NaiveDateTime;
