@@ -422,21 +422,26 @@ pub fn refresh_grids_new_messages(
 
                 if follow_packets == FollowPackets::Follow {
                     // we're capturing network traffic. scroll to
-                    // reveal new packets
-                    let scrolledwindow = tv_state
-                        .comm_remote_servers_stack
-                        .get_visible_child()
-                        .unwrap()
-                        .dynamic_cast::<gtk::Paned>()
-                        .unwrap()
-                        .get_child1()
-                        .unwrap()
-                        .dynamic_cast::<gtk::ScrolledWindow>()
-                        .unwrap();
-                    let vadj = scrolledwindow.get_vadjustment().unwrap();
-                    // new packets were added to the view,
-                    // => scroll to reveal new packets
-                    vadj.set_value(vadj.get_upper());
+                    // reveal new packets -- but schedule it when the
+                    // GUI thread will be idle, so it runs when the
+                    // items will be added, now would be too early
+                    let stack = tv_state.comm_remote_servers_stack.clone();
+                    glib::idle_add_local(move || {
+                        let scrolledwindow = stack
+                            .get_visible_child()
+                            .unwrap()
+                            .dynamic_cast::<gtk::Paned>()
+                            .unwrap()
+                            .get_child1()
+                            .unwrap()
+                            .dynamic_cast::<gtk::ScrolledWindow>()
+                            .unwrap();
+                        let vadj = scrolledwindow.get_vadjustment().unwrap();
+                        // new packets were added to the view,
+                        // => scroll to reveal new packets
+                        vadj.set_value(vadj.get_upper());
+                        glib::Continue(false)
+                    });
                 }
 
                 if stream_data.messages.len() == added_messages {
