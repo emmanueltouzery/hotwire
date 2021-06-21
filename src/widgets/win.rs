@@ -72,6 +72,7 @@ pub enum Msg {
     SearchTextChanged(String),
 
     LoadedData(ParseInputStep),
+    OpenFileFirstPacketDisplayed,
 
     SelectCard(Option<usize>),
     SelectRemoteIpStream(gtk::TreeSelection),
@@ -410,6 +411,22 @@ impl Widget for Win {
                 let path = self.model.recent_files[idx].clone();
                 self.gui_load_file(path);
             }
+            Msg::OpenFileFirstPacketDisplayed => {
+                if self.model.current_file.is_none()
+                    || self
+                        .model
+                        .current_file
+                        .as_ref()
+                        .filter(|f| f.1 == TSharkInputType::Fifo)
+                        .is_some()
+                {
+                    // we're capturing network traffic. start displaying data
+                    // realtime as we're receiving packets.
+                    self.widgets
+                        .root_stack
+                        .set_visible_child_name(NORMAL_STACK_NAME);
+                }
+            }
             Msg::InfoBarShow(Some(msg), options) => {
                 self.handle_infobar_show(&msg, options);
             }
@@ -719,8 +736,9 @@ impl Widget for Win {
                 stream_data
             };
             let mut tv_state = self.model.messages_treeview_state.take().unwrap();
-            let view_added_info = messages_treeview::refresh_grids_new_messages(
+            messages_treeview::refresh_grids_new_messages(
                 &mut tv_state,
+                self.model.relm.stream(),
                 self.model.selected_card.clone(),
                 packet_stream_id,
                 parser_index,
@@ -730,29 +748,6 @@ impl Widget for Win {
             );
             self.model.messages_treeview_state = Some(tv_state);
             self.model.streams.insert(packet_stream_id, stream_data);
-            self.added_new_messages_display_data_if_needed(view_added_info);
-        }
-    }
-
-    fn added_new_messages_display_data_if_needed(
-        &mut self,
-        view_added_info: messages_treeview::ViewAddedInfo,
-    ) {
-        if view_added_info == messages_treeview::ViewAddedInfo::AddedFirstMessages {
-            if self.model.current_file.is_none()
-                || self
-                    .model
-                    .current_file
-                    .as_ref()
-                    .filter(|f| f.1 == TSharkInputType::Fifo)
-                    .is_some()
-            {
-                // we're capturing network traffic. start displaying data
-                // realtime as we're receiving packets.
-                self.widgets
-                    .root_stack
-                    .set_visible_child_name(NORMAL_STACK_NAME);
-            }
         }
     }
 
@@ -786,8 +781,9 @@ impl Widget for Win {
             match parser.finish_stream(stream_data) {
                 Ok(sd) => {
                     let mut tv_state = self.model.messages_treeview_state.take().unwrap();
-                    let view_added_info = messages_treeview::refresh_grids_new_messages(
+                    messages_treeview::refresh_grids_new_messages(
                         &mut tv_state,
+                        self.model.relm.stream(),
                         self.model.selected_card.clone(),
                         stream_id,
                         parser_index,
@@ -797,7 +793,6 @@ impl Widget for Win {
                     );
                     self.model.messages_treeview_state = Some(tv_state);
                     self.model.streams.insert(stream_id, sd);
-                    self.added_new_messages_display_data_if_needed(view_added_info);
                 }
                 Err(e) => {
                     self.model.relm.stream().emit(Msg::LoadedData(Err(format!(

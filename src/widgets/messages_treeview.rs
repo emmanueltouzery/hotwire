@@ -374,22 +374,16 @@ pub enum FollowPackets {
     DontFollow,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
-pub enum ViewAddedInfo {
-    AddedFirstMessages,
-    DidntAddFirstMessages,
-}
-
 pub fn refresh_grids_new_messages(
     tv_state: &mut MessagesTreeviewState,
+    rstream: &relm::StreamHandle<win::Msg>,
     selected_card: Option<CommTargetCardData>,
     stream_id: TcpStreamId,
     parser_index: usize,
     message_count_before: usize,
     stream_data: &StreamData,
     follow_packets: FollowPackets,
-) -> ViewAddedInfo {
-    let mut r = ViewAddedInfo::DidntAddFirstMessages;
+) {
     let parsers = win::get_message_parsers();
     let parser = parsers.get(parser_index).unwrap();
     let added_messages = stream_data.messages.len() - message_count_before;
@@ -460,13 +454,12 @@ pub fn refresh_grids_new_messages(
                         .get_selection()
                         .select_path(&gtk::TreePath::new_first());
 
-                    r = ViewAddedInfo::AddedFirstMessages;
+                    rstream.emit(win::Msg::OpenFileFirstPacketDisplayed);
                 }
             }
         }
         _ => {}
     }
-    r
 }
 
 pub fn handle_display_details(
