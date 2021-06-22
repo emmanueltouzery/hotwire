@@ -36,6 +36,10 @@ impl MessageParser for Postgres {
         Icon::DATABASE
     }
 
+    fn protocol_name(&self) -> &'static str {
+      "PGSQL"
+    }
+
     fn initial_globals(&self) -> StreamGlobals {
         StreamGlobals::Postgres(PostgresStreamGlobals::default())
     }

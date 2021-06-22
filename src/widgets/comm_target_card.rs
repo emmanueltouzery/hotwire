@@ -43,6 +43,7 @@ pub struct CommTargetCardData {
     pub ip: IpAddr,
     pub port: NetworkPort,
     pub protocol_index: usize,
+    pub protocol_name: &'static str,
     pub remote_hosts: BTreeSet<String>, // TODO change String to IpAddr?
     pub protocol_icon: Icon,
     pub summary_details: Option<SummaryDetails>,
@@ -57,6 +58,7 @@ impl CommTargetCardData {
         protocol_index: usize,
         remote_hosts: BTreeSet<String>,
         protocol_icon: Icon,
+        protocol_name: &'static str,
         summary_details: Option<SummaryDetails>,
         incoming_session_count: usize,
     ) -> CommTargetCardData {
@@ -65,6 +67,7 @@ impl CommTargetCardData {
             ip,
             port,
             protocol_index,
+            protocol_name,
             remote_hosts,
             protocol_icon,
             summary_details,
@@ -131,16 +134,29 @@ impl Widget for CommTargetCard {
             margin_start: 7,
             margin_end: 7,
             margin_bottom: 7,
-            gtk::Image {
-                margin_end: 10,
-                property_icon_name: Some(self.model.protocol_icon.name()),
-                // https://github.com/gtk-rs/gtk/issues/837
-                property_icon_size: 3, // gtk::IconSize::LargeToolbar,
+            spacing: 5,
+            gtk::Box {
+                orientation: gtk::Orientation::Vertical,
+                valign: gtk::Align::Center,
+                child: {
+                    padding: 3,
+                },
+                gtk::Image {
+                    property_icon_name: Some(self.model.protocol_icon.name()),
+                    // https://github.com/gtk-rs/gtk/issues/837
+                    property_icon_size: 3, // gtk::IconSize::LargeToolbar,
+                },
+                #[style_class="card_protocol_name"]
+                gtk::Label {
+                    label: self.model.protocol_name,
+                    ellipsize: pango::EllipsizeMode::End,
+                }
             },
             gtk::Grid {
                 #[style_class="target_server_ip_port"]
                 gtk::Label {
                     label: &CommTargetCard::server_ip_port_display(self.model),
+                    ellipsize: pango::EllipsizeMode::End,
                     cell: {
                         left_attach: 0,
                         top_attach: 1,
@@ -148,6 +164,7 @@ impl Widget for CommTargetCard {
                 },
                 gtk::Label {
                     label: &self.model.remotes_summary,
+                    ellipsize: pango::EllipsizeMode::End,
                     cell: {
                         left_attach: 0,
                         top_attach: 2,
@@ -159,6 +176,7 @@ impl Widget for CommTargetCard {
                         top_attach: 0,
                     },
                     label: self.model.summary_details.as_ref().map(|d| d.details.as_str()).unwrap_or(""),
+                    ellipsize: pango::EllipsizeMode::End,
                     visible: self.model.summary_details.is_some(),
                 }
             }

@@ -794,12 +794,14 @@ impl Widget for Win {
 
                     // finishing the stream may well have caused us to
                     // update the comm target data stats, update them
-                    self.add_update_comm_target_data(
-                        parser_index,
-                        &parser,
-                        sd.client_server.as_ref().unwrap(),
-                        sd.summary_details.as_deref(),
-                    );
+                    if let Some(cs) = sd.client_server.as_ref() {
+                        self.add_update_comm_target_data(
+                            parser_index,
+                            &parser,
+                            cs,
+                            sd.summary_details.as_deref(),
+                        );
+                    }
 
                     self.model.messages_treeview_state = Some(tv_state);
                     self.model.streams.insert(stream_id, sd);
@@ -886,6 +888,7 @@ impl Widget for Win {
                     bs
                 },
                 parser.protocol_icon(),
+                parser.protocol_name(),
                 summary_details.map(|d| SummaryDetails {
                     details: d.to_string(),
                 }),

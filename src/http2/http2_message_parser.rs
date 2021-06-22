@@ -47,6 +47,10 @@ impl MessageParser for Http2 {
         icons::Icon::HTTP
     }
 
+    fn protocol_name(&self) -> &'static str {
+        "HTTP2"
+    }
+
     fn initial_globals(&self) -> StreamGlobals {
         StreamGlobals::Http2(Http2StreamGlobals::default())
     }

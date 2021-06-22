@@ -123,6 +123,8 @@ pub trait MessageParser {
 
     fn protocol_icon(&self) -> Icon;
 
+    fn protocol_name(&self) -> &'static str;
+
     // parsing
     fn initial_globals(&self) -> StreamGlobals;
     fn add_to_stream(

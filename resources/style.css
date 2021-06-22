@@ -36,3 +36,18 @@
   color: gray;
   font-size: 12px;
 }
+
+.card_protocol_name {
+  color: gray;
+  font-size: 10px;
+}
+
+.card_protocol_name {
+  color: gray;
+  font-size: 10px;
+}
+
+row:selected .card_protocol_name {
+  color: white;
+  font-size: 10px;
+}

@@ -56,6 +56,10 @@ impl MessageParser for Http {
         Icon::HTTP
     }
 
+    fn protocol_name(&self) -> &'static str {
+        "HTTP"
+    }
+
     fn initial_globals(&self) -> StreamGlobals {
         StreamGlobals::Http(HttpStreamGlobals::default())
     }
