@@ -437,12 +437,12 @@ impl Widget for PostgresCommEntry {
                             selectable: true,
                         },
                         gtk::Label {
-                            markup: &self.model.data.parameter_values
+                            markup: &Itertools::intersperse(self.model.data.parameter_values
                                                     .iter()
                                                     .cloned()
                                                     .enumerate()
-                                                    .map(|(i, p)| format!("<b>${}</b>: {}", i+1, p))
-                                                    .intersperse("\n".to_string()).collect::<String>(),
+                                                    .map(|(i, p)| format!("<b>${}</b>: {}", i+1, p)),
+                                                    "\n".to_string()).collect::<String>(),
                             visible: !self.model.data.parameter_values.is_empty(),
                             xalign: 0.0,
                         },

@@ -135,7 +135,7 @@ pub fn refresh_remote_ip_stream(
                 let stream_id = remote_ips_streams_tree_store.get_value(&stream_iter, 2);
                 allowed_stream_ids.push(TcpStreamId(stream_id.get().unwrap().unwrap()));
             }
-            _ => panic!(path.get_depth()),
+            _ => panic!("unexpected path depth: {}", path.get_depth()),
         }
     }
     if let Some(card) = selected_card {

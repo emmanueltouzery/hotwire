@@ -250,7 +250,7 @@ pub fn refresh_remote_servers(
             .set_visible_child_name(&card.protocol_index.to_string());
         let (ref tv, ref _signals) = &tv_state.message_treeviews.get(card.protocol_index).unwrap();
         let ls = mp.get_empty_liststore();
-        for (_remote_ip, tcp_sessions) in &by_remote_ip {
+        for tcp_sessions in by_remote_ip.values() {
             for (session_id, session) in tcp_sessions {
                 let mut idx = 0;
                 for chunk in session.messages.chunks(100) {

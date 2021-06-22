@@ -49,7 +49,7 @@ impl MessageParser for Postgres {
         mut stream: StreamData,
         new_packet: TSharkPacket,
     ) -> Result<StreamData, String> {
-        let mut globals = stream.stream_globals.to_postgres().unwrap();
+        let mut globals = stream.stream_globals.extract_postgres().unwrap();
         let timestamp = new_packet.basic_info.frame_time;
         if let Some(mds) = new_packet.pgsql {
             for md in mds {

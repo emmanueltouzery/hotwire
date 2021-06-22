@@ -370,7 +370,7 @@ pub fn parse_test_xml(xml: &str) -> Result<Vec<TSharkPacket>, String> {
                 return Ok(res);
             }
             Err(e) => {
-                panic!(format!("xml parsing error: {}", e));
+                panic!("xml parsing error: {}", e);
             }
             _ => {}
         };

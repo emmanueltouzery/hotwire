@@ -42,21 +42,21 @@ pub enum StreamGlobals {
 }
 
 impl StreamGlobals {
-    pub fn to_postgres(self) -> Option<PostgresStreamGlobals> {
+    pub fn extract_postgres(self) -> Option<PostgresStreamGlobals> {
         match self {
             StreamGlobals::Postgres(x) => Some(x),
             _ => None,
         }
     }
 
-    pub fn to_http(self) -> Option<HttpStreamGlobals> {
+    pub fn extract_http(self) -> Option<HttpStreamGlobals> {
         match self {
             StreamGlobals::Http(x) => Some(x),
             _ => None,
         }
     }
 
-    pub fn to_http2(self) -> Option<Http2StreamGlobals> {
+    pub fn extract_http2(self) -> Option<Http2StreamGlobals> {
         match self {
             StreamGlobals::Http2(x) => Some(x),
             _ => None,
