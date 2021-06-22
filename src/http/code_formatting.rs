@@ -39,7 +39,7 @@ fn highlight_indent_xml(xml: &str) -> String {
         // dbg!(token);
         match token {
             Ok(xmlparser::Token::ElementStart { local, .. }) => {
-                if result.len() > 0 {
+                if !result.is_empty() {
                     result.push('\n');
                     for _ in 0..indent {
                         result.push_str("  ");

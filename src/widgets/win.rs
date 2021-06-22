@@ -238,7 +238,7 @@ impl Widget for Win {
         let mut items = rm.get_items();
         let normalize_uri = |uri: Option<glib::GString>| {
             uri.map(|u| u.to_string()).map(|u| {
-                if u.starts_with("/") {
+                if u.starts_with('/') {
                     format!("file://{}", u)
                 } else {
                     u
@@ -678,7 +678,7 @@ impl Widget for Win {
                     // comm target data.
                     self.add_update_comm_target_data(
                         parser_index,
-                        &parser,
+                        parser.as_ref(),
                         stream_data.client_server.as_ref().unwrap(),
                         stream_data.summary_details.as_deref(),
                     );
@@ -711,7 +711,7 @@ impl Widget for Win {
                     // comm target data.
                     self.add_update_comm_target_data(
                         parser_index,
-                        &parser,
+                        parser.as_ref(),
                         stream_data.client_server.as_ref().unwrap(),
                         stream_data.summary_details.as_deref(),
                     );
@@ -771,7 +771,7 @@ impl Widget for Win {
                 e
             ))));
         }
-        let keys: Vec<TcpStreamId> = self.model.streams.keys().map(|k| *k).collect();
+        let keys: Vec<TcpStreamId> = self.model.streams.keys().copied().collect();
         for stream_id in keys {
             let stream_data = self.model.streams.remove(&stream_id).unwrap();
             let message_count_before = stream_data.messages.len();
@@ -797,7 +797,7 @@ impl Widget for Win {
                     if let Some(cs) = sd.client_server.as_ref() {
                         self.add_update_comm_target_data(
                             parser_index,
-                            &parser,
+                            parser.as_ref(),
                             cs,
                             sd.summary_details.as_deref(),
                         );
@@ -845,7 +845,7 @@ impl Widget for Win {
     fn add_update_comm_target_data(
         &mut self,
         protocol_index: usize,
-        parser: &Box<dyn MessageParser>,
+        parser: &dyn MessageParser,
         client_server_info: &ClientServerInfo,
         summary_details: Option<&str>,
     ) {

@@ -385,80 +385,95 @@ pub fn refresh_grids_new_messages(
     // self.refresh_comm_targets();
 
     // self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
-    match (stream_data.client_server, selected_card) {
-        (Some(client_server), Some(card)) => {
-            if client_server.server_ip == card.ip
-                && client_server.server_port == card.port
-                && parser_index == card.protocol_index
-            {
-                let ls = tv_state
-                    .cur_liststore
-                    .as_ref()
-                    .filter(|(c, _s, _l)| {
-                        c.ip == card.ip
-                            && c.port == card.port
-                            && c.protocol_index == card.protocol_index
-                    })
-                    .map(|(_c, s, _l)| s.clone())
-                    .unwrap_or_else(|| {
-                        let key = card.to_key();
-                        let ls = parser.get_empty_liststore();
-                        tv_state.cur_liststore = Some((key, ls.clone(), 0));
-                        let (ref tv, ref _signals) =
-                            &tv_state.message_treeviews.get(card.protocol_index).unwrap();
-                        parser.end_populate_treeview(tv, &ls);
-                        ls
-                    });
-                // refresh_remote_ips_streams_tree() // <------
-                parser.populate_treeview(
-                    &ls,
-                    stream_id,
-                    &stream_data.messages[stream_data.messages.len() - added_messages..],
-                    (stream_data.messages.len() - added_messages) as i32,
-                );
-                let mut store = tv_state.cur_liststore.take().unwrap();
-                store.2 += added_messages as i32;
-                tv_state.cur_liststore = Some(store);
+    if let (Some(client_server), Some(card)) = (stream_data.client_server, selected_card) {
+        if client_server.server_ip == card.ip
+            && client_server.server_port == card.port
+            && parser_index == card.protocol_index
+        {
+            let ls = tv_state
+                .cur_liststore
+                .as_ref()
+                .filter(|(c, _s, _l)| {
+                    c.ip == card.ip
+                        && c.port == card.port
+                        && c.protocol_index == card.protocol_index
+                })
+                .map(|(_c, s, _l)| s.clone())
+                .unwrap_or_else(|| {
+                    let key = card.to_key();
+                    let ls = parser.get_empty_liststore();
+                    tv_state.cur_liststore = Some((key, ls.clone(), 0));
+                    let (ref tv, ref _signals) =
+                        &tv_state.message_treeviews.get(card.protocol_index).unwrap();
+                    parser.end_populate_treeview(tv, &ls);
+                    ls
+                });
+            // refresh_remote_ips_streams_tree() // <------
+            parser.populate_treeview(
+                &ls,
+                stream_id,
+                &stream_data.messages[stream_data.messages.len() - added_messages..],
+                (stream_data.messages.len() - added_messages) as i32,
+            );
+            let mut store = tv_state.cur_liststore.take().unwrap();
+            store.2 += added_messages as i32;
+            tv_state.cur_liststore = Some(store);
 
-                if follow_packets == FollowPackets::Follow {
-                    // we're capturing network traffic. scroll to
-                    // reveal new packets -- but schedule it when the
-                    // GUI thread will be idle, so it runs when the
-                    // items will be added, now would be too early
-                    let stack = tv_state.comm_remote_servers_stack.clone();
-                    glib::idle_add_local(move || {
-                        let scrolledwindow = stack
-                            .get_visible_child()
-                            .unwrap()
-                            .dynamic_cast::<gtk::Paned>()
-                            .unwrap()
-                            .get_child1()
-                            .unwrap()
-                            .dynamic_cast::<gtk::ScrolledWindow>()
-                            .unwrap();
-                        let vadj = scrolledwindow.get_vadjustment().unwrap();
-                        // new packets were added to the view,
-                        // => scroll to reveal new packets
-                        vadj.set_value(vadj.get_upper());
-                        glib::Continue(false)
-                    });
-                }
-
-                if stream_data.messages.len() == added_messages {
-                    // just added the first rows to the grid. select the first row.
-                    tv_state
-                        .message_treeviews
-                        .get(card.protocol_index)
-                        .unwrap()
-                        .0
-                        .get_selection()
-                        .select_path(&gtk::TreePath::new_first());
-
-                    rstream.emit(win::Msg::OpenFileFirstPacketDisplayed);
-                }
-            }
+            packets_added_trigger_events(
+                tv_state,
+                stream_data,
+                parser_index,
+                rstream,
+                added_messages,
+                follow_packets,
+            );
         }
-        _ => {}
+    }
+}
+
+fn packets_added_trigger_events(
+    tv_state: &MessagesTreeviewState,
+    stream_data: &StreamData,
+    parser_index: usize,
+    rstream: &relm::StreamHandle<win::Msg>,
+    added_messages: usize,
+    follow_packets: FollowPackets,
+) {
+    if follow_packets == FollowPackets::Follow {
+        // we're capturing network traffic. scroll to
+        // reveal new packets -- but schedule it when the
+        // GUI thread will be idle, so it runs when the
+        // items will be added, now would be too early
+        let stack = tv_state.comm_remote_servers_stack.clone();
+        glib::idle_add_local(move || {
+            let scrolledwindow = stack
+                .get_visible_child()
+                .unwrap()
+                .dynamic_cast::<gtk::Paned>()
+                .unwrap()
+                .get_child1()
+                .unwrap()
+                .dynamic_cast::<gtk::ScrolledWindow>()
+                .unwrap();
+            let vadj = scrolledwindow.get_vadjustment().unwrap();
+            // new packets were added to the view,
+            // => scroll to reveal new packets
+            vadj.set_value(vadj.get_upper());
+            glib::Continue(false)
+        });
+    }
+
+    if stream_data.messages.len() == added_messages {
+        // just added the first rows to the grid. select the first row.
+        tv_state
+            .message_treeviews
+            .get(parser_index)
+            .unwrap()
+            .0
+            .get_selection()
+            .select_path(&gtk::TreePath::new_first());
+
+        rstream.emit(win::Msg::OpenFileFirstPacketDisplayed);
     }
 }
 
