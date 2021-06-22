@@ -862,8 +862,7 @@ impl Widget for Win {
             let mut card = self.model.comm_target_cards.get_mut(card_idx).unwrap();
             // update existing card
             card.increase_incoming_session_count();
-            card.remote_hosts
-                .insert(client_server_info.client_ip.to_string());
+            card.remote_hosts.insert(client_server_info.client_ip);
             if card.summary_details.is_none() && summary_details.is_some() {
                 card.summary_details = Some(SummaryDetails {
                     details: summary_details.unwrap().to_string(),
@@ -884,7 +883,7 @@ impl Widget for Win {
                 protocol_index,
                 {
                     let mut bs = BTreeSet::new();
-                    bs.insert(client_server_info.client_ip.to_string());
+                    bs.insert(client_server_info.client_ip);
                     bs
                 },
                 parser.protocol_icon(),

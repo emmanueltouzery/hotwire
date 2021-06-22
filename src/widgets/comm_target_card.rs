@@ -44,7 +44,7 @@ pub struct CommTargetCardData {
     pub port: NetworkPort,
     pub protocol_index: usize,
     pub protocol_name: &'static str,
-    pub remote_hosts: BTreeSet<String>, // TODO change String to IpAddr?
+    pub remote_hosts: BTreeSet<IpAddr>,
     pub protocol_icon: Icon,
     pub summary_details: Option<SummaryDetails>,
     pub remotes_summary: String,
@@ -56,7 +56,7 @@ impl CommTargetCardData {
         ip: IpAddr,
         port: NetworkPort,
         protocol_index: usize,
-        remote_hosts: BTreeSet<String>,
+        remote_hosts: BTreeSet<IpAddr>,
         protocol_icon: Icon,
         protocol_name: &'static str,
         summary_details: Option<SummaryDetails>,
@@ -82,7 +82,7 @@ impl CommTargetCardData {
     }
 
     fn format_remotes_summary(
-        remote_hosts: &BTreeSet<String>,
+        remote_hosts: &BTreeSet<IpAddr>,
         incoming_session_count: usize,
     ) -> String {
         format!(
