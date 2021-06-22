@@ -676,7 +676,7 @@ impl Widget for Win {
                 if !had_client_server && stream_data.client_server.is_some() {
                     // we got the client-server info for this stream, add the
                     // comm target data.
-                    self.add_comm_target_data(
+                    self.add_update_comm_target_data(
                         parser_index,
                         &parser,
                         stream_data.client_server.as_ref().unwrap(),
@@ -709,7 +709,7 @@ impl Widget for Win {
                 if stream_data.client_server.is_some() {
                     // we got the client-server info for this stream, add the
                     // comm target data.
-                    self.add_comm_target_data(
+                    self.add_update_comm_target_data(
                         parser_index,
                         &parser,
                         stream_data.client_server.as_ref().unwrap(),
@@ -791,6 +791,16 @@ impl Widget for Win {
                         &sd,
                         self.get_follow_packets(),
                     );
+
+                    // finishing the stream may well have caused us to
+                    // update the comm target data stats, update them
+                    self.add_update_comm_target_data(
+                        parser_index,
+                        &parser,
+                        sd.client_server.as_ref().unwrap(),
+                        sd.summary_details.as_deref(),
+                    );
+
                     self.model.messages_treeview_state = Some(tv_state);
                     self.model.streams.insert(stream_id, sd);
                 }
@@ -830,7 +840,7 @@ impl Widget for Win {
         dialog.close();
     }
 
-    fn add_comm_target_data(
+    fn add_update_comm_target_data(
         &mut self,
         protocol_index: usize,
         parser: &Box<dyn MessageParser>,

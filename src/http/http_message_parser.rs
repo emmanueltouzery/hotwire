@@ -22,9 +22,25 @@ use std::sync::mpsc;
 
 pub struct Http;
 
+lazy_static! {
+    // so, sometimes I see host headers like that: "Host: 10.215.215.9:8081".
+    // That's completely useless to give me the real hostname, and if later
+    // in the stream I get the real hostname, I ignore it because I "already got"
+    // the hostname. So filter out these and ignore them.
+    static ref IP_ONLY_CHARS: Vec<char> = "0123456789.:".chars().collect();
+}
+
 #[derive(Debug, Default)]
 pub struct HttpStreamGlobals {
     cur_request: Option<HttpRequestResponseData>,
+
+    // https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Server
+    // will put the description of the Server http header in the summary details
+    // if we can't get the hostname. Don't store it directly in the summary details,
+    // in case we later get the hostname when parsing later packets.
+    // if we didn't get the hostname, we use this in finish_stream() to populate
+    // the summary details.
+    server_info: Option<String>,
 }
 
 impl MessageParser for Http {
@@ -55,22 +71,22 @@ impl MessageParser for Http {
             new_packet,
             stream.client_server.as_ref().map(|cs| cs.server_ip),
         );
-        // so, sometimes I see host headers like that: "Host: 10.215.215.9:8081".
-        // That's completely useless to give me the real hostname, and if later
-        // in the stream I get the real hostname, I ignore it because I "already got"
-        // the hostname. So filter out these and ignore them.
-        let ip_only_chars: Vec<_> = "0123456789.:".chars().collect();
         if stream.summary_details.is_none() {
             match (
                 rr.req_resp
                     .data()
                     .and_then(|d| get_http_header_value(&d.headers, "X-Forwarded-Server")),
                 rr.host.as_ref(),
+                rr.req_resp
+                    .data()
+                    .and_then(|d| get_http_header_value(&d.headers, "Server")),
             ) {
-                (Some(fwd), _) => stream.summary_details = Some(fwd.clone()),
-                (_, Some(host)) => {
+                (Some(fwd), _, _) => stream.summary_details = Some(fwd.clone()),
+                (_, Some(host), _) if !host.trim_end_matches(&IP_ONLY_CHARS[..]).is_empty() => {
                     stream.summary_details = Some(host.clone())
-                        .filter(|h| !h.trim_end_matches(&ip_only_chars[..]).is_empty())
+                }
+                (_, _, Some(server)) if globals.server_info.is_none() => {
+                    globals.server_info = Some(server.to_string());
                 }
                 _ => {}
             }
@@ -131,6 +147,10 @@ impl MessageParser for Http {
                 request: Some(req),
                 response: None,
             }));
+        }
+        if stream.summary_details.is_none() && globals.server_info.is_some() {
+            // don't have summary details, let's use server info as "fallback"
+            stream.summary_details = globals.server_info;
         }
         stream.stream_globals = StreamGlobals::Http(HttpStreamGlobals::default());
         stream.messages = messages;

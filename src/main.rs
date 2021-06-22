@@ -18,6 +18,9 @@ pub mod http;
 pub mod http2;
 pub mod pgsql;
 
+#[macro_use]
+extern crate lazy_static;
+
 // we do slow operations in a separate thread not to block the GUI thread.
 // i considered that spawning a new thread everytime the GUI wants slow operations
 // seems more heavyweight than reusing a thread
