@@ -16,7 +16,7 @@ pub struct Model {
 
 #[widget]
 impl Widget for CommInfoHeader {
-    fn model(relm: &relm::Relm<Self>, data: (IpAddr, TcpStreamId)) -> Model {
+    fn model(_relm: &relm::Relm<Self>, data: (IpAddr, TcpStreamId)) -> Model {
         let (client_ip, stream_id) = data;
         Model {
             client_ip,

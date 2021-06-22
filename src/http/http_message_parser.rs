@@ -69,7 +69,7 @@ impl MessageParser for Http {
         mut stream: StreamData,
         new_packet: TSharkPacket,
     ) -> Result<StreamData, String> {
-        let mut globals = stream.stream_globals.as_http().unwrap();
+        let mut globals = stream.stream_globals.to_http().unwrap();
         let mut messages = stream.messages;
         let rr = parse_request_response(
             new_packet,
@@ -143,7 +143,7 @@ impl MessageParser for Http {
     }
 
     fn finish_stream(&self, mut stream: StreamData) -> Result<StreamData, String> {
-        let globals = stream.stream_globals.as_http().unwrap();
+        let globals = stream.stream_globals.to_http().unwrap();
         let mut messages = stream.messages;
         if let Some(req) = globals.cur_request {
             messages.push(MessageData::Http(HttpMessageData {
@@ -495,7 +495,7 @@ struct ReqRespInfo {
     host: Option<String>,
 }
 
-fn parse_body(body: Option<Vec<u8>>, headers: &[(String, String)]) -> HttpBody {
+fn parse_body(body: Option<Vec<u8>>, _headers: &[(String, String)]) -> HttpBody {
     body.map(|d| {
         str::from_utf8(&d)
             .ok()

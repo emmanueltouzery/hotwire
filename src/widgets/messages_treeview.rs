@@ -57,7 +57,7 @@ pub fn init_grids_and_panes(
             &comm_remote_servers_stack,
             relm,
             bg_sender,
-            &message_parser,
+            message_parser.as_ref(),
             idx,
         );
         message_treeviews.push(tv);
@@ -77,7 +77,7 @@ fn add_message_parser_grid_and_pane(
     comm_remote_servers_stack: &gtk::Stack,
     relm: &relm::Relm<win::Win>,
     bg_sender: &mpsc::Sender<BgFunc>,
-    message_parser: &Box<dyn MessageParser>,
+    message_parser: &dyn MessageParser,
     mp_idx: usize,
 ) -> (
     (gtk::TreeView, TreeViewSignals),
@@ -164,7 +164,7 @@ fn add_message_parser_grid_and_pane(
     paned.show_all();
     (
         (
-            tv.clone(),
+            tv,
             TreeViewSignals {
                 selection_change_signal_id,
                 // row_activation_signal_id,
@@ -239,7 +239,7 @@ pub fn refresh_remote_servers(
                         .client_server
                         .as_ref()
                         .map(|cs| cs.client_ip)
-                        .unwrap_or(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))),
+                        .unwrap_or_else(|| IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))),
                 )
                 .or_insert_with(Vec::new);
             remote_server_streams.push((stream_id, messages));
@@ -250,7 +250,7 @@ pub fn refresh_remote_servers(
             .set_visible_child_name(&card.protocol_index.to_string());
         let (ref tv, ref _signals) = &tv_state.message_treeviews.get(card.protocol_index).unwrap();
         let ls = mp.get_empty_liststore();
-        for (remote_ip, tcp_sessions) in &by_remote_ip {
+        for (_remote_ip, tcp_sessions) in &by_remote_ip {
             for (session_id, session) in tcp_sessions {
                 let mut idx = 0;
                 for chunk in session.messages.chunks(100) {

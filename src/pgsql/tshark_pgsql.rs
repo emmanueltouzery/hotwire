@@ -170,7 +170,6 @@ fn parse_parse_message<B: BufRead>(
                 return Ok(PostgresWireMessage::Parse { statement, query });
             }
         }
-        _ => {}
     )
 }
 

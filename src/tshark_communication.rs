@@ -1,7 +1,5 @@
 use crate::http::tshark_http;
 use crate::http2::tshark_http2;
-use crate::message_parser::MessageParser;
-use crate::message_parser::StreamData;
 use crate::pgsql::tshark_pgsql;
 use chrono::NaiveDateTime;
 use quick_xml::events::Event;
@@ -10,6 +8,9 @@ use std::io::BufRead;
 use std::net::IpAddr;
 use std::str;
 use std::str::FromStr;
+
+#[cfg(test)]
+use crate::message_parser::{MessageParser, StreamData};
 
 macro_rules! xml_event_loop {
     ($reader:ident, $buf:ident, $($tts:tt)*) => {

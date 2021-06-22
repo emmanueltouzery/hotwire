@@ -1,5 +1,5 @@
 use crate::icons::Icon;
-use crate::tshark_communication::{NetworkPort, TcpStreamId};
+use crate::tshark_communication::NetworkPort;
 use gtk::prelude::*;
 use relm::Widget;
 use relm_derive::{widget, Msg};

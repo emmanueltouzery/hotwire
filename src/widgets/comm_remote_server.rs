@@ -17,11 +17,11 @@ pub struct Model {
 
 #[widget]
 impl Widget for CommRemoteServer {
-    fn model(relm: &relm::Relm<Self>, data: CommRemoteServerData) -> Model {
+    fn model(_relm: &relm::Relm<Self>, data: CommRemoteServerData) -> Model {
         Model { data }
     }
 
-    fn update(&mut self, event: Msg) {}
+    fn update(&mut self, _event: Msg) {}
 
     view! {
         gtk::Box {

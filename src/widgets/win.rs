@@ -347,7 +347,7 @@ impl Widget for Win {
             Msg::DisplayAbout => {
                 self.display_about();
             }
-            Msg::DragDataReceived(context, sel_data) => {
+            Msg::DragDataReceived(_context, sel_data) => {
                 if let Some(uri) = sel_data
                     .get_uris()
                     .first()
@@ -450,7 +450,7 @@ impl Widget for Win {
                 self.handle_select_card(maybe_idx);
             }
             Msg::SelectRemoteIpStream(selection) => {
-                let (mut paths, model) = selection.get_selected_rows();
+                let (mut paths, _model) = selection.get_selected_rows();
                 println!("remote selection changed");
                 ips_and_streams_treeview::refresh_remote_ip_stream(
                     self.model.relm.stream(),

@@ -59,10 +59,10 @@ impl Widget for HttpBodyWidget {
     }
 
     fn model(
-        relm: &relm::Relm<Self>,
+        _relm: &relm::Relm<Self>,
         params: (relm::StreamHandle<win::Msg>, mpsc::Sender<BgFunc>),
     ) -> Model {
-        let (win_msg_sender, bg_sender) = params;
+        let (win_msg_sender, _bg_sender) = params;
         let (_saved_body_channel, saved_body_sender) = {
             let win_stream = win_msg_sender.clone();
             relm::Channel::new(move |d: SavedBodyData| {
@@ -226,7 +226,7 @@ impl Widget for HttpBodyWidget {
         url.and_then(|u| u.rsplit_once('/'))
             .map(|(_s, fname)| fname.to_string())
             .map(|fname| {
-                if let Some((f, params)) = fname.split_once('?') {
+                if let Some((f, _params)) = fname.split_once('?') {
                     f.to_string()
                 } else {
                     fname

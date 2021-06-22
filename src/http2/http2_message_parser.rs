@@ -60,7 +60,7 @@ impl MessageParser for Http2 {
         mut stream: StreamData,
         new_packet: TSharkPacket,
     ) -> Result<StreamData, String> {
-        let mut globals = stream.stream_globals.as_http2().unwrap();
+        let mut globals = stream.stream_globals.to_http2().unwrap();
         let mut messages = stream.messages;
         let cur_msg = new_packet.basic_info;
         let http2 = new_packet.http2.unwrap();
@@ -143,7 +143,7 @@ impl MessageParser for Http2 {
 
     fn finish_stream(&self, mut stream: StreamData) -> Result<StreamData, String> {
         // flush all the incomplete messages as best we can
-        let mut globals = stream.stream_globals.as_http2().unwrap();
+        let globals = stream.stream_globals.to_http2().unwrap();
         let mut messages = stream.messages;
         for (http2_stream_id, stream_contents) in globals.messages_per_stream {
             let cur_msg = stream_contents.unfinished_basic_info.unwrap();

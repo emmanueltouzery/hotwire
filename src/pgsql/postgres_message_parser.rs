@@ -3,7 +3,7 @@ use super::postgres_details_widget::PostgresCommEntry;
 use crate::colors;
 use crate::icons::Icon;
 use crate::message_parser::{
-  ClientServerInfo, MessageData, MessageInfo, MessageParser, StreamData, StreamGlobals,
+    ClientServerInfo, MessageData, MessageInfo, MessageParser, StreamData, StreamGlobals,
 };
 use crate::pgsql::tshark_pgsql::{PostgresColType, PostgresWireMessage};
 use crate::tshark_communication::{TSharkPacket, TcpStreamId};
@@ -37,7 +37,7 @@ impl MessageParser for Postgres {
     }
 
     fn protocol_name(&self) -> &'static str {
-      "PGSQL"
+        "PGSQL"
     }
 
     fn initial_globals(&self) -> StreamGlobals {
@@ -49,7 +49,7 @@ impl MessageParser for Postgres {
         mut stream: StreamData,
         new_packet: TSharkPacket,
     ) -> Result<StreamData, String> {
-        let mut globals = stream.stream_globals.as_postgres().unwrap();
+        let mut globals = stream.stream_globals.to_postgres().unwrap();
         let timestamp = new_packet.basic_info.frame_time;
         if let Some(mds) = new_packet.pgsql {
             for md in mds {
@@ -247,7 +247,7 @@ impl MessageParser for Postgres {
                                             None
                                         } else {
                                             let parsed: Option<i64> = val.parse().ok();
-                                            if let Some(p) = parsed {
+                                            if parsed.is_some() {
                                                 parsed
                                             } else {
                                                 return Err(format!(
