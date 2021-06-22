@@ -368,6 +368,7 @@ fn add_cols(mut raw_cols: Vec<String>, col_lengths: Vec<i32>) -> Vec<String> {
     raw_cols.reverse();
     let mut cols = vec![];
     for col_length in col_lengths {
+        #[allow(clippy::comparison_chain)] // find this more readable than the clippy suggestion
         if col_length < 0 {
             cols.push("null".to_string());
         } else if col_length == 0 {

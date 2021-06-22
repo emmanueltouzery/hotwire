@@ -79,7 +79,7 @@ impl Widget for HttpCommEntry {
         // dbg!(&event);
         match event {
             Msg::DisplayDetails(
-                bg_sender,
+                ..,
                 MessageInfo {
                     client_ip,
                     stream_id,
