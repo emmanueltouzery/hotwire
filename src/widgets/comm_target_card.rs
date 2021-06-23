@@ -136,49 +136,54 @@ impl Widget for CommTargetCard {
             margin_bottom: 7,
             spacing: 5,
             gtk::Box {
-                orientation: gtk::Orientation::Vertical,
-                valign: gtk::Align::Center,
                 child: {
-                    padding: 3,
+                    expand: true,
                 },
-                gtk::Image {
-                    property_icon_name: Some(self.model.protocol_icon.name()),
-                    // https://github.com/gtk-rs/gtk/issues/837
-                    property_icon_size: 3, // gtk::IconSize::LargeToolbar,
-                },
-                #[style_class="card_protocol_name"]
-                gtk::Label {
-                    label: self.model.protocol_name,
-                    ellipsize: pango::EllipsizeMode::End,
-                }
-            },
-            gtk::Grid {
-                #[style_class="target_server_ip_port"]
-                gtk::Label {
-                    label: &CommTargetCard::server_ip_port_display(self.model),
-                    ellipsize: pango::EllipsizeMode::End,
-                    cell: {
-                        left_attach: 0,
-                        top_attach: 1,
+                // property_expand: true,
+                orientation: gtk::Orientation::Vertical,
+                gtk::Box {
+                    orientation: gtk::Orientation::Horizontal,
+                    spacing: 5,
+                    gtk::Image {
+                        property_icon_name: Some(self.model.protocol_icon.name()),
+                        // https://github.com/gtk-rs/gtk/issues/837
+                        property_icon_size: 2, // gtk::IconSize::SmallToolbar,
+                    },
+                    #[style_class="target_server_ip_port"]
+                    gtk::Label {
+                        label: &CommTargetCard::server_ip_port_display(self.model),
+                        ellipsize: pango::EllipsizeMode::End,
                     },
                 },
-                gtk::Label {
-                    label: &self.model.remotes_summary,
-                    ellipsize: pango::EllipsizeMode::End,
-                    cell: {
-                        left_attach: 0,
-                        top_attach: 2,
+                gtk::Box {
+                    orientation: gtk::Orientation::Horizontal,
+                    spacing: 3,
+                    #[style_class="card_stats"]
+                    gtk::Image {
+                        property_icon_name: Some(Icon::REMOTE_HOST.name()),
+                        property_icon_size: 2, // gtk::IconSize::SmallToolbar,
                     },
+                    #[style_class="card_stats"]
+                    gtk::Label {
+                        label: &self.model.remote_hosts.len().to_string(),
+                    },
+                    #[style_class="card_stats"]
+                    gtk::Image {
+                        margin_start: 3,
+                        property_icon_name: Some(Icon::SESSION.name()),
+                        property_icon_size: 2, // gtk::IconSize::SmallToolbar,
+                    },
+                    #[style_class="card_stats"]
+                    gtk::Label {
+                        label: &self.model.incoming_session_count.to_string(),
+                    },
+                    gtk::Label {
+                        margin_start: 2,
+                        label: self.model.summary_details.as_ref().map(|d| d.details.as_str()).unwrap_or(""),
+                        ellipsize: pango::EllipsizeMode::End,
+                        visible: self.model.summary_details.is_some(),
+                    }
                 },
-                gtk::Label {
-                    cell: {
-                        left_attach: 0,
-                        top_attach: 0,
-                    },
-                    label: self.model.summary_details.as_ref().map(|d| d.details.as_str()).unwrap_or(""),
-                    ellipsize: pango::EllipsizeMode::End,
-                    visible: self.model.summary_details.is_some(),
-                }
             }
         }
     }
