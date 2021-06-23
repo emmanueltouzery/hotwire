@@ -103,6 +103,8 @@ pub struct Model {
     current_file: Option<(PathBuf, TSharkInputType)>,
     recent_files: Vec<PathBuf>,
 
+    set_sidebar_height: bool,
+
     capture_toggle_signal: Option<glib::SignalHandlerId>,
 
     infobar_spinner: gtk::Spinner,
@@ -317,6 +319,7 @@ impl Widget for Win {
                 .build(),
             infobar_label: gtk::LabelBuilder::new().build(),
             comm_targets_components: HashMap::new(),
+            set_sidebar_height: false,
             _recent_file_item_components: vec![],
             recent_files: vec![],
             selected_card: None,
@@ -1084,6 +1087,17 @@ impl Widget for Win {
     }
 
     fn reset_open_file(&mut self, fname: Option<PathBuf>, filetype: TSharkInputType) {
+        // we can't set the height directly when loading the app, because
+        // by then the window is not fully displayed and we get funny numbers.
+        // so we do it later here, but we want to do it just once per app running,
+        // not everytime a file is opened
+        if !self.model.set_sidebar_height {
+            self.widgets
+                .sidebar_pane
+                .set_position((self.widgets.window.get_allocated_height() as f32 * 0.6) as i32);
+            self.model.set_sidebar_height = true;
+        }
+
         self.widgets.open_btn.set_sensitive(false);
         if filetype != TSharkInputType::Fifo {
             // prevent capture when we're opening a file, but obviously
@@ -1376,22 +1390,29 @@ impl Widget for Win {
                     },
                     gtk::Box {
                         vexpand: true,
-                        #[style_class="sidebar"]
-                        gtk::ScrolledWindow {
-                            property_width_request: 250,
-                            #[name="comm_target_list"]
-                            gtk::ListBox {
-                                row_selected(_, row) =>
-                                    Msg::SelectCard(row.map(|r| r.get_index() as usize))
-                            }
-                        },
-                        gtk::ScrolledWindow {
-                            property_width_request: 150,
-                            #[name="remote_ips_streams_treeview"]
-                            gtk::TreeView {
-                                activate_on_single_click: true,
-                                // connecting manually to collect the signal id for blocking
-                                // selection.changed(selection) => Msg::SelectRemoteIpStream(selection.clone()),
+                        #[name="sidebar_pane"]
+                        gtk::Paned {
+                            orientation: gtk::Orientation::Vertical,
+                            #[style_class="sidebar"]
+                            gtk::ScrolledWindow {
+                                child: {
+                                    resize: true,
+                                },
+                                property_width_request: 250,
+                                #[name="comm_target_list"]
+                                gtk::ListBox {
+                                    row_selected(_, row) =>
+                                        Msg::SelectCard(row.map(|r| r.get_index() as usize))
+                                }
+                            },
+                            gtk::ScrolledWindow {
+                                property_width_request: 150,
+                                #[name="remote_ips_streams_treeview"]
+                                gtk::TreeView {
+                                    activate_on_single_click: true,
+                                    // connecting manually to collect the signal id for blocking
+                                    // selection.changed(selection) => Msg::SelectRemoteIpStream(selection.clone()),
+                                },
                             },
                         },
                         gtk::Separator {
