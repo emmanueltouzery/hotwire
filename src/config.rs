@@ -38,15 +38,15 @@ pub fn remove_obsolete_tcpdump_files(remove_mode: RemoveMode) -> Result<()> {
     };
     for direntry in paths {
         let path = direntry?.path();
-        if path
+        let should_remove = path
             .file_name()
             .and_then(|f| f.to_str())
             .filter(|f| f.starts_with("hotwire-record-") || f.starts_with("hotwire-save-"))
             .filter(|f| {
                 is_old(&path) || (remove_mode == RemoveMode::OldFilesAndMyFiles && is_my_file(&f))
             })
-            .is_some()
-        {
+            .is_some();
+        if should_remove {
             if let Err(e) = fs::remove_file(&path) {
                 eprintln!("Failed to remove obsolete tcpdump fifo: {:?}, {}", path, e);
             }

@@ -25,7 +25,7 @@ pub enum TSharkInputType {
 #[derive(Debug)]
 pub enum InputStep {
     StartedTShark(Child),
-    Packet(TSharkPacket),
+    Packet(Box<TSharkPacket>), // Box due to large variant
     Eof,
 }
 
@@ -92,7 +92,9 @@ pub fn parse_pdml_stream<B: BufRead>(buf_reader: B, sender: relm::Sender<ParseIn
             Ok(Event::Start(ref e)) => {
                 if e.name() == b"packet" {
                     match tshark_communication::parse_packet(&mut xml_reader) {
-                        Ok(packet) => sender.send(Ok(InputStep::Packet(packet))).unwrap(),
+                        Ok(packet) => sender
+                            .send(Ok(InputStep::Packet(Box::new(packet))))
+                            .unwrap(),
                         Err(e) => {
                             sender
                                 .send(Err(format!(

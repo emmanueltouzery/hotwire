@@ -450,7 +450,7 @@ impl Widget for Win {
                 self.model.tshark_child = Some(pid);
             }
             Msg::LoadedData(Ok(InputStep::Packet(p))) => {
-                self.handle_got_packet(p);
+                self.handle_got_packet(*p);
             }
             Msg::LoadedData(Ok(InputStep::Eof)) => {
                 self.handle_got_input_eof();
