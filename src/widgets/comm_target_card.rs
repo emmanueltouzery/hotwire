@@ -1,4 +1,5 @@
 use crate::icons::Icon;
+use crate::message_parser::ClientServerInfo;
 use crate::tshark_communication::NetworkPort;
 use gtk::prelude::*;
 use relm::Widget;
@@ -38,6 +39,12 @@ pub struct CommTargetCardKey {
     pub protocol_index: usize,
 }
 
+impl CommTargetCardKey {
+    pub fn matches_server(&self, cs_info: ClientServerInfo) -> bool {
+        cs_info.server_ip == self.ip && cs_info.server_port == self.port
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct CommTargetCardData {
     pub ip: IpAddr,
@@ -47,7 +54,6 @@ pub struct CommTargetCardData {
     pub remote_hosts: BTreeSet<IpAddr>,
     pub protocol_icon: Icon,
     pub summary_details: Option<SummaryDetails>,
-    pub remotes_summary: String,
     incoming_session_count: usize,
 }
 
@@ -63,7 +69,6 @@ impl CommTargetCardData {
         incoming_session_count: usize,
     ) -> CommTargetCardData {
         CommTargetCardData {
-            remotes_summary: Self::format_remotes_summary(&remote_hosts, incoming_session_count),
             ip,
             port,
             protocol_index,
@@ -77,19 +82,6 @@ impl CommTargetCardData {
 
     pub fn increase_incoming_session_count(&mut self) {
         self.incoming_session_count += 1;
-        self.remotes_summary =
-            Self::format_remotes_summary(&self.remote_hosts, self.incoming_session_count);
-    }
-
-    fn format_remotes_summary(
-        remote_hosts: &BTreeSet<IpAddr>,
-        incoming_session_count: usize,
-    ) -> String {
-        format!(
-            "{} remote hosts, {} sessions",
-            remote_hosts.len(),
-            incoming_session_count
-        )
     }
 
     pub fn to_key(&self) -> CommTargetCardKey {
@@ -112,7 +104,6 @@ impl Widget for CommTargetCard {
             Msg::Update(d) => {
                 self.model.remote_hosts = d.remote_hosts;
                 self.model.summary_details = d.summary_details;
-                self.model.remotes_summary = d.remotes_summary;
                 self.model.incoming_session_count = d.incoming_session_count;
                 dbg!(&self.model);
             }

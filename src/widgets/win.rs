@@ -142,6 +142,12 @@ pub enum RefreshOngoing {
     No,
 }
 
+#[derive(PartialEq, Eq, Copy, Clone)]
+enum SessionChangeType {
+    NewSession,
+    NewDataInSession,
+}
+
 #[widget]
 impl Widget for Win {
     fn init_view(&mut self) {
@@ -663,7 +669,10 @@ impl Widget for Win {
             let packet_stream_id = p.basic_info.tcp_stream_id;
             let existing_stream = self.model.streams.remove(&packet_stream_id);
             let message_count_before;
+            let session_change_type;
             let stream_data = if let Some(stream_data) = existing_stream {
+                // existing stream
+                session_change_type = SessionChangeType::NewDataInSession;
                 message_count_before = stream_data.messages.len();
                 let had_client_server = stream_data.client_server.is_some();
                 let stream_data = match parser.add_to_stream(stream_data, p) {
@@ -676,19 +685,10 @@ impl Widget for Win {
                         return;
                     }
                 };
-                if !had_client_server && stream_data.client_server.is_some() {
-                    // we got the client-server info for this stream, add the
-                    // comm target data.
-                    self.add_update_comm_target_data(
-                        parser_index,
-                        parser.as_ref(),
-                        stream_data.client_server.as_ref().unwrap(),
-                        stream_data.summary_details.as_deref(),
-                    );
-                }
                 stream_data
             } else {
                 // new stream
+                session_change_type = SessionChangeType::NewSession;
                 message_count_before = 0;
                 let mut stream_data = StreamData {
                     parser_index,
@@ -710,15 +710,6 @@ impl Widget for Win {
                     }
                 }
                 if stream_data.client_server.is_some() {
-                    // we got the client-server info for this stream, add the
-                    // comm target data.
-                    self.add_update_comm_target_data(
-                        parser_index,
-                        parser.as_ref(),
-                        stream_data.client_server.as_ref().unwrap(),
-                        stream_data.summary_details.as_deref(),
-                    );
-
                     let is_for_current_card = matches!(
                             (stream_data.client_server, self.model.selected_card.as_ref()),
                             (Some(clientserver), Some(card)) if clientserver.server_ip == card.ip
@@ -749,6 +740,17 @@ impl Widget for Win {
                 &stream_data,
                 self.get_follow_packets(),
             );
+
+            if let Some(cs) = stream_data.client_server {
+                self.add_update_comm_target_data(
+                    parser_index,
+                    parser.as_ref(),
+                    cs,
+                    stream_data.summary_details.as_deref(),
+                    session_change_type,
+                );
+            }
+
             self.model.messages_treeview_state = Some(tv_state);
             self.model.streams.insert(packet_stream_id, stream_data);
         }
@@ -801,8 +803,9 @@ impl Widget for Win {
                         self.add_update_comm_target_data(
                             parser_index,
                             parser.as_ref(),
-                            cs,
+                            *cs,
                             sd.summary_details.as_deref(),
+                            SessionChangeType::NewDataInSession,
                         );
                     }
 
@@ -849,8 +852,9 @@ impl Widget for Win {
         &mut self,
         protocol_index: usize,
         parser: &dyn MessageParser,
-        client_server_info: &ClientServerInfo,
+        client_server_info: ClientServerInfo,
         summary_details: Option<&str>,
+        session_change_type: SessionChangeType,
     ) {
         let card_key = CommTargetCardKey {
             ip: client_server_info.server_ip,
@@ -864,15 +868,15 @@ impl Widget for Win {
         }) {
             let mut card = self.model.comm_target_cards.get_mut(card_idx).unwrap();
             // update existing card
-            card.increase_incoming_session_count();
+            if session_change_type == SessionChangeType::NewSession {
+                card.increase_incoming_session_count();
+            }
             card.remote_hosts.insert(client_server_info.client_ip);
             if card.summary_details.is_none() && summary_details.is_some() {
                 card.summary_details = Some(SummaryDetails {
                     details: summary_details.unwrap().to_string(),
                 });
             }
-            dbg!(&card);
-            dbg!(&self.model.comm_targets_components.len());
             self.model
                 .comm_targets_components
                 .get(&card_key)

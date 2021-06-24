@@ -210,14 +210,10 @@ pub fn refresh_remote_servers(
         RefreshOngoing::Yes,
     );
     if let Some(card) = selected_card.cloned() {
-        let target_ip = card.ip;
-        let target_port = card.port;
         let mut by_remote_ip = HashMap::new();
         let parsers = win::get_message_parsers();
         for (stream_id, messages) in streams {
-            if messages.client_server.as_ref().map(|cs| cs.server_ip) != Some(target_ip)
-                || messages.client_server.as_ref().map(|cs| cs.server_port) != Some(target_port)
-            {
+            if !matches!(messages.client_server, Some(cs) if card.to_key().matches_server(cs)) {
                 continue;
             }
             let allowed_all = constrain_remote_ips.is_empty() && constrain_stream_ids.is_empty();
