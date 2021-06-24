@@ -167,12 +167,12 @@ pub fn parse_packet<B: BufRead>(
             }
         }
         Ok(Event::End(ref e)) => {
-            if e.name() == b"packet" && ip_src.is_some() && ip_dst.is_some() {
+            if let (b"packet", Some(src), Some(dst)) = (e.name(), ip_src, ip_dst) {
                 return Ok(TSharkPacket {
                     basic_info: TSharkPacketBasicInfo {
                         frame_time,
-                        ip_src: ip_src.unwrap(),
-                        ip_dst: ip_dst.unwrap(),
+                        ip_src: src,
+                        ip_dst: dst,
                         tcp_seq_number,
                         tcp_stream_id,
                         port_src,

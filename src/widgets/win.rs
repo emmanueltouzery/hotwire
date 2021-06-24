@@ -681,7 +681,6 @@ impl Widget for Win {
                 // existing stream
                 session_change_type = SessionChangeType::NewDataInSession;
                 message_count_before = stream_data.messages.len();
-                let had_client_server = stream_data.client_server.is_some();
                 let stream_data = match parser.add_to_stream(stream_data, p) {
                     Ok(sd) => sd,
                     Err(msg) => {

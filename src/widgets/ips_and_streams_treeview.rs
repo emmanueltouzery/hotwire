@@ -24,10 +24,7 @@ impl IpsAndStreamsTreeviewState {
     }
 
     pub fn remote_ips(&self) -> HashSet<IpAddr> {
-        self.remote_ips_streams_iptopath
-            .keys()
-            .map(|ip| *ip)
-            .collect()
+        self.remote_ips_streams_iptopath.keys().copied().collect()
     }
 }
 
