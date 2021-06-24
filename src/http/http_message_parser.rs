@@ -12,7 +12,6 @@ use crate::BgFunc;
 use chrono::NaiveDateTime;
 use flate2::read::GzDecoder;
 use gtk::prelude::*;
-use itertools::Itertools; // collect_tuple
 use relm::ContainerWidget;
 use std::borrow::Cow;
 use std::io::prelude::*;
@@ -379,10 +378,7 @@ impl MessageParser for Http {
 pub fn parse_headers(other_lines: &str) -> Vec<(String, String)> {
     other_lines
         .lines()
-        .filter_map(|l| {
-            // TODO use String.split_once after rust 1.52 is stabilized
-            l.splitn(2, ": ").collect_tuple()
-        })
+        .filter_map(|l| l.split_once(": "))
         .map(|(k, v)| (k.to_string(), v.trim_end().to_string()))
         .collect()
 }
