@@ -582,6 +582,12 @@ impl Widget for Win {
                 &self.model.streams,
                 &card,
                 &ips,
+                // it is a hackish way to find out...
+                if self.model.tshark_child.is_some() {
+                    ips_and_streams_treeview::IsNewDataStillIncoming::Yes
+                } else {
+                    ips_and_streams_treeview::IsNewDataStillIncoming::No
+                },
             );
             self.model.ips_and_streams_treeview_state = Some(treeview_state);
         }
@@ -648,6 +654,7 @@ impl Widget for Win {
                 &self.model.streams,
                 &card,
                 &ips,
+                ips_and_streams_treeview::IsNewDataStillIncoming::No,
             );
             self.model.ips_and_streams_treeview_state = Some(treeview_state);
         }
@@ -826,6 +833,24 @@ impl Widget for Win {
                 "Hotwire doesn't know how to read any useful data from this file".to_string(),
             )));
             return;
+        }
+
+        if let Some(card) = self.model.selected_card.as_ref() {
+            // when we load data, we do NOT update the number of messages
+            // per stream in the tree model. We'll now update it after
+            // we finished the loading
+            let mut treeview_state = self.model.ips_and_streams_treeview_state.take().unwrap();
+            let remote_ips = treeview_state.remote_ips();
+            ips_and_streams_treeview::init_remote_ips_streams_tree(&mut treeview_state);
+            ips_and_streams_treeview::refresh_remote_ips_streams_tree(
+                &mut treeview_state,
+                &self.widgets.remote_ips_streams_treeview,
+                &self.model.streams,
+                &card,
+                &remote_ips,
+                ips_and_streams_treeview::IsNewDataStillIncoming::No,
+            );
+            self.model.ips_and_streams_treeview_state = Some(treeview_state);
         }
         self.widgets.loading_spinner.stop();
         self.widgets.open_btn.set_sensitive(true);

@@ -22,6 +22,13 @@ impl IpsAndStreamsTreeviewState {
     pub fn file_closed(&mut self) {
         self.remote_ips_streams_iptopath.clear();
     }
+
+    pub fn remote_ips(&self) -> HashSet<IpAddr> {
+        self.remote_ips_streams_iptopath
+            .keys()
+            .map(|ip| *ip)
+            .collect()
+    }
 }
 
 pub fn init_remote_ip_streams_tv(
@@ -40,14 +47,25 @@ pub fn init_remote_ip_streams_tv(
     remote_ip_col.add_attribute(&cell_r_txt, "weight", 1);
     remote_ips_streams_treeview.append_column(&remote_ip_col);
 
+    let message_count_col = gtk::TreeViewColumnBuilder::new().title("# msg").build();
+    let cell_r2_txt = gtk::CellRendererTextBuilder::new().build();
+    message_count_col.pack_start(&cell_r2_txt, true);
+    message_count_col.add_attribute(&cell_r2_txt, "text", 3);
+    remote_ips_streams_treeview.append_column(&message_count_col);
+
     IpsAndStreamsTreeviewState {
         remote_ips_streams_iptopath: HashMap::new(),
-        remote_ips_streams_treestore: gtk::TreeStore::new(&[
-            String::static_type(),
-            pango::Weight::static_type(),
-            u32::static_type(),
-        ]),
+        remote_ips_streams_treestore: init_treestore(),
     }
+}
+
+fn init_treestore() -> gtk::TreeStore {
+    gtk::TreeStore::new(&[
+        String::static_type(),        // first column markup
+        pango::Weight::static_type(), // first column font weight
+        u32::static_type(),           // stream id
+        String::static_type(),        // number of messages in the stream, as string
+    ])
 }
 
 pub fn got_packet_refresh_remote_ips_treeview(
@@ -83,23 +101,16 @@ pub fn got_packet_refresh_remote_ips_treeview(
             );
             new_iter
         });
-    // TODO some duplication with refresh_remote_ips_streams_tree()
-    treeview_state.remote_ips_streams_treestore.insert_with_values(
-            Some(&remote_ip_iter),
-            None,
-            &[0, 1, 2],
-            &[
-                &format!(
-                    r#"<span foreground="{}" size="smaller">⬤</span> <span rise="-1700">Stream {}</span>"#,
-                    colors::STREAM_COLORS
-                        [packet_stream_id.as_u32() as usize % colors::STREAM_COLORS.len()],
-                    packet_stream_id.as_u32()
-                )
-                    .to_value(),
-                &pango::Weight::Normal.to_glib().to_value(),
-                &packet_stream_id.as_u32().to_value(),
-            ],
-        );
+    tv_insert_stream_leaf(
+        treeview_state,
+        &remote_ip_iter,
+        &packet_stream_id,
+        // we don't update the message counts in streams for each new
+        // packet when we load the file (seems wasteful of CPU and
+        // distracting for the user). Instead we refresh the display
+        // when the loading completes
+        &"⌛".to_value(),
+    );
 }
 
 pub fn refresh_remote_ip_stream(
@@ -149,12 +160,7 @@ pub fn refresh_remote_ip_stream(
 
 pub fn init_remote_ips_streams_tree(treeview_state: &mut IpsAndStreamsTreeviewState) {
     treeview_state.remote_ips_streams_iptopath.clear();
-    treeview_state.remote_ips_streams_treestore = gtk::TreeStore::new(&[
-        // TODO duplicated in model init
-        String::static_type(),
-        pango::Weight::static_type(),
-        u32::static_type(),
-    ]);
+    treeview_state.remote_ips_streams_treestore = init_treestore();
     treeview_state
         .remote_ips_streams_treestore
         .insert_with_values(
@@ -175,12 +181,48 @@ pub fn connect_remote_ips_streams_tree(
     remote_ips_streams_treeview.expand_all();
 }
 
+fn tv_insert_stream_leaf(
+    treeview_state: &mut IpsAndStreamsTreeviewState,
+    remote_ip_iter: &gtk::TreeIter,
+    stream_id: &TcpStreamId,
+    stream_message_count_val: &glib::Value,
+) {
+    treeview_state.remote_ips_streams_treestore.insert_with_values(
+                    Some(remote_ip_iter),
+                    None,
+                    &[0, 1, 2, 3],
+                    &[
+                        &format!(
+                            r#"<span foreground="{}" size="smaller">⬤</span> <span rise="-1700">Stream {}</span>"#,
+                            colors::STREAM_COLORS
+                                [stream_id.as_u32() as usize % colors::STREAM_COLORS.len()],
+                            stream_id.as_u32()
+                        )
+                        .to_value(),
+                        &pango::Weight::Normal.to_glib().to_value(),
+                        &stream_id.as_u32().to_value(),
+                        stream_message_count_val,
+                    ],
+                );
+}
+
+#[derive(PartialEq, Eq, Clone, Copy)]
+pub enum IsNewDataStillIncoming {
+    Yes,
+    No,
+}
+
+/// if there is still data incoming, we won't attempt to put in
+/// the treeview the count of messages per stream, we'll just
+/// put a unicode hourglass. If there no more data incoming
+/// (file fully loaded) then we'll compute the message counts
 pub fn refresh_remote_ips_streams_tree(
     treeview_state: &mut IpsAndStreamsTreeviewState,
     remote_ips_streams_treeview: &gtk::TreeView,
     streams: &HashMap<TcpStreamId, StreamData>,
     card: &CommTargetCardData,
     remote_ips: &HashSet<IpAddr>,
+    is_new_data_incoming: IsNewDataStillIncoming,
 ) {
     // self.widgets.remote_ips_streams_treeview.set_cursor(
     //     &gtk::TreePath::new_first(),
@@ -216,22 +258,20 @@ pub fn refresh_remote_ips_streams_tree(
             {
                 continue;
             }
-            treeview_state.remote_ips_streams_treestore.insert_with_values(
-                    Some(&remote_ip_iter),
-                    None,
-                    &[0, 1, 2],
-                    &[
-                        &format!(
-                            r#"<span foreground="{}" size="smaller">⬤</span> <span rise="-1700">Stream {}</span>"#,
-                            colors::STREAM_COLORS
-                                [stream_id.as_u32() as usize % colors::STREAM_COLORS.len()],
-                            stream_id.as_u32()
-                        )
-                        .to_value(),
-                        &pango::Weight::Normal.to_glib().to_value(),
-                        &stream_id.as_u32().to_value(),
-                    ],
-                );
+            tv_insert_stream_leaf(
+                treeview_state,
+                &remote_ip_iter,
+                stream_id,
+                &if is_new_data_incoming == IsNewDataStillIncoming::Yes {
+                    "⌛".to_string()
+                } else {
+                    streams
+                        .get(stream_id)
+                        .map(|s| s.messages.len().to_string())
+                        .unwrap_or_else(|| "error".to_string())
+                }
+                .to_value(),
+            );
         }
     }
 
