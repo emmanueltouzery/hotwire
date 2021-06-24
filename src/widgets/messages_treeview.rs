@@ -370,13 +370,12 @@ pub fn refresh_grids_new_messages(
     rstream: &relm::StreamHandle<win::Msg>,
     selected_card: Option<CommTargetCardData>,
     stream_id: TcpStreamId,
-    parser_index: usize,
     message_count_before: usize,
     stream_data: &StreamData,
     follow_packets: FollowPackets,
 ) {
     let parsers = win::get_message_parsers();
-    let parser = parsers.get(parser_index).unwrap();
+    let parser = parsers.get(stream_data.parser_index).unwrap();
     let added_messages = stream_data.messages.len() - message_count_before;
     // self.refresh_comm_targets();
 
@@ -384,7 +383,7 @@ pub fn refresh_grids_new_messages(
     if let (Some(client_server), Some(card)) = (stream_data.client_server, selected_card) {
         if client_server.server_ip == card.ip
             && client_server.server_port == card.port
-            && parser_index == card.protocol_index
+            && stream_data.parser_index == card.protocol_index
         {
             let ls = tv_state
                 .cur_liststore
@@ -418,7 +417,6 @@ pub fn refresh_grids_new_messages(
             packets_added_trigger_events(
                 tv_state,
                 stream_data,
-                parser_index,
                 rstream,
                 added_messages,
                 follow_packets,
@@ -430,7 +428,6 @@ pub fn refresh_grids_new_messages(
 fn packets_added_trigger_events(
     tv_state: &MessagesTreeviewState,
     stream_data: &StreamData,
-    parser_index: usize,
     rstream: &relm::StreamHandle<win::Msg>,
     added_messages: usize,
     follow_packets: FollowPackets,
@@ -463,7 +460,7 @@ fn packets_added_trigger_events(
         // just added the first rows to the grid. select the first row.
         tv_state
             .message_treeviews
-            .get(parser_index)
+            .get(stream_data.parser_index)
             .unwrap()
             .0
             .get_selection()

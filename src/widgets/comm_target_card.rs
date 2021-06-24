@@ -50,7 +50,6 @@ pub struct CommTargetCardData {
     pub ip: IpAddr,
     pub port: NetworkPort,
     pub protocol_index: usize,
-    pub protocol_name: &'static str,
     pub remote_hosts: BTreeSet<IpAddr>,
     pub protocol_icon: Icon,
     pub summary_details: Option<SummaryDetails>,
@@ -64,7 +63,6 @@ impl CommTargetCardData {
         protocol_index: usize,
         remote_hosts: BTreeSet<IpAddr>,
         protocol_icon: Icon,
-        protocol_name: &'static str,
         summary_details: Option<SummaryDetails>,
         incoming_session_count: usize,
     ) -> CommTargetCardData {
@@ -72,7 +70,6 @@ impl CommTargetCardData {
             ip,
             port,
             protocol_index,
-            protocol_name,
             remote_hosts,
             protocol_icon,
             summary_details,

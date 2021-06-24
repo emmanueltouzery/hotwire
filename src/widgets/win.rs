@@ -741,7 +741,6 @@ impl Widget for Win {
                 self.model.relm.stream(),
                 self.model.selected_card.clone(),
                 packet_stream_id,
-                parser_index,
                 message_count_before,
                 &stream_data,
                 self.get_follow_packets(),
@@ -797,7 +796,6 @@ impl Widget for Win {
                         self.model.relm.stream(),
                         self.model.selected_card.clone(),
                         stream_id,
-                        parser_index,
                         message_count_before,
                         &sd,
                         self.get_follow_packets(),
@@ -918,7 +916,6 @@ impl Widget for Win {
                     bs
                 },
                 parser.protocol_icon(),
-                parser.protocol_name(),
                 summary_details.and_then(|d| SummaryDetails::new(d.to_string(), card_key)),
                 1,
             );
