@@ -872,10 +872,10 @@ impl Widget for Win {
                 card.increase_incoming_session_count();
             }
             card.remote_hosts.insert(client_server_info.client_ip);
-            if card.summary_details.is_none() && summary_details.is_some() {
-                card.summary_details = Some(SummaryDetails {
-                    details: summary_details.unwrap().to_string(),
-                });
+            if card.summary_details.is_none() {
+                if let Some(details) = summary_details {
+                    card.summary_details = SummaryDetails::new(details.to_string(), card_key);
+                }
             }
             self.model
                 .comm_targets_components
@@ -895,9 +895,7 @@ impl Widget for Win {
                 },
                 parser.protocol_icon(),
                 parser.protocol_name(),
-                summary_details.map(|d| SummaryDetails {
-                    details: d.to_string(),
-                }),
+                summary_details.and_then(|d| SummaryDetails::new(d.to_string(), card_key)),
                 1,
             );
             self.model.comm_target_cards.push(card.clone());

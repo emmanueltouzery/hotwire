@@ -14,25 +14,25 @@ pub enum Msg {
 
 #[derive(Clone, Debug)]
 pub struct SummaryDetails {
-    pub details: String, // non public on purpose, please use ::new
+    details: String, // non public on purpose, please use ::new
 }
 
 impl SummaryDetails {
-    pub fn new(details: &str, ip: IpAddr, port: NetworkPort) -> Option<SummaryDetails> {
+    pub fn new(details: String, card_key: CommTargetCardKey) -> Option<SummaryDetails> {
         // meant to avoid for http to have ip+port repeated for ip+port display,
         // and then again for the details, which is the hostname, in case the hostname
         // was just the IP
-        if !CommTargetCard::server_ip_port_display_format(ip, port).starts_with(details) {
-            Some(SummaryDetails {
-                details: details.to_string(),
-            })
+        if !CommTargetCard::server_ip_port_display_format(card_key.ip, card_key.port)
+            .starts_with(&details)
+        {
+            Some(SummaryDetails { details })
         } else {
             None
         }
     }
 }
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash, Copy, Clone)]
 pub struct CommTargetCardKey {
     pub ip: IpAddr,
     pub port: NetworkPort,
