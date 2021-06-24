@@ -180,92 +180,7 @@ impl MessageParser for Postgres {
                                 server_port: new_packet.basic_info.port_src,
                             });
                         }
-                        globals.cur_rs_row_count += 1;
-                        let mut int_col_idx = 0;
-                        let mut datetime_col_idx = 0;
-                        let mut bigint_col_idx = 0;
-                        let mut bool_col_idx = 0;
-                        let mut string_col_idx = 0;
-                        if globals.cur_col_types.is_empty() {
-                            // it's possible we don't have all the info about this query
-                            // default to String for all the columns instead of dropping the data.
-                            globals.cur_col_types = vec![PostgresColType::Text; cols.len()];
-                            globals.cur_col_names = vec!["Col".to_string(); cols.len()];
-                            for _ in &globals.cur_col_types {
-                                globals.cur_rs_string_cols.push(vec![]);
-                            }
-                        };
-                        for (col_type, val) in globals.cur_col_types.iter().zip(cols) {
-                            match col_type {
-                                PostgresColType::Bool => {
-                                    globals.cur_rs_bool_cols[bool_col_idx].push(match &val[..] {
-                                        "t" => Some(true),
-                                        "null" => None,
-                                        "f" => Some(false),
-                                        _ => return Err(format!("expected bool value: {}", val)),
-                                    });
-                                    bool_col_idx += 1;
-                                }
-                                PostgresColType::Int2 | PostgresColType::Int4 => {
-                                    globals.cur_rs_int_cols[int_col_idx].push(if val == "null" {
-                                        None
-                                    } else {
-                                        let parsed: Option<i32> = val.parse().ok();
-                                        if parsed.is_some() {
-                                            parsed
-                                        } else {
-                                            return Err(format!("expected int value: {}", val));
-                                        }
-                                    });
-                                    int_col_idx += 1;
-                                }
-                                PostgresColType::Timestamp => {
-                                    globals.cur_rs_datetime_cols[datetime_col_idx].push(
-                                        if val == "null" {
-                                            None
-                                        } else {
-                                            let parsed = NaiveDateTime::parse_from_str(
-                                                &val,
-                                                "%Y-%m-%d %H:%M:%S%.f",
-                                            )
-                                            .ok();
-                                            if parsed.is_some() {
-                                                parsed
-                                            } else {
-                                                return Err(format!(
-                                                    "expected datetime value: {}",
-                                                    val
-                                                ));
-                                            }
-                                        },
-                                    );
-                                    datetime_col_idx += 1;
-                                }
-                                PostgresColType::Int8 => {
-                                    globals.cur_rs_bigint_cols[bigint_col_idx].push(
-                                        if val == "null" {
-                                            None
-                                        } else {
-                                            let parsed: Option<i64> = val.parse().ok();
-                                            if parsed.is_some() {
-                                                parsed
-                                            } else {
-                                                return Err(format!(
-                                                    "expected int8 value: {}",
-                                                    val
-                                                ));
-                                            }
-                                        },
-                                    );
-                                    bigint_col_idx += 1;
-                                }
-                                _ => {
-                                    globals.cur_rs_string_cols[string_col_idx]
-                                        .push(Some(val).filter(|v| v != "null"));
-                                    string_col_idx += 1;
-                                }
-                            }
-                        }
+                        handle_pgsql_resultset_row(&mut globals, cols)?;
                     }
                     PostgresWireMessage::ReadyForQuery => {
                         if stream.client_server.is_none() {
@@ -524,6 +439,84 @@ impl MessageParser for Postgres {
                 ))
         })
     }
+}
+
+fn handle_pgsql_resultset_row(
+    globals: &mut PostgresStreamGlobals,
+    cols: Vec<String>,
+) -> Result<(), String> {
+    globals.cur_rs_row_count += 1;
+    let mut int_col_idx = 0;
+    let mut datetime_col_idx = 0;
+    let mut bigint_col_idx = 0;
+    let mut bool_col_idx = 0;
+    let mut string_col_idx = 0;
+    if globals.cur_col_types.is_empty() {
+        // it's possible we don't have all the info about this query
+        // default to String for all the columns instead of dropping the data.
+        globals.cur_col_types = vec![PostgresColType::Text; cols.len()];
+        globals.cur_col_names = vec!["Col".to_string(); cols.len()];
+        for _ in &globals.cur_col_types {
+            globals.cur_rs_string_cols.push(vec![]);
+        }
+    };
+    for (col_type, val) in globals.cur_col_types.iter().zip(cols) {
+        match col_type {
+            PostgresColType::Bool => {
+                globals.cur_rs_bool_cols[bool_col_idx].push(match &val[..] {
+                    "t" => Some(true),
+                    "null" => None,
+                    "f" => Some(false),
+                    _ => return Err(format!("expected bool value: {}", val)),
+                });
+                bool_col_idx += 1;
+            }
+            PostgresColType::Int2 | PostgresColType::Int4 => {
+                globals.cur_rs_int_cols[int_col_idx].push(if val == "null" {
+                    None
+                } else {
+                    let parsed: Option<i32> = val.parse().ok();
+                    if parsed.is_some() {
+                        parsed
+                    } else {
+                        return Err(format!("expected int value: {}", val));
+                    }
+                });
+                int_col_idx += 1;
+            }
+            PostgresColType::Timestamp => {
+                globals.cur_rs_datetime_cols[datetime_col_idx].push(if val == "null" {
+                    None
+                } else {
+                    let parsed = NaiveDateTime::parse_from_str(&val, "%Y-%m-%d %H:%M:%S%.f").ok();
+                    if parsed.is_some() {
+                        parsed
+                    } else {
+                        return Err(format!("expected datetime value: {}", val));
+                    }
+                });
+                datetime_col_idx += 1;
+            }
+            PostgresColType::Int8 => {
+                globals.cur_rs_bigint_cols[bigint_col_idx].push(if val == "null" {
+                    None
+                } else {
+                    let parsed: Option<i64> = val.parse().ok();
+                    if parsed.is_some() {
+                        parsed
+                    } else {
+                        return Err(format!("expected int8 value: {}", val));
+                    }
+                });
+                bigint_col_idx += 1;
+            }
+            _ => {
+                globals.cur_rs_string_cols[string_col_idx].push(Some(val).filter(|v| v != "null"));
+                string_col_idx += 1;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn get_query_type_desc(query: &Option<Cow<'static, str>>) -> &'static str {
