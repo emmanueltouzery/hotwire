@@ -183,11 +183,6 @@ fn row_selected(
     let iter = store.get_iter(&path).unwrap();
     let stream_id = store.get_value(&iter, 2);
     let idx = store.get_value(&iter, 3);
-    println!(
-        "stream: {} idx: {}",
-        stream_id.get::<u32>().unwrap().unwrap(),
-        idx.get::<u32>().unwrap().unwrap()
-    );
     rstream.emit(win::Msg::DisplayDetails(
         TcpStreamId(stream_id.get::<u32>().unwrap().unwrap()),
         idx.get::<u32>().unwrap().unwrap(),
@@ -300,7 +295,6 @@ fn setup_selection_signals(
     sidebar_selection_change_signal_id: Option<&glib::SignalHandlerId>,
     refresh_ongoing: RefreshOngoing,
 ) {
-    dbg!(&refresh_ongoing);
     match refresh_ongoing {
         RefreshOngoing::Yes => {
             for (tv, signals) in &tv_state.message_treeviews {

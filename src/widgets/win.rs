@@ -154,7 +154,7 @@ enum SessionChangeType {
 impl Widget for Win {
     fn init_view(&mut self) {
         if let Err(err) = self.load_style() {
-            println!("Error loading the CSS: {}", err);
+            eprintln!("Error loading the CSS: {}", err);
         }
         self.widgets.infobar.set_visible(false);
 
@@ -353,12 +353,12 @@ impl Widget for Win {
     }
 
     fn update(&mut self, event: Msg) {
-        match &event {
-            Msg::LoadedData(_) => println!("event: loadeddata"),
-            _ => {
-                dbg!(&event);
-            }
-        }
+        // match &event {
+        //     Msg::LoadedData(_) => println!("event: loadeddata"),
+        //     _ => {
+        //         dbg!(&event);
+        //     }
+        // }
         match event {
             Msg::DisplayAbout => {
                 self.display_about();
@@ -467,7 +467,6 @@ impl Widget for Win {
             }
             Msg::SelectRemoteIpStream(selection) => {
                 let (mut paths, _model) = selection.get_selected_rows();
-                println!("remote selection changed");
                 ips_and_streams_treeview::refresh_remote_ip_stream(
                     self.model.relm.stream(),
                     self.model.selected_card.as_ref(),

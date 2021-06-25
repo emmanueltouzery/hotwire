@@ -331,14 +331,14 @@ fn prepare_http_message(
             Some("gzip") => ContentEncoding::Gzip,
             _ => ContentEncoding::Plain,
         };
-    if matches!(body, HttpBody::Binary(_)) {
-        println!(
-            "######### GOT BINARY BODY {:?} status {:?} path {:?}",
-            content_type,
-            http_message_parser::get_http_header_value(&headers, ":status"),
-            http_message_parser::get_http_header_value(&headers, ":path"),
-        );
-    }
+    // if matches!(body, HttpBody::Binary(_)) {
+    //     println!(
+    //         "######### GOT BINARY BODY {:?} status {:?} path {:?}",
+    //         content_type,
+    //         http_message_parser::get_http_header_value(&headers, ":status"),
+    //         http_message_parser::get_http_header_value(&headers, ":path"),
+    //     );
+    // }
     (
         HttpRequestResponseData {
             tcp_stream_no,

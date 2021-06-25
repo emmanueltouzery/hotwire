@@ -44,7 +44,6 @@ pub fn invoke_tshark(
     filters: &str,
     sender: relm::Sender<ParseInputStep>,
 ) {
-    dbg!(&filters);
     // piping from tshark, not to load the entire JSON in ram...
     let mut tshark_params = vec![
         if input_type == TSharkInputType::File {

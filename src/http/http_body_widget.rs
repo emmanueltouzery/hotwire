@@ -173,7 +173,6 @@ impl Widget for HttpBodyWidget {
     }
 
     fn display_image(&self, bytes: &[u8]) {
-        println!("loading image: {}", bytes.len());
         let loader = gdk_pixbuf::PixbufLoader::new();
         let r = loader.write(bytes);
         loader.close().unwrap();

@@ -80,7 +80,6 @@ fn parse_http2_stream<B: BufRead>(
         Ok(Event::Start(ref e)) => {
             if e.name() == b"field" {
                 field_depth += 1;
-                dbg!(field_depth);
                 let name = e
                     .attributes()
                     .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
@@ -94,7 +93,6 @@ fn parse_http2_stream<B: BufRead>(
         Ok(Event::End(ref e)) => {
             if e.name() == b"field" {
                 field_depth -= 1;
-                dbg!(field_depth);
                 if field_depth < 0 {
                     return Ok(TSharkHttp2Message {
                         headers,

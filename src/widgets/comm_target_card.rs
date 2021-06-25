@@ -102,7 +102,6 @@ impl Widget for CommTargetCard {
                 self.model.remote_hosts = d.remote_hosts;
                 self.model.summary_details = d.summary_details;
                 self.model.incoming_session_count = d.incoming_session_count;
-                dbg!(&self.model);
             }
         }
     }
