@@ -44,6 +44,8 @@ const WELCOME_STACK_NAME: &str = "welcome";
 const LOADING_STACK_NAME: &str = "loading";
 const NORMAL_STACK_NAME: &str = "normal";
 
+const PCAP_MIME_TYPE: &str = "application/vnd.tcpdump.pcap";
+
 pub fn get_message_parsers() -> Vec<Box<dyn MessageParser>> {
     vec![Box::new(Http), Box::new(Postgres), Box::new(Http2)]
 }
@@ -258,7 +260,12 @@ impl Widget for Win {
         items.sort_by_key(|i| Reverse(i.get_modified()));
         items
             .into_iter()
-            .filter(|i| i.last_application().map(|a| a.to_string()) == Some("hotwire".to_string()))
+            .filter(|i| {
+                i.last_application().map(|a| a.to_string()) == Some("hotwire".to_string())
+                    // if we don't also filter by mimetype, we get also the files we saved (for instance
+                    // when saving http bodies to files on disk)
+                    && i.get_mime_type() == Some(PCAP_MIME_TYPE.into())
+            })
             .take(5)
             .flat_map(|fi| fi.get_uri())
             .map(|gs| PathBuf::from(gs.as_str()))
@@ -1179,7 +1186,7 @@ impl Widget for Win {
                 let recent_data = gtk::RecentData {
                     display_name: None,
                     description: None,
-                    mime_type: "application/vnd.tcpdump.pcap".to_string(),
+                    mime_type: PCAP_MIME_TYPE.to_string(),
                     app_name: "hotwire".to_string(),
                     app_exec: "hotwire".to_string(),
                     groups: vec![],
