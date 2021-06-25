@@ -7,6 +7,7 @@ use quick_xml::events::Event;
 use signal_hook::iterator::Signals;
 use std::io::BufRead;
 use std::io::BufReader;
+#[cfg(target_family = "unix")]
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::path::PathBuf;
@@ -127,6 +128,15 @@ pub fn parse_pdml_stream<B: BufRead>(buf_reader: B, sender: relm::Sender<ParseIn
     }
 }
 
+#[cfg(target_family = "windows")]
+pub fn cleanup_child_processes(
+    tcpdump_child: Option<Child>,
+    tshark_child: Option<Child>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    Ok(())
+}
+
+#[cfg(target_family = "unix")]
 pub fn cleanup_child_processes(
     tcpdump_child: Option<Child>,
     tshark_child: Option<Child>,

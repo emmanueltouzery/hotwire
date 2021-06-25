@@ -1,4 +1,5 @@
 use relm::Widget;
+#[cfg(target_family = "unix")]
 use std::os::unix::fs::FileTypeExt;
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -55,10 +56,14 @@ fn main() {
     }
 
     let path = args.next().map(|p| {
-        let is_fifo = std::fs::metadata(&p)
-            .ok()
-            .map(|m| m.file_type().is_fifo())
-            .is_some();
+        let is_fifo = if cfg!(unix) {
+            std::fs::metadata(&p)
+                .ok()
+                .map(|m| m.file_type().is_fifo())
+                .is_some()
+        } else {
+            false
+        };
         (
             PathBuf::from(p),
             if is_fifo {

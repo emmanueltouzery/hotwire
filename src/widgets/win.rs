@@ -31,6 +31,7 @@ use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::net::IpAddr;
+#[cfg(target_family = "unix")]
 use std::os::unix::fs::FileTypeExt;
 use std::path::Path;
 use std::path::PathBuf;
@@ -1199,10 +1200,14 @@ impl Widget for Win {
     fn gui_load_file(&mut self, fname: PathBuf) {
         self.widgets.open_btn.set_active(false);
         Self::add_to_recent_files(&fname);
-        let is_fifo = std::fs::metadata(&fname)
-            .ok()
-            .filter(|m| m.file_type().is_fifo())
-            .is_some();
+        let is_fifo = if cfg!(unix) {
+            std::fs::metadata(&fname)
+                .ok()
+                .filter(|m| m.file_type().is_fifo())
+                .is_some()
+        } else {
+            false
+        };
 
         self.reset_open_file(
             Some(fname.clone()),
