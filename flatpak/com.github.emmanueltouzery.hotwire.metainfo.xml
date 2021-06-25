@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<component type="desktop-application">
+  <id>com.github.emmanueltouzery.hotwire</id>
+  <metadata_license>CC0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Hotwire</name>
+  <summary>Hotwire allows you to study network traffic of a few popular protocols in a simple way</summary>
+  <description>
+    <p>Hotwire leverages the wireshark and tshark infrastructure to capture traffic and explore the contents
+    of tcpdump files, but displays the data in a more focused way than wireshark. Hotwire supports only a
+    few protocols (currently PostgreSQL, HTTP and HTTP2), but for these protocols it offers a high-level,
+    clear display of the network traffic, tailored for each specific protocol.</p>
+    <p>Hotwire can open tcpdump files or record traffic through a fifo file (the non-flatpak version can
+    record data on linux using tcpdump and pkexec).</p>
+  </description>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/wiki/emmanueltouzery/hotwire/pics/pic1.png</image>
+      <caption>Main Window</caption>
+    </screenshot>
+  </screenshots>
+  <url type="homepage">https://github.com/emmanueltouzery/hotwire/</url>
+  <!--
+Open Age Rating Service
+https://hughsie.github.io/oars/index.html
+-->
+  <content_rating type="oars-1.0" />
+  <releases>
+    <release version="0.1.0" date="2021-06-25">
+      <description>
+        <p>Initial release</p>
+      </description>
+    </release>
+  </releases>
+  <kudos>
+    <!--
+    GNOME Software kudos:
+    https://gitlab.gnome.org/GNOME/gnome-software/blob/master/doc/kudos.md
+    -->
+    <kudo>ModernToolkit</kudo>
+    <kudo>HiDpiIcon</kudo>
+  </kudos>
+  <developer_name>Emmanuel Touzery</developer_name>
+  <update_contact>etouzery@gmail.com</update_contact>
+  <launchable type="desktop-id">com.github.emmanueltouzery.hotwire.desktop</launchable>
+</component>
