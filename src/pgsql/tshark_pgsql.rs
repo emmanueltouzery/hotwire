@@ -243,7 +243,9 @@ fn parse_parameter_values<B: BufRead>(
                                 &tshark_communication::element_attr_val_string(e, b"show")
                                     .unwrap(),
                             )
-                            .unwrap_or_default(), // TODO
+                            // TODO i have seen int8 values here, which result in "" due to the default.
+                            // not sure how to find out the parameter type (integer, string, date, actual true binary..?)
+                            .unwrap_or_default(),
                         );
                     }
                     _ => {}
