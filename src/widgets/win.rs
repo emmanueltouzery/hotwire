@@ -241,7 +241,7 @@ impl Widget for Win {
     }
 
     fn is_display_capture_btn() -> bool {
-        cfg!(target_os = "linux")
+        cfg!(target_os = "linux") && !is_flatpak()
     }
 
     fn refresh_recent_files(&mut self) {
@@ -1331,7 +1331,6 @@ impl Widget for Win {
                                 text: "Capture"
                             }
                         },
-                        visible: !is_flatpak(),
                     },
                     #[name="follow_packets_btn"]
                     gtk::ToggleButton {
