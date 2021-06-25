@@ -1,3 +1,4 @@
+use super::win;
 use gtk::prelude::*;
 use relm::Widget;
 use relm_derive::{widget, Msg};
@@ -38,6 +39,9 @@ impl Widget for RecentFileItem {
                 label: &self.model.recent_file
                             .parent().and_then(|f| f.to_str()).map(|f| f.trim_start_matches("file://")).unwrap_or(""),
                 ellipsize: pango::EllipsizeMode::End,
+                // can't get the folder name within a flatpak
+                // https://github.com/flatpak/xdg-desktop-portal/issues/475
+                visible: !win::is_flatpak(),
             },
         }
     }

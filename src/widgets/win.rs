@@ -51,6 +51,11 @@ pub fn get_message_parsers() -> Vec<Box<dyn MessageParser>> {
     vec![Box::new(Http), Box::new(Postgres), Box::new(Http2)]
 }
 
+pub fn is_flatpak() -> bool {
+    // if $XDG_DATA_HOME is NOT defined, I assume I'm not in a flatpak
+    !std::env::var("XDG_DATA_HOME").is_err()
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum InfobarOptions {
     Default,
@@ -1154,7 +1159,15 @@ impl Widget for Win {
         self.model.window_subtitle = Some(
             fname
                 .as_ref()
-                .map(|p| p.to_string_lossy())
+                .and_then(|p| {
+                    if is_flatpak() {
+                        // can't get the folder name within a flatpak
+                        // https://github.com/flatpak/xdg-desktop-portal/issues/475
+                        p.file_name().map(|f| f.to_string_lossy())
+                    } else {
+                        Some(p.to_string_lossy())
+                    }
+                })
                 .unwrap_or(std::borrow::Cow::Borrowed("Network Capture"))
                 .to_string(),
         );
