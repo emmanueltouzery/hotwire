@@ -66,7 +66,6 @@ fn parse_http2_stream<B: BufRead>(
                                 == Some(1);
                     }
                     Some(b"http2.data.data") => {
-                        // TODO diff basic/recomposed data relevant in pdml?
                         data = hex::decode(
                             tshark_communication::element_attr_val_string(e, b"show")
                                 .unwrap()
