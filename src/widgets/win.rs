@@ -1330,7 +1330,8 @@ impl Widget for Win {
                             gtk::Label {
                                 text: "Capture"
                             }
-                        }
+                        },
+                        visible: !is_flatpak(),
                     },
                     #[name="follow_packets_btn"]
                     gtk::ToggleButton {
