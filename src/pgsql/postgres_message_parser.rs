@@ -59,6 +59,16 @@ impl MessageParser for Postgres {
                         database: Some(ref database),
                         application,
                     } => {
+                        match stream.summary_details.as_ref() {
+                            None => {
+                                stream.summary_details = Some(database.to_string());
+                            }
+                            Some(other_db) if !other_db.contains(database) => {
+                                stream.summary_details =
+                                    Some(format!("{}, {}", other_db, database));
+                            }
+                            _ => {}
+                        }
                         if stream.client_server.is_none() {
                             stream.client_server = Some(ClientServerInfo {
                                 server_ip: new_packet.basic_info.ip_dst,
