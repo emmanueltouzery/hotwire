@@ -2,7 +2,7 @@ use crate::http::http_message_parser;
 use crate::http::http_message_parser::{
     ContentEncoding, HttpBody, HttpMessageData, HttpRequestResponseData,
 };
-use crate::http2::tshark_http2::{Http2Data, TSharkHttp2Message};
+use crate::http2::tshark_http2::TSharkHttp2Message;
 use crate::icons;
 use crate::message_parser::{
     ClientServerInfo, MessageData, MessageInfo, MessageParser, StreamData, StreamGlobals,
@@ -268,13 +268,16 @@ fn prepare_http_message(
         |(mut sofar_h, sofar_d), mut cur| {
             sofar_h.append(&mut cur.headers);
             let new_data = match (sofar_d, cur.data) {
-                (None, Some(Http2Data::BasicData(d))) => Some(d),
-                (None, Some(Http2Data::RecomposedData(d))) => Some(d),
-                (Some(mut s), Some(Http2Data::BasicData(mut n))) => {
-                    s.append(&mut n);
-                    Some(s)
+                (None, Some(d)) => Some(d),
+                (Some(_s), Some(n)) => {
+                    // when a http data transfer is split between multiple packets, it seems that tshark
+                    // recomposes data in the final packet, we don't need to combine it ourselves.
+                    // The "recombined" aspect was clearer in the tshark JSON as opposed to XML PDML.
+                    // => discarding previous messages, only keeping the last one.
+                    // TODO if this holds, I could make sure that we never load the incomplete data from
+                    // previous packets to memory, to reduce memory use
+                    Some(n)
                 }
-                (Some(_s), Some(Http2Data::RecomposedData(n))) => Some(n),
                 (d, _) => d,
             };
             (sofar_h, new_data)

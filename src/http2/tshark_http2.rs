@@ -3,41 +3,10 @@ use quick_xml::events::Event;
 use std::fmt::Debug;
 use std::io::BufRead;
 
-// if i have data over 2 http2 packets, tshark will often give me
-// the first part of the data in the first packet, then
-// the RECOMPOSED data in the second packet, repeating data from
-// the first packet.
-// => when combining packets, the recomposed data should overwrite
-// previously collected data
-pub enum Http2Data {
-    BasicData(Vec<u8>),
-    RecomposedData(Vec<u8>),
-}
-
-impl Debug for Http2Data {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
-        match &self {
-            Http2Data::BasicData(d) => fmt.write_str(&format!("BasicData(length: {})", d.len())),
-            Http2Data::RecomposedData(d) => {
-                fmt.write_str(&format!("RecomposedData(length: {})", d.len()))
-            }
-        }
-    }
-}
-
-impl Http2Data {
-    fn is_empty(&self) -> bool {
-        match &self {
-            Http2Data::BasicData(v) => v.is_empty(),
-            Http2Data::RecomposedData(v) => v.is_empty(),
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct TSharkHttp2Message {
     pub headers: Vec<(String, String)>,
-    pub data: Option<Http2Data>,
+    pub data: Option<Vec<u8>>,
     pub stream_id: u32,
     pub is_end_stream: bool,
 }
@@ -103,8 +72,7 @@ fn parse_http2_stream<B: BufRead>(
                                 .unwrap()
                                 .replace(':', ""),
                         )
-                        .ok()
-                        .map(Http2Data::RecomposedData);
+                        .ok();
                     }
                     _ => {}
                 }
