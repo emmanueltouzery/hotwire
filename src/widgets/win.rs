@@ -520,7 +520,7 @@ impl Widget for Win {
                         "NO DATA for {}/{} -- stream length {:?}",
                         stream_id,
                         idx,
-                        self.model.streams.get(&stream_id).unwrap().messages.len()
+                        self.model.streams.get(&stream_id).map(|s| s.messages.len())
                     );
                 }
             }
