@@ -17,6 +17,7 @@ use crate::message_parser::StreamData;
 use crate::packets_read;
 use crate::packets_read::{InputStep, ParseInputStep, TSharkInputType};
 use crate::pgsql::postgres_message_parser::Postgres;
+use crate::tshark_communication;
 use crate::tshark_communication::{NetworkPort, TSharkPacket, TcpStreamId};
 use crate::widgets::comm_target_card::CommTargetCardKey;
 use crate::widgets::comm_target_card::SummaryDetails;
@@ -274,7 +275,7 @@ impl Widget for Win {
             })
             .take(5)
             .flat_map(|fi| fi.get_uri())
-            .map(|gs| PathBuf::from(gs.as_str()))
+            .map(|gs| tshark_communication::string_to_path(gs.as_str()))
             .for_each(|pb| {
                 self.model.recent_files.push(pb.clone());
                 self.model._recent_file_item_components.push(

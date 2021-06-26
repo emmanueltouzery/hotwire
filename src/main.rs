@@ -1,7 +1,6 @@
 use relm::Widget;
 #[cfg(target_family = "unix")]
 use std::os::unix::fs::FileTypeExt;
-use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
 use widgets::win;
@@ -55,7 +54,8 @@ fn main() {
         eprintln!("Error removing obsolete tcpdump files: {}", e);
     }
 
-    let path = args.next().map(|p| {
+    let path = args.next().map(|param_p| {
+        let p = tshark_communication::string_to_path(&param_p);
         let is_fifo = if cfg!(unix) {
             std::fs::metadata(&p)
                 .ok()
@@ -65,7 +65,7 @@ fn main() {
             false
         };
         (
-            PathBuf::from(p),
+            p,
             if is_fifo {
                 packets_read::TSharkInputType::Fifo
             } else {

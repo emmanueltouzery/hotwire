@@ -6,6 +6,7 @@ use quick_xml::events::Event;
 use std::fmt::Debug;
 use std::io::BufRead;
 use std::net::IpAddr;
+use std::path::PathBuf;
 use std::str;
 use std::str::FromStr;
 
@@ -395,4 +396,13 @@ pub fn parse_stream<MP: MessageParser>(
     }
     stream_data = parser.finish_stream(stream_data)?;
     Ok(stream_data)
+}
+
+/// supports both disk paths and file:// URIs
+pub fn string_to_path(p: &str) -> PathBuf {
+    PathBuf::from(if let Some(stripped) = p.strip_prefix("file://") {
+        stripped.to_string()
+    } else {
+        p.to_string()
+    })
 }
