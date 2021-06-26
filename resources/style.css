@@ -53,5 +53,5 @@ row:selected .card_protocol_name {
 }
 
 .card_stats {
-  opacity: 0.4;
+  color: gray;
 }
