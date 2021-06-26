@@ -841,6 +841,9 @@ impl Widget for Win {
             self.model.relm.stream().emit(Msg::LoadedData(Err(
                 "Hotwire doesn't know how to read any useful data from this file".to_string(),
             )));
+            self.widgets.loading_spinner.stop();
+            self.widgets.open_btn.set_sensitive(true);
+            self.widgets.capture_btn.set_sensitive(true);
             return;
         }
 
