@@ -1277,6 +1277,8 @@ impl Widget for Win {
     view! {
         #[name="window"]
         gtk::Window {
+            property_default_width: 1000,
+            property_default_height: 650,
             titlebar: view! {
                 gtk::HeaderBar {
                     show_close_button: true,
