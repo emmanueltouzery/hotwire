@@ -359,10 +359,7 @@ fn parse_pg_oid_type(typ: &str) -> PostgresColType {
         Ok(26) => PostgresColType::Oid,
         Ok(1043) => PostgresColType::Varchar,
         Ok(1114) => PostgresColType::Timestamp,
-        _ => {
-            eprintln!("Unhandled postgres type: {:?}", typ);
-            PostgresColType::Other
-        }
+        _ => PostgresColType::Other,
     }
 }
 
