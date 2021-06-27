@@ -55,3 +55,7 @@ row:selected .card_protocol_name {
 .card_stats {
   color: gray;
 }
+
+row:selected .card_stats {
+  color: lightgray;
+}
