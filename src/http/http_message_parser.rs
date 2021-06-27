@@ -74,19 +74,27 @@ impl MessageParser for Http {
             new_packet,
             stream.client_server.as_ref().map(|cs| cs.server_ip),
         );
+        // the localhost is to discard eg localhost:8080
+        let host = rr.host.as_deref();
+        let host_without_leading_localhost =
+            if let Some(no_localhost) = host.and_then(|h| h.strip_prefix("localhost")) {
+                Some(no_localhost)
+            } else {
+                host
+            };
         if stream.summary_details.is_none() {
             match (
                 rr.req_resp
                     .data()
                     .and_then(|d| get_http_header_value(&d.headers, "X-Forwarded-Server")),
-                rr.host.as_ref(),
+                host_without_leading_localhost,
                 rr.req_resp
                     .data()
                     .and_then(|d| get_http_header_value(&d.headers, "Server")),
             ) {
                 (Some(fwd), _, _) => stream.summary_details = Some(fwd.clone()),
                 (_, Some(host), _) if !host.trim_end_matches(&IP_ONLY_CHARS[..]).is_empty() => {
-                    stream.summary_details = Some(host.clone())
+                    stream.summary_details = Some(host.to_string())
                 }
                 (_, _, Some(server)) if globals.server_info.is_none() => {
                     globals.server_info = Some(server.to_string());
