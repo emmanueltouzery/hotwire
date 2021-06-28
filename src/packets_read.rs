@@ -166,6 +166,8 @@ pub fn cleanup_child_processes(
         // we do kill the tshark process, but our read() on the pipe from tshark hangs.
         // I don't know why. However if I use nix to send a SIGINT, our read() is interrupted
         // and all is good...
+        // It might be because tshark launches a child process, dumpcap, because I ask it to save
+        // the pcap file. Or not... I didn't check too much.
         //
         // tshark_child.kill()?;
         nix::sys::signal::kill(
