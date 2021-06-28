@@ -54,7 +54,7 @@ pub fn get_message_parsers() -> Vec<Box<dyn MessageParser>> {
 
 pub fn is_flatpak() -> bool {
     // if $XDG_DATA_HOME is NOT defined, I assume I'm not in a flatpak
-    !std::env::var("XDG_DATA_HOME").is_err()
+    std::env::var("XDG_DATA_HOME").is_ok()
 }
 
 #[derive(Debug, PartialEq, Eq)]
