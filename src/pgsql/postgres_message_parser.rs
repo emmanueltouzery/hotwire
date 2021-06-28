@@ -14,6 +14,9 @@ use gtk::prelude::*;
 use relm::ContainerWidget;
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::iter;
+use std::str;
+use std::str::FromStr;
 use std::sync::mpsc;
 
 #[cfg(test)]
@@ -110,6 +113,7 @@ impl MessageParser for Postgres {
                     PostgresWireMessage::Parse {
                         ref query,
                         ref statement,
+                        ref param_types,
                     } => {
                         if stream.client_server.is_none() {
                             stream.client_server = Some(ClientServerInfo {
@@ -122,10 +126,11 @@ impl MessageParser for Postgres {
                             globals.known_statements.insert((*st).clone(), (*q).clone());
                         }
                         globals.cur_query = query.clone();
+                        globals.parse_param_types = param_types.clone();
                     }
                     PostgresWireMessage::Bind {
                         statement,
-                        parameter_values,
+                        parameter_lengths_and_vals,
                     } => {
                         if stream.client_server.is_none() {
                             stream.client_server = Some(ClientServerInfo {
@@ -147,7 +152,16 @@ impl MessageParser for Postgres {
                             ),
                             _ => None,
                         };
-                        globals.cur_parameter_values = parameter_values.to_vec();
+                        globals.cur_parameter_values = parameter_lengths_and_vals
+                            .iter()
+                            .zip(
+                                globals
+                                    .parse_param_types
+                                    .iter()
+                                    .chain(iter::repeat(&PostgresColType::Unknown)),
+                            )
+                            .map(|((length, val), typ)| (*typ, decode_param(*typ, val, *length)))
+                            .collect();
                     }
                     PostgresWireMessage::RowDescription {
                         col_names,
@@ -182,7 +196,9 @@ impl MessageParser for Postgres {
                             }
                         }
                     }
-                    PostgresWireMessage::ResultSetRow { cols } => {
+                    PostgresWireMessage::ResultSetRow {
+                        col_lengths_and_vals,
+                    } => {
                         if stream.client_server.is_none() {
                             stream.client_server = Some(ClientServerInfo {
                                 server_ip: new_packet.basic_info.ip_src,
@@ -190,7 +206,13 @@ impl MessageParser for Postgres {
                                 server_port: new_packet.basic_info.port_src,
                             });
                         }
-                        handle_pgsql_resultset_row(&mut globals, cols)?;
+                        handle_pgsql_resultset_row(
+                            &mut globals,
+                            col_lengths_and_vals
+                                .iter()
+                                .map(|(_l, v)| v.clone())
+                                .collect(),
+                        )?;
                     }
                     PostgresWireMessage::ReadyForQuery => {
                         if stream.client_server.is_none() {
@@ -219,6 +241,7 @@ impl MessageParser for Postgres {
                                 }));
                         }
                         globals.was_bind = false;
+                        globals.parse_param_types = vec![];
                         globals.cur_query_with_fallback = None;
                         globals.cur_query = None;
                         globals.cur_col_names = vec![];
@@ -451,6 +474,85 @@ impl MessageParser for Postgres {
     }
 }
 
+fn decode_bool(val: &str) -> Option<bool> {
+    match hex_chars_to_string(&val).as_deref() {
+        Some("t") => Some(true),
+        Some("1") => Some(true),
+        Some("null") => None,
+        Some("f") => Some(false),
+        Some("0") => Some(false),
+        _ => {
+            eprintln!("expected bool value: {}", val,);
+            Some(true) // I've seen values such as 54525545 or 46414c5345.. maybe PG optimises "anything non-zero is true"?
+        }
+    }
+}
+
+fn decode_unknown(val: &str) -> String {
+    // try to detect string or binary/int, because
+    // the latter will contain \0
+    // maybe i rather should check:
+    //       <field name="pgsql.format" showname="Format: Binary (1)" size="2" pos="106" show="1" value="0001"/>
+    //       <field name="pgsql.format" showname="Format: Text (0)" size="2" pos="108" show="0" value="0000"/>
+    // which I think is always present
+    if hex_chars_to_bytes(val)
+        .unwrap_or_else(Vec::new)
+        .iter()
+        .any(|b| b == &0)
+    {
+        decode_integer_as_str::<i32>(PostgresColType::Int8, &val)
+    } else {
+        hex_chars_to_string(&val).unwrap_or_else(|| val.to_string())
+    }
+}
+
+fn decode_param(typ: PostgresColType, val: &str, length: i64) -> String {
+    if val == "null" || length == -1 {
+        return "null".to_string();
+    }
+    match typ {
+        PostgresColType::ByteArray => format!("Byte array ({} bytes): {}", length, val),
+        PostgresColType::Bool => match decode_bool(val) {
+            Some(true) => "t",
+            Some(false) => "f",
+            None => "null",
+        }
+        .to_string(),
+        PostgresColType::Int4 | PostgresColType::Int2 => decode_integer_as_str::<i32>(typ, val),
+        PostgresColType::Int8 => decode_integer_as_str::<i64>(typ, val),
+        PostgresColType::Unknown => decode_unknown(&val),
+        _ => hex_chars_to_string(val).unwrap_or_else(|| format!("Error decoding: {}", val)),
+    }
+}
+
+fn decode_integer<T: num_traits::Num + ToString + FromStr>(
+    _typ: PostgresColType,
+    val: &str,
+) -> Option<T> {
+    if val.starts_with("00") {
+        T::from_str_radix(val, 16).ok()
+    } else {
+        hex_chars_to_bytes(&val)
+            .and_then(|bytes| String::from_utf8(bytes).ok())
+            .and_then(|s| s.parse().ok())
+    }
+}
+
+// I was unable to find a logic in the PDML. Sometimes I would get hex-encoded
+// digits, sometimes the raw values. It seemed more often for int4 the hex-encoded
+// and for int8 the raw values but not always...
+// Would have to look in wireshark's source but... another time...
+// I don't know whether the type matters. Putting it in the type sig so I can assert
+// on known values
+fn decode_integer_as_str<T: num_traits::Num + ToString + FromStr>(
+    typ: PostgresColType,
+    val: &str,
+) -> String {
+    decode_integer(typ, val)
+        .map(|i: T| i.to_string())
+        .unwrap_or_else(|| val.to_string())
+}
+
 fn handle_pgsql_resultset_row(
     globals: &mut PostgresStreamGlobals,
     cols: Vec<String>,
@@ -464,7 +566,7 @@ fn handle_pgsql_resultset_row(
     if globals.cur_col_types.is_empty() {
         // it's possible we don't have all the info about this query
         // default to String for all the columns instead of dropping the data.
-        globals.cur_col_types = vec![PostgresColType::Text; cols.len()];
+        globals.cur_col_types = vec![PostgresColType::Unknown; cols.len()];
         globals.cur_col_names = vec!["Col".to_string(); cols.len()];
         for _ in &globals.cur_col_types {
             globals.cur_rs_string_cols.push(vec![]);
@@ -473,55 +575,65 @@ fn handle_pgsql_resultset_row(
     for (col_type, val) in globals.cur_col_types.iter().zip(cols) {
         match col_type {
             PostgresColType::Bool => {
-                globals.cur_rs_bool_cols[bool_col_idx].push(match &val[..] {
-                    "t" => Some(true),
-                    "null" => None,
-                    "f" => Some(false),
-                    _ => return Err(format!("expected bool value: {}", val)),
-                });
+                globals.cur_rs_bool_cols[bool_col_idx].push(decode_bool(&val));
                 bool_col_idx += 1;
             }
             PostgresColType::Int2 | PostgresColType::Int4 => {
-                globals.cur_rs_int_cols[int_col_idx].push(if val == "null" {
+                let unhexed = hex_chars_to_string(&val);
+                globals.cur_rs_int_cols[int_col_idx].push(if unhexed.as_deref() == Some("null") {
                     None
                 } else {
-                    let parsed: Option<i32> = val.parse().ok();
-                    if parsed.is_some() {
-                        parsed
-                    } else {
-                        return Err(format!("expected int value: {}", val));
-                    }
+                    Some(decode_integer::<i32>(*col_type, &val).unwrap_or(0))
                 });
                 int_col_idx += 1;
             }
             PostgresColType::Timestamp => {
-                globals.cur_rs_datetime_cols[datetime_col_idx].push(if val == "null" {
-                    None
-                } else {
-                    let parsed = NaiveDateTime::parse_from_str(&val, "%Y-%m-%d %H:%M:%S%.f").ok();
-                    if parsed.is_some() {
-                        parsed
+                let val_str = hex_chars_to_string(&val);
+                globals.cur_rs_datetime_cols[datetime_col_idx].push(
+                    if val_str.as_deref() == Some("null") {
+                        None
                     } else {
-                        return Err(format!("expected datetime value: {}", val));
-                    }
-                });
+                        let parsed = val_str.and_then(|v| {
+                            NaiveDateTime::parse_from_str(&v, "%Y-%m-%d %H:%M:%S%.f").ok()
+                        });
+                        if parsed.is_some() {
+                            parsed
+                        } else {
+                            return Err(format!("expected datetime value: {}", val));
+                        }
+                    },
+                );
                 datetime_col_idx += 1;
             }
             PostgresColType::Int8 => {
-                globals.cur_rs_bigint_cols[bigint_col_idx].push(if val == "null" {
-                    None
-                } else {
-                    let parsed: Option<i64> = val.parse().ok();
-                    if parsed.is_some() {
-                        parsed
+                let unhexed = hex_chars_to_string(&val);
+                globals.cur_rs_bigint_cols[bigint_col_idx].push(
+                    if unhexed.as_deref() == Some("null") {
+                        None
                     } else {
-                        return Err(format!("expected int8 value: {}", val));
-                    }
-                });
+                        let parsed = unhexed.and_then(|h| h.parse::<i64>().ok());
+                        if parsed.is_some() {
+                            parsed
+                        } else {
+                            return Err(format!("expected int8 value: {}", val));
+                        }
+                    },
+                );
                 bigint_col_idx += 1;
             }
+            PostgresColType::Unknown => {
+                globals.cur_rs_string_cols[string_col_idx].push(
+                    if hex_chars_to_string(&val).as_deref() == Some("null") {
+                        None
+                    } else {
+                        Some(decode_unknown(&val))
+                    },
+                );
+                string_col_idx += 1;
+            }
             _ => {
-                globals.cur_rs_string_cols[string_col_idx].push(Some(val).filter(|v| v != "null"));
+                globals.cur_rs_string_cols[string_col_idx]
+                    .push(hex_chars_to_string(&val).filter(|v| v != "null"));
                 string_col_idx += 1;
             }
         }
@@ -569,6 +681,18 @@ fn get_query_type_desc(query: &Option<Cow<'static, str>>) -> &'static str {
     }
 }
 
+fn hex_chars_to_string(hex_chars: &str) -> Option<String> {
+    hex_chars_to_bytes(hex_chars)
+        .as_ref()
+        .and_then(|b| str::from_utf8(b).ok())
+        .map(|s| s.to_string())
+}
+
+fn hex_chars_to_bytes(hex_chars: &str) -> Option<Vec<u8>> {
+    let nocolons = hex_chars.replace(':', "");
+    hex::decode(&nocolons).ok().map(|c| c.into_iter().collect())
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PostgresMessageData {
     // for prepared queries, it's possible the declaration
@@ -577,7 +701,7 @@ pub struct PostgresMessageData {
     pub query_timestamp: NaiveDateTime,
     pub result_timestamp: NaiveDateTime,
     pub query: Option<Cow<'static, str>>,
-    pub parameter_values: Vec<String>,
+    pub parameter_values: Vec<(PostgresColType, String)>,
     pub resultset_col_names: Vec<String>,
     pub resultset_row_count: usize,
     pub resultset_col_types: Vec<PostgresColType>,
@@ -592,13 +716,14 @@ pub struct PostgresMessageData {
 pub struct PostgresStreamGlobals {
     known_statements: HashMap<String, String>,
     cur_query: Option<String>,
+    parse_param_types: Vec<PostgresColType>,
     cur_query_with_fallback: Option<String>,
     was_bind: bool,
     query_timestamp: Option<NaiveDateTime>,
     cur_rs_row_count: usize,
     cur_col_names: Vec<String>,
     cur_col_types: Vec<PostgresColType>,
-    cur_parameter_values: Vec<String>,
+    cur_parameter_values: Vec<(PostgresColType, String)>,
     cur_rs_int_cols: Vec<Vec<Option<i32>>>,
     cur_rs_bigint_cols: Vec<Vec<Option<i64>>>,
     cur_rs_bool_cols: Vec<Vec<Option<bool>>>,
@@ -644,7 +769,7 @@ fn should_parse_simple_query() {
         parameter_values: vec![],
         resultset_col_names: vec!["Col".to_string()],
         resultset_row_count: 2,
-        resultset_col_types: vec![PostgresColType::Text],
+        resultset_col_types: vec![PostgresColType::Unknown],
         resultset_int_cols: vec![],
         resultset_bigint_cols: vec![],
         resultset_datetime_cols: vec![],
@@ -712,7 +837,7 @@ fn should_parse_prepared_statement() {
             parameter_values: vec![],
             resultset_col_names: vec!["Col".to_string()],
             resultset_row_count: 1,
-            resultset_col_types: vec![PostgresColType::Text],
+            resultset_col_types: vec![PostgresColType::Unknown],
             resultset_int_cols: vec![],
             resultset_bigint_cols: vec![],
             resultset_datetime_cols: vec![],
@@ -788,13 +913,13 @@ fn should_parse_prepared_statement_with_parameters() {
             result_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
             query: Some(Cow::Borrowed("select $1")),
             parameter_values: vec![
-                "00142DA089C1".to_string(),
-                "null".to_string(),
-                "10.8.0.67".to_string(),
+                (PostgresColType::Unknown, "00142DA089C1".to_string()),
+                (PostgresColType::Unknown, "null".to_string()),
+                (PostgresColType::Unknown, "10.8.0.67".to_string()),
             ],
             resultset_col_names: vec!["Col".to_string()],
             resultset_row_count: 1,
-            resultset_col_types: vec![PostgresColType::Text],
+            resultset_col_types: vec![PostgresColType::Unknown],
             resultset_int_cols: vec![],
             resultset_bigint_cols: vec![],
             resultset_datetime_cols: vec![],
@@ -838,7 +963,7 @@ fn should_parse_query_with_multiple_columns_and_nulls() {
       <field name="pgsql.col.name" showname="Column name: version" size="8" pos="83" show="version" value="76657273696f6e00">
         <field name="pgsql.oid.table" showname="Table OID: 0" size="4" pos="91" show="0" value="00000000"/>
         <field name="pgsql.col.index" showname="Column index: 0" size="2" pos="95" show="0" value="0000"/>
-        <field name="pgsql.oid.type" showname="Type OID: 25" size="4" pos="97" show="25" value="00000019"/>
+        <field name="pgsql.oid.type" showname="Type OID: 23" size="4" pos="97" show="23" value="00000017"/>
         <field name="pgsql.val.length" showname="Column length: -1" size="2" pos="101" show="-1" value="ffff"/>
         <field name="pgsql.col.typemod" showname="Type modifier: -1" size="4" pos="103" show="-1" value="ffffffff"/>
         <field name="pgsql.format" showname="Format: Text (0)" size="2" pos="107" show="0" value="0000"/>
@@ -872,12 +997,12 @@ fn should_parse_query_with_multiple_columns_and_nulls() {
         parameter_values: vec![],
         resultset_col_names: vec!["version".to_string()],
         resultset_row_count: 1,
-        resultset_col_types: vec![PostgresColType::Text],
-        resultset_int_cols: vec![],
+        resultset_col_types: vec![PostgresColType::Int4],
+        resultset_string_cols: vec![],
         resultset_bigint_cols: vec![],
         resultset_datetime_cols: vec![],
         resultset_bool_cols: vec![],
-        resultset_string_cols: vec![vec![Some("26".to_string())]],
+        resultset_int_cols: vec![vec![Some(26)]],
     })];
     assert_eq!(expected, parsed);
 }
@@ -897,6 +1022,45 @@ fn should_parse_query_with_no_parse_and_unknown_bind() {
   <proto name="pgsql" showname="PostgreSQL" size="13" pos="91">
     <field name="pgsql.type" showname="Type: Bind" size="1" pos="91" show="Bind" value="42"/>
     <field name="pgsql.statement" show="S_18" />
+  </proto>
+  <proto name="pgsql" showname="PostgreSQL" size="33" pos="76">
+    <field name="pgsql.type" showname="Type: Row description" size="1" pos="76" show="Row description" value="54"/>
+    <field name="pgsql.length" showname="Length: 32" size="4" pos="77" show="32" value="00000020"/>
+    <field name="pgsql.frontend" showname="Frontend: False" hide="yes" size="0" pos="76" show="0"/>
+    <field name="pgsql.field.count" showname="Field count: 4" size="2" pos="81" show="1" value="0001">
+      <field name="pgsql.col.name" showname="Column name: version" size="8" pos="83" show="version" value="76657273696f6e00">
+        <field name="pgsql.oid.table" showname="Table OID: 0" size="4" pos="91" show="0" value="00000000"/>
+        <field name="pgsql.col.index" showname="Column index: 0" size="2" pos="95" show="0" value="0000"/>
+        <field name="pgsql.oid.type" showname="Type OID: 23" size="4" pos="97" show="23" value="00000017"/>
+        <field name="pgsql.val.length" showname="Column length: -1" size="2" pos="101" show="-1" value="ffff"/>
+        <field name="pgsql.col.typemod" showname="Type modifier: -1" size="4" pos="103" show="-1" value="ffffffff"/>
+        <field name="pgsql.format" showname="Format: Text (0)" size="2" pos="107" show="0" value="0000"/>
+      </field>
+      <field name="pgsql.col.name" showname="Column name: version" size="8" pos="83" show="version" value="76657273696f6e00">
+        <field name="pgsql.oid.table" showname="Table OID: 0" size="4" pos="91" show="0" value="00000000"/>
+        <field name="pgsql.col.index" showname="Column index: 0" size="2" pos="95" show="0" value="0000"/>
+        <field name="pgsql.oid.type" showname="Type OID: 25" size="4" pos="97" show="25" value="00000019"/>
+        <field name="pgsql.val.length" showname="Column length: -1" size="2" pos="101" show="-1" value="ffff"/>
+        <field name="pgsql.col.typemod" showname="Type modifier: -1" size="4" pos="103" show="-1" value="ffffffff"/>
+        <field name="pgsql.format" showname="Format: Text (0)" size="2" pos="107" show="0" value="0000"/>
+      </field>
+      <field name="pgsql.col.name" showname="Column name: version" size="8" pos="83" show="version" value="76657273696f6e00">
+        <field name="pgsql.oid.table" showname="Table OID: 0" size="4" pos="91" show="0" value="00000000"/>
+        <field name="pgsql.col.index" showname="Column index: 0" size="2" pos="95" show="0" value="0000"/>
+        <field name="pgsql.oid.type" showname="Type OID: 25" size="4" pos="97" show="25" value="00000019"/>
+        <field name="pgsql.val.length" showname="Column length: -1" size="2" pos="101" show="-1" value="ffff"/>
+        <field name="pgsql.col.typemod" showname="Type modifier: -1" size="4" pos="103" show="-1" value="ffffffff"/>
+        <field name="pgsql.format" showname="Format: Text (0)" size="2" pos="107" show="0" value="0000"/>
+      </field>
+      <field name="pgsql.col.name" showname="Column name: version" size="8" pos="83" show="version" value="76657273696f6e00">
+        <field name="pgsql.oid.table" showname="Table OID: 0" size="4" pos="91" show="0" value="00000000"/>
+        <field name="pgsql.col.index" showname="Column index: 0" size="2" pos="95" show="0" value="0000"/>
+        <field name="pgsql.oid.type" showname="Type OID: 25" size="4" pos="97" show="25" value="00000019"/>
+        <field name="pgsql.val.length" showname="Column length: -1" size="2" pos="101" show="-1" value="ffff"/>
+        <field name="pgsql.col.typemod" showname="Type modifier: -1" size="4" pos="103" show="-1" value="ffffffff"/>
+        <field name="pgsql.format" showname="Format: Text (0)" size="2" pos="107" show="0" value="0000"/>
+      </field>
+    </field>
   </proto>
   <proto name="pgsql" showname="PostgreSQL" size="67" pos="87">
     <field name="pgsql.type" showname="Type: Data row" size="1" pos="87" show="Data row" value="44"/>
@@ -924,28 +1088,36 @@ fn should_parse_query_with_no_parse_and_unknown_bind() {
         query: Some(Cow::Borrowed("Unknown statement: S_18")),
         parameter_values: vec![],
         resultset_col_names: vec![
-            "Col".to_string(),
-            "Col".to_string(),
-            "Col".to_string(),
-            "Col".to_string(),
+            "version".to_string(),
+            "version".to_string(),
+            "version".to_string(),
+            "version".to_string(),
         ],
         resultset_row_count: 1,
         resultset_col_types: vec![
-            PostgresColType::Text,
+            PostgresColType::Int4,
             PostgresColType::Text,
             PostgresColType::Text,
             PostgresColType::Text,
         ],
-        resultset_int_cols: vec![],
+        resultset_int_cols: vec![vec![Some(26)]],
         resultset_bigint_cols: vec![],
         resultset_datetime_cols: vec![],
         resultset_bool_cols: vec![],
         resultset_string_cols: vec![
-            vec![Some("26".to_string())],
             vec![None],
             vec![Some("GENERAL".to_string())],
             vec![Some("APPLICATION_TIMEZONE".to_string())],
         ],
     })];
     assert_eq!(expected, parsed);
+}
+
+#[test]
+fn decode_23() {
+    // known from SELECT typname FROM pg_catalog.pg_type WHERE oid=23
+    assert_eq!(
+        "23",
+        decode_integer_as_str::<i32>(PostgresColType::Int4, "3233")
+    );
 }

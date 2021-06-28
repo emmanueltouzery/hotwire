@@ -691,6 +691,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "nix",
+ "num-traits",
  "pango",
  "quick-xml",
  "regex",

@@ -37,6 +37,7 @@ libc = "0.2.97"
 signal-hook = "0.3.9"
 derive_more = "0.99.14"
 lazy_static = "1.4.0"
+num-traits = "0.2.14"
 # filetime = "0.2.14"
 
 [dependencies.gtk]
