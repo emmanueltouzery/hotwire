@@ -51,8 +51,9 @@ fn parse_http2_stream<B: BufRead>(
                 let name = tshark_communication::attr_by_name(&mut e.attributes(), b"name")?;
                 match name.as_deref() {
                     Some(b"http2.streamid") => {
-                        stream_id =
-                            tshark_communication::element_attr_val_number(e, b"show")?.unwrap();
+                        if let Some(s) = tshark_communication::element_attr_val_number(e, b"show")? {
+                            stream_id = s;
+                        }
                     }
                     Some(b"http2.flags.end_stream") => {
                         is_end_stream =
@@ -60,12 +61,9 @@ fn parse_http2_stream<B: BufRead>(
                                 == Some(1);
                     }
                     Some(b"http2.data.data") => {
-                        data = hex::decode(
-                            tshark_communication::element_attr_val_string(e, b"show")?
-                                .unwrap()
-                                .replace(':', ""),
-                        )
-                        .ok();
+                        if let Some(data_hex) = tshark_communication::element_attr_val_string(e, b"show")? {
+                            data = hex::decode(data_hex.replace(':', "")).ok();
+                        }
                     }
                     _ => {}
                 }
@@ -112,10 +110,10 @@ fn parse_http2_headers<B: BufRead>(
                         cur_name = tshark_communication::element_attr_val_string(e, b"show")?;
                     }
                     Some(b"http2.header.value") => {
-                        headers.push((
-                            cur_name.take().unwrap(),
-                            tshark_communication::element_attr_val_string(e, b"show")?.unwrap(),
-                        ));
+                        if let (Some(h), Some(v)) =
+                            (cur_name.take(), tshark_communication::element_attr_val_string(e, b"show")?) {
+                            headers.push((h, v));
+                        }
                     }
                     _ => {}
                 }

@@ -195,15 +195,13 @@ fn parse_frame_info<B: BufRead>(
         Ok(Event::Empty(ref e)) => {
             if e.name() == b"field"
                 && e.attributes().any(|kv| {
-                    kv.unwrap() == ("name".as_bytes(), "frame.time".as_bytes()).into()
+                    kv.ok().filter(|a| a.key == b"name" && a.value == Cow::Borrowed(b"frame.time")).is_some()
                 })
             {
-                // dbg!(e);
-                // panic!();
                 if let Some(time_str) = e.attributes().find_map(|a| {
-                    Some(a.unwrap())
+                    a.ok()
                         .filter(|a| a.key == b"show")
-                        .map(|a| String::from_utf8(a.value.to_vec()).unwrap())
+                        .and_then(|a| String::from_utf8(a.value.to_vec()).ok())
                 }) {
                     // must use NaiveDateTime because chrono can't read string timezone names.
                     // https://docs.rs/chrono/0.4.19/chrono/format/strftime/index.html#specifiers

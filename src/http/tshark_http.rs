@@ -62,15 +62,15 @@ pub fn parse_http_info<B: BufRead>(
                     }
                     Some(b"http.request.line") => {
                         http_type = Some(HttpType::Request);
-                        other_lines.push(
-                            tshark_communication::element_attr_val_string(e, b"show")?.unwrap(),
-                        );
+                        if let Some(line) = tshark_communication::element_attr_val_string(e, b"show")? {
+                            other_lines.push(line);
+                        }
                     }
                     Some(b"http.response.line") => {
                         http_type = Some(HttpType::Response);
-                        other_lines.push(
-                            tshark_communication::element_attr_val_string(e, b"show")?.unwrap(),
-                        );
+                        if let Some(line) = tshark_communication::element_attr_val_string(e, b"show")? {
+                            other_lines.push(line);
+                        }
                     }
                     Some(b"http.file_data") => {
                         // binary will be in "value", text in "show"

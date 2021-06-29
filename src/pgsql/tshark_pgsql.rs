@@ -86,25 +86,23 @@ pub fn parse_pgsql_info<B: BufRead>(
             if e.name() == b"field" {
                 let name = tshark_communication::attr_by_name(&mut e.attributes(), b"name")?;
                 if name.as_deref() == Some(b"pgsql.type") {
-                    match tshark_communication::element_attr_val_string(e, b"show")?
-                        .unwrap()
-                        .as_str()
+                    match tshark_communication::element_attr_val_string(e, b"show")?.as_deref()
                     {
-                        "Startup message" => {
+                        Some("Startup message") => {
                             return Ok(Some(parse_startup_message(xml_reader)?));
                         }
-                        "Copy data" => return Ok(Some(PostgresWireMessage::CopyData)),
-                        "Parse" => {
+                        Some("Copy data") => return Ok(Some(PostgresWireMessage::CopyData)),
+                        Some("Parse") => {
                             return Ok(Some(parse_parse_message(xml_reader)?));
                         },
-                        "Bind" => return Ok(Some(parse_bind_message(xml_reader)?)),
-                        "Ready for query" => {
+                        Some("Bind") => return Ok(Some(parse_bind_message(xml_reader)?)),
+                        Some("Ready for query") => {
                             return Ok(Some(PostgresWireMessage::ReadyForQuery));
                         }
-                        "Row description" => {
+                        Some("Row description") => {
                             return Ok(Some(parse_row_description_message(xml_reader)?));
                         }
-                        "Data row" => return Ok(Some(parse_data_row_message(xml_reader)?)),
+                        Some("Data row") => return Ok(Some(parse_data_row_message(xml_reader)?)),
                         _ => {}
                     }
                 }
@@ -250,8 +248,8 @@ fn parse_bind_message<B: BufRead>(
                 let name = tshark_communication::attr_by_name(&mut e.attributes(), b"name")?;
                 if name.as_deref() == Some(b"") {
                     let show =
-                        tshark_communication::element_attr_val_string(e, b"show")?.unwrap();
-                    if show.starts_with("Parameter values") {
+                        tshark_communication::element_attr_val_string(e, b"show")?;
+                    if show.filter(|s| s.starts_with("Parameter values")).is_some() {
                         parameter_lengths_and_vals = parse_parameter_values(xml_reader)?;
                     }
                 }
@@ -325,9 +323,9 @@ fn parse_row_description_message<B: BufRead>(
             if e.name() == b"field" {
                 let name = tshark_communication::attr_by_name(&mut e.attributes(), b"name")?;
                 if name.as_deref() == Some(b"pgsql.oid.type")  {
-                    col_types.push(PostgresColType::from_pg_oid_type(
-                        &tshark_communication::element_attr_val_string(e, b"show")?.unwrap(),
-                    ));
+                    if let Some(oid) = tshark_communication::element_attr_val_string(e, b"show")? {
+                        col_types.push(PostgresColType::from_pg_oid_type(&oid));
+                    }
                 }
             }
         }
@@ -335,9 +333,9 @@ fn parse_row_description_message<B: BufRead>(
             if e.name() == b"field" {
                 let name = tshark_communication::attr_by_name(&mut e.attributes(), b"name")?;
                 if name.as_deref() == Some(b"pgsql.col.name") {
-                    col_names.push(
-                        tshark_communication::element_attr_val_string(e, b"show")?.unwrap(),
-                    );
+                    if let Some(name) = tshark_communication::element_attr_val_string(e, b"show")? {
+                        col_names.push(name);
+                    }
                 }
             }
         }
