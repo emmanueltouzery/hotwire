@@ -18,6 +18,12 @@ pub enum PostgresColType {
     Int8,
     Timestamp,
     Other,
+
+    // for prepared queries, it's possible the declaration
+    // occured before we started recording the stream.
+    // in that case we won't be able to recover the column/
+    // parameter types. In that case, we have this "unknown"
+    // type, for which try to guess the content type.
     Unknown,
 }
 
