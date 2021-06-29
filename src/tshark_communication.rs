@@ -125,8 +125,8 @@ pub fn parse_packet<B: BufRead>(
                             panic!("Unexpected IP at position {}", xml_reader.buffer_position());
                         }
                         let ip_info = parse_ip_info(xml_reader)?;
-                        ip_src = Some(ip_info.0);
-                        ip_dst = Some(ip_info.1);
+                        ip_src = ip_info.0;
+                        ip_dst = ip_info.1;
                     }
                     // TODO ipv6
                     Some(b"tcp") => {
@@ -220,7 +220,7 @@ fn parse_frame_info<B: BufRead>(
 
 fn parse_ip_info<B: BufRead>(
     xml_reader: &mut quick_xml::Reader<B>,
-) -> Result<(IpAddr, IpAddr), String> {
+) -> Result<(Option<IpAddr>, Option<IpAddr>), String> {
     let mut ip_src = None;
     let mut ip_dst = None;
     let buf = &mut vec![];
@@ -241,7 +241,7 @@ fn parse_ip_info<B: BufRead>(
         }
         Ok(Event::End(ref e)) => {
             if e.name() == b"proto" {
-                return Ok((ip_src.unwrap(), ip_dst.unwrap()));
+                return Ok((ip_src, ip_dst));
             }
         }
     )
@@ -261,16 +261,24 @@ fn parse_tcp_info<B: BufRead>(
                 let name = attr_by_name(&mut e.attributes(), b"name")?;
                 match name.as_deref() {
                     Some(b"tcp.srcport") => {
-                        port_src = NetworkPort(element_attr_val_number(e, b"show")?.unwrap());
+                        if let Some(p) = element_attr_val_number(e, b"show")? {
+                            port_src = NetworkPort(p);
+                        }
                     }
                     Some(b"tcp.dstport") => {
-                        port_dst = NetworkPort(element_attr_val_number(e, b"show")?.unwrap());
+                        if let Some(p) = element_attr_val_number(e, b"show")? {
+                            port_dst = NetworkPort(p);
+                        }
                     }
                     Some(b"tcp.seq_raw") => {
-                        tcp_seq_number = TcpSeqNumber(element_attr_val_number(e, b"show")?.unwrap());
+                        if let Some(s) = element_attr_val_number(e, b"show")? {
+                            tcp_seq_number = TcpSeqNumber(s);
+                        }
                     }
                     Some(b"tcp.stream") => {
-                        tcp_stream_id = TcpStreamId(element_attr_val_number(e, b"show")?.unwrap());
+                        if let Some(s) = element_attr_val_number(e, b"show")? {
+                            tcp_stream_id = TcpStreamId(s);
+                        }
                     }
                     _ => {}
                 }
