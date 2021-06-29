@@ -234,10 +234,10 @@ fn parse_ip_info<B: BufRead>(
                     .map(|kv| kv.unwrap().value);
                 match name.as_deref() {
                     Some(b"ip.src") => {
-                        ip_src = element_attr_val_string(e, b"show").and_then(|s| s.parse().ok());
+                        ip_src = element_attr_val_string(e, b"show")?.and_then(|s| s.parse().ok());
                     }
                     Some(b"ip.dst") => {
-                        ip_dst = element_attr_val_string(e, b"show").and_then(|s| s.parse().ok());
+                        ip_dst = element_attr_val_string(e, b"show")?.and_then(|s| s.parse().ok());
                     }
                     _ => {}
                 }
@@ -268,16 +268,16 @@ fn parse_tcp_info<B: BufRead>(
                     .map(|kv| kv.unwrap().value);
                 match name.as_deref() {
                     Some(b"tcp.srcport") => {
-                        port_src = NetworkPort(element_attr_val_number(e, b"show").unwrap());
+                        port_src = NetworkPort(element_attr_val_number(e, b"show")?.unwrap());
                     }
                     Some(b"tcp.dstport") => {
-                        port_dst = NetworkPort(element_attr_val_number(e, b"show").unwrap());
+                        port_dst = NetworkPort(element_attr_val_number(e, b"show")?.unwrap());
                     }
                     Some(b"tcp.seq_raw") => {
-                        tcp_seq_number = TcpSeqNumber(element_attr_val_number(e, b"show").unwrap());
+                        tcp_seq_number = TcpSeqNumber(element_attr_val_number(e, b"show")?.unwrap());
                     }
                     Some(b"tcp.stream") => {
-                        tcp_stream_id = TcpStreamId(element_attr_val_number(e, b"show").unwrap());
+                        tcp_stream_id = TcpStreamId(element_attr_val_number(e, b"show")?.unwrap());
                     }
                     _ => {}
                 }
@@ -294,36 +294,43 @@ fn parse_tcp_info<B: BufRead>(
 pub fn element_attr_val_number<'a, F: FromStr>(
     e: &'a quick_xml::events::BytesStart<'a>,
     attr_name: &'static [u8],
-) -> Option<F>
+) -> Result<Option<F>, String>
 where
-    <F as FromStr>::Err: Debug,
+    <F as std::str::FromStr>::Err: std::error::Error,
+    <F as FromStr>::Err: 'static,
 {
-    str::from_utf8(
-        e.attributes()
-            .find(|kv| kv.as_ref().unwrap().key == attr_name)
-            .unwrap()
-            .unwrap()
-            .unescaped_value()
-            .unwrap()
-            .as_ref(),
-    )
-    .unwrap()
-    .parse()
-    .ok()
+    let str_val = element_attr_val_str_dynerr(e, attr_name).map_err(|e| e.to_string())?;
+    if let Some(ref val) = str_val {
+        Ok(Some(val.parse::<F>().map_err(|e| {
+            format!(
+                "Error parsing {}: {:?}",
+                str_val.as_deref().unwrap_or(""),
+                e
+            )
+        })?))
+    } else {
+        Ok(None)
+    }
+}
+
+fn element_attr_val_str_dynerr<'a>(
+    e: &'a quick_xml::events::BytesStart<'a>,
+    attr_name: &'static [u8],
+) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    let val = e
+        .attributes()
+        .find(|kv| matches!(kv.as_ref().map(|attr| attr.key), Ok(a) if attr_name == a));
+    match val {
+        Some(v) => Ok(Some(String::from_utf8(v?.unescaped_value()?.to_vec())?)),
+        None => Ok(None),
+    }
 }
 
 pub fn element_attr_val_string<'a>(
     e: &'a quick_xml::events::BytesStart<'a>,
     attr_name: &'static [u8],
-) -> Option<String> {
-    e.attributes()
-        .find(|kv| kv.as_ref().unwrap().key == attr_name)
-        .and_then(|v| v.ok())
-        .and_then(|v| {
-            let st = v.unescaped_value().ok();
-            st.map(|v| v.to_vec())
-        })
-        .and_then(|v| String::from_utf8(v).ok())
+) -> Result<Option<String>, String> {
+    Ok(element_attr_val_str_dynerr(e, attr_name).map_err(|e| e.to_string())?)
 }
 
 #[cfg(test)]

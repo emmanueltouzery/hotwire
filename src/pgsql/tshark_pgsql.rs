@@ -89,7 +89,7 @@ pub fn parse_pgsql_info<B: BufRead>(
                     .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                     .map(|kv| kv.unwrap().value);
                 if name.as_deref() == Some(b"pgsql.type") {
-                    match tshark_communication::element_attr_val_string(e, b"show")
+                    match tshark_communication::element_attr_val_string(e, b"show")?
                         .unwrap()
                         .as_str()
                     {
@@ -137,7 +137,7 @@ fn parse_startup_message<B: BufRead>(
                     .attributes()
                     .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                     .map(|kv| kv.unwrap().value);
-                let val = tshark_communication::element_attr_val_string(e, b"show");
+                let val = tshark_communication::element_attr_val_string(e, b"show")?;
                 match name.as_deref() {
                     Some(b"pgsql.parameter_name") => {
                         cur_param_name = val;
@@ -186,10 +186,10 @@ fn parse_parse_message<B: BufRead>(
                     .map(|kv| kv.unwrap().value);
                 match name.as_deref() {
                     Some(b"pgsql.statement") => {
-                        statement = tshark_communication::element_attr_val_string(e, b"show")
+                        statement = tshark_communication::element_attr_val_string(e, b"show")?
                     }
                     Some(b"pgsql.query") => {
-                        query = tshark_communication::element_attr_val_string(e, b"show")
+                        query = tshark_communication::element_attr_val_string(e, b"show")?
                     }
                     _ => {}
                 }
@@ -202,7 +202,7 @@ fn parse_parse_message<B: BufRead>(
                     .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                     .map(|kv| kv.unwrap().value);
                 if name.as_deref() == Some(b"") {
-                    let show = tshark_communication::element_attr_val_string(e, b"show");
+                    let show = tshark_communication::element_attr_val_string(e, b"show")?;
                     if show.filter(|s| s.starts_with("Parameters: ")).is_some() {
                         param_types = parse_param_types(xml_reader)?;
                     }
@@ -230,7 +230,7 @@ fn parse_param_types<B: BufRead>(
                     .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                     .map(|kv| kv.unwrap().value);
                 if name.as_deref() == Some(b"pgsql.oid.type") {
-                    if let Some(typ) = tshark_communication::element_attr_val_string(e, b"show") {
+                    if let Some(typ) = tshark_communication::element_attr_val_string(e, b"show")? {
                         param_types.push(PostgresColType::from_pg_oid_type(&typ));
                     }
                 }
@@ -258,7 +258,7 @@ fn parse_bind_message<B: BufRead>(
                     .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                     .map(|kv| kv.unwrap().value);
                 if name.as_deref() == Some(b"pgsql.statement") {
-                    statement = tshark_communication::element_attr_val_string(e, b"show")
+                    statement = tshark_communication::element_attr_val_string(e, b"show")?
                         .filter(|s| !s.is_empty());
                 }
             }
@@ -271,7 +271,7 @@ fn parse_bind_message<B: BufRead>(
                     .map(|kv| kv.unwrap().value);
                 if name.as_deref() == Some(b"") {
                     let show =
-                        tshark_communication::element_attr_val_string(e, b"show").unwrap();
+                        tshark_communication::element_attr_val_string(e, b"show")?.unwrap();
                     if show.starts_with("Parameter values") {
                         parameter_lengths_and_vals = parse_parameter_values(xml_reader)?;
                     }
@@ -305,7 +305,7 @@ fn parse_parameter_values<B: BufRead>(
                 match name.as_deref() {
                     Some(b"pgsql.val.length") => {
                         param_length =
-                            tshark_communication::element_attr_val_number(e, b"show");
+                            tshark_communication::element_attr_val_number(e, b"show")?;
                         match param_length {
                             Some(-1) => {
                                 // it's a null (-1 in the XML)
@@ -321,7 +321,7 @@ fn parse_parameter_values<B: BufRead>(
                         }
                     }
                     Some(b"pgsql.val.data") => {
-                        let val = tshark_communication::element_attr_val_string(e, b"value");
+                        let val = tshark_communication::element_attr_val_string(e, b"value")?;
                         if let (Some(length), Some(parsed)) = (param_length.take(), val) {
                             result.push((length as i64, parsed));
                         }
@@ -353,7 +353,7 @@ fn parse_row_description_message<B: BufRead>(
                     .map(|kv| kv.unwrap().value);
                 if name.as_deref() == Some(b"pgsql.oid.type")  {
                     col_types.push(PostgresColType::from_pg_oid_type(
-                        &tshark_communication::element_attr_val_string(e, b"show").unwrap(),
+                        &tshark_communication::element_attr_val_string(e, b"show")?.unwrap(),
                     ));
                 }
             }
@@ -366,7 +366,7 @@ fn parse_row_description_message<B: BufRead>(
                     .map(|kv| kv.unwrap().value);
                 if name.as_deref() == Some(b"pgsql.col.name") {
                     col_names.push(
-                        tshark_communication::element_attr_val_string(e, b"show").unwrap(),
+                        tshark_communication::element_attr_val_string(e, b"show")?.unwrap(),
                     );
                 }
             }
@@ -397,7 +397,7 @@ fn parse_data_row_message<B: BufRead>(
                     .map(|kv| kv.unwrap().value);
                 match name.as_deref() {
                     Some(b"pgsql.val.length") => {
-                        col_length = tshark_communication::element_attr_val_number(e, b"show");
+                        col_length = tshark_communication::element_attr_val_number(e, b"show")?;
                         match col_length {
                             // TODO this is duplicated elsewhere in this file
                             Some(-1) => {
@@ -412,8 +412,11 @@ fn parse_data_row_message<B: BufRead>(
                         }
                     }
                     Some(b"pgsql.val.data") => {
-                        let val = tshark_communication::element_attr_val_string(e, b"value")
-                            .or_else(|| tshark_communication::element_attr_val_string(e, b"show").map(|s| s.replace(":", "")));
+                        let val = if let Some(v) = tshark_communication::element_attr_val_string(e, b"value")? {
+                            Some(v)
+                        } else {
+                            tshark_communication::element_attr_val_string(e, b"show")?.map(|s| s.replace(":", ""))
+                        };
                         if let (Some(length), Some(parsed_val)) = (col_length.take(), val) {
                             col_lengths_and_vals.push((length, parsed_val));
                         }

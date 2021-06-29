@@ -48,7 +48,7 @@ pub fn parse_http_info<B: BufRead>(
                     .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
                     .map(|kv| kv.unwrap().value);
                 if name.as_deref() == Some(b"") && first_line.is_none() {
-                    first_line = tshark_communication::element_attr_val_string(e, b"show")
+                    first_line = tshark_communication::element_attr_val_string(e, b"show")?
                         .map(|t| t.trim_end_matches("\\r\\n").to_string())
                 }
             }
@@ -61,32 +61,34 @@ pub fn parse_http_info<B: BufRead>(
                     .map(|kv| kv.unwrap().value);
                 match name.as_deref() {
                     Some(b"http.content_type") => {
-                        content_type = tshark_communication::element_attr_val_string(e, b"show")
+                        content_type = tshark_communication::element_attr_val_string(e, b"show")?
                     }
                     Some(b"http.host") => {
-                        http_host = tshark_communication::element_attr_val_string(e, b"show")
+                        http_host = tshark_communication::element_attr_val_string(e, b"show")?
                     }
                     Some(b"http.request.line") => {
                         http_type = Some(HttpType::Request);
                         other_lines.push(
-                            tshark_communication::element_attr_val_string(e, b"show").unwrap(),
+                            tshark_communication::element_attr_val_string(e, b"show")?.unwrap(),
                         );
                     }
                     Some(b"http.response.line") => {
                         http_type = Some(HttpType::Response);
                         other_lines.push(
-                            tshark_communication::element_attr_val_string(e, b"show").unwrap(),
+                            tshark_communication::element_attr_val_string(e, b"show")?.unwrap(),
                         );
                     }
                     Some(b"http.file_data") => {
                         // binary will be in "value", text in "show"
-                        body = hex::decode(
-                            tshark_communication::element_attr_val_string(e, b"value")
-                                .or_else(|| tshark_communication::element_attr_val_string(e, b"show"))
-                                .unwrap()
-                                .replace(':', ""),
-                        )
-                        .ok();
+                        let hex_body = if let Some(v) = tshark_communication::element_attr_val_string(e, b"value")? {
+                            Some(v)
+                        } else {
+                            tshark_communication::element_attr_val_string(e, b"show")?
+                        };
+                        if let Some(b) = hex_body {
+                            body = Some(hex::decode(b.replace(':', ""))
+                                        .map_err(|e| format!("Invalid hex string: {} {:?}", b, e))?);
+                        }
                     }
                     _ => {}
                 }
