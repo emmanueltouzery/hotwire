@@ -2,7 +2,9 @@ use crate::http::tshark_http;
 use crate::http2::tshark_http2;
 use crate::pgsql::tshark_pgsql;
 use chrono::NaiveDateTime;
+use quick_xml::events::attributes::Attributes;
 use quick_xml::events::Event;
+use std::borrow::Cow;
 use std::fmt::Debug;
 use std::io::BufRead;
 use std::net::IpAddr;
@@ -113,10 +115,7 @@ pub fn parse_packet<B: BufRead>(
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Start(ref e)) => {
             if e.name() == b"proto" {
-                let name = e
-                    .attributes()
-                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                    .map(|kv| kv.unwrap().value);
+                let name = attr_by_name(&mut e.attributes(), b"name")?;
                 match name.as_deref() {
                     Some(b"frame") => {
                         frame_time = parse_frame_info(xml_reader)?;
@@ -228,10 +227,7 @@ fn parse_ip_info<B: BufRead>(
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Empty(ref e)) => {
             if e.name() == b"field" {
-                let name = e
-                    .attributes()
-                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                    .map(|kv| kv.unwrap().value);
+                let name = attr_by_name(&mut e.attributes(), b"name")?;
                 match name.as_deref() {
                     Some(b"ip.src") => {
                         ip_src = element_attr_val_string(e, b"show")?.and_then(|s| s.parse().ok());
@@ -262,10 +258,7 @@ fn parse_tcp_info<B: BufRead>(
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Empty(ref e)) => {
             if e.name() == b"field" {
-                let name = e
-                    .attributes()
-                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                    .map(|kv| kv.unwrap().value);
+                let name = attr_by_name(&mut e.attributes(), b"name")?;
                 match name.as_deref() {
                     Some(b"tcp.srcport") => {
                         port_src = NetworkPort(element_attr_val_number(e, b"show")?.unwrap());
@@ -289,6 +282,19 @@ fn parse_tcp_info<B: BufRead>(
             }
         }
     )
+}
+
+pub fn attr_by_name<'a>(
+    attrs: &mut Attributes<'a>,
+    key: &[u8],
+) -> Result<Option<Cow<'a, [u8]>>, String> {
+    for attr in attrs {
+        let attr = attr.map_err(|e| format!("Error decoding xml attribute: {:?}", e))?;
+        if attr.key == key {
+            return Ok(Some(attr.value));
+        }
+    }
+    Ok(None)
 }
 
 pub fn element_attr_val_number<'a, F: FromStr>(

@@ -84,10 +84,7 @@ pub fn parse_pgsql_info<B: BufRead>(
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Empty(ref e)) => {
             if e.name() == b"field" {
-                let name = e
-                    .attributes()
-                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                    .map(|kv| kv.unwrap().value);
+                let name = tshark_communication::attr_by_name(&mut e.attributes(), b"name")?;
                 if name.as_deref() == Some(b"pgsql.type") {
                     match tshark_communication::element_attr_val_string(e, b"show")?
                         .unwrap()
@@ -133,10 +130,7 @@ fn parse_startup_message<B: BufRead>(
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Empty(ref e)) => {
             if e.name() == b"field" {
-                let name = e
-                    .attributes()
-                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                    .map(|kv| kv.unwrap().value);
+                let name = tshark_communication::attr_by_name(&mut e.attributes(), b"name")?;
                 let val = tshark_communication::element_attr_val_string(e, b"show")?;
                 match name.as_deref() {
                     Some(b"pgsql.parameter_name") => {
@@ -180,10 +174,7 @@ fn parse_parse_message<B: BufRead>(
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Empty(ref e)) => {
             if e.name() == b"field" {
-                let name = e
-                    .attributes()
-                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                    .map(|kv| kv.unwrap().value);
+                let name = tshark_communication::attr_by_name(&mut e.attributes(), b"name")?;
                 match name.as_deref() {
                     Some(b"pgsql.statement") => {
                         statement = tshark_communication::element_attr_val_string(e, b"show")?
@@ -197,10 +188,7 @@ fn parse_parse_message<B: BufRead>(
         }
         Ok(Event::Start(ref e)) => {
             if e.name() == b"field" {
-                let name = e
-                    .attributes()
-                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                    .map(|kv| kv.unwrap().value);
+                let name = tshark_communication::attr_by_name(&mut e.attributes(), b"name")?;
                 if name.as_deref() == Some(b"") {
                     let show = tshark_communication::element_attr_val_string(e, b"show")?;
                     if show.filter(|s| s.starts_with("Parameters: ")).is_some() {
@@ -225,10 +213,7 @@ fn parse_param_types<B: BufRead>(
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Empty(ref e)) => {
             if e.name() == b"field" {
-                let name = e
-                    .attributes()
-                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                    .map(|kv| kv.unwrap().value);
+                let name = tshark_communication::attr_by_name(&mut e.attributes(), b"name")?;
                 if name.as_deref() == Some(b"pgsql.oid.type") {
                     if let Some(typ) = tshark_communication::element_attr_val_string(e, b"show")? {
                         param_types.push(PostgresColType::from_pg_oid_type(&typ));
@@ -253,10 +238,7 @@ fn parse_bind_message<B: BufRead>(
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Empty(ref e)) => {
             if e.name() == b"field" {
-                let name = e
-                    .attributes()
-                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                    .map(|kv| kv.unwrap().value);
+                let name = tshark_communication::attr_by_name(&mut e.attributes(), b"name")?;
                 if name.as_deref() == Some(b"pgsql.statement") {
                     statement = tshark_communication::element_attr_val_string(e, b"show")?
                         .filter(|s| !s.is_empty());
@@ -265,10 +247,7 @@ fn parse_bind_message<B: BufRead>(
         }
         Ok(Event::Start(ref e)) => {
             if e.name() == b"field" {
-                let name = e
-                    .attributes()
-                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                    .map(|kv| kv.unwrap().value);
+                let name = tshark_communication::attr_by_name(&mut e.attributes(), b"name")?;
                 if name.as_deref() == Some(b"") {
                     let show =
                         tshark_communication::element_attr_val_string(e, b"show")?.unwrap();
@@ -298,10 +277,7 @@ fn parse_parameter_values<B: BufRead>(
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Empty(ref e)) => {
             if e.name() == b"field" {
-                let name = e
-                    .attributes()
-                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                    .map(|kv| kv.unwrap().value);
+                let name = tshark_communication::attr_by_name(&mut e.attributes(), b"name")?;
                 match name.as_deref() {
                     Some(b"pgsql.val.length") => {
                         param_length =
@@ -347,10 +323,7 @@ fn parse_row_description_message<B: BufRead>(
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Empty(ref e)) => {
             if e.name() == b"field" {
-                let name = e
-                    .attributes()
-                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                    .map(|kv| kv.unwrap().value);
+                let name = tshark_communication::attr_by_name(&mut e.attributes(), b"name")?;
                 if name.as_deref() == Some(b"pgsql.oid.type")  {
                     col_types.push(PostgresColType::from_pg_oid_type(
                         &tshark_communication::element_attr_val_string(e, b"show")?.unwrap(),
@@ -360,10 +333,7 @@ fn parse_row_description_message<B: BufRead>(
         }
         Ok(Event::Start(ref e)) => {
             if e.name() == b"field" {
-                let name = e
-                    .attributes()
-                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                    .map(|kv| kv.unwrap().value);
+                let name = tshark_communication::attr_by_name(&mut e.attributes(), b"name")?;
                 if name.as_deref() == Some(b"pgsql.col.name") {
                     col_names.push(
                         tshark_communication::element_attr_val_string(e, b"show")?.unwrap(),
@@ -391,10 +361,7 @@ fn parse_data_row_message<B: BufRead>(
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Empty(ref e)) => {
             if e.name() == b"field" {
-                let name = e
-                    .attributes()
-                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                    .map(|kv| kv.unwrap().value);
+                let name = tshark_communication::attr_by_name(&mut e.attributes(), b"name")?;
                 match name.as_deref() {
                     Some(b"pgsql.val.length") => {
                         col_length = tshark_communication::element_attr_val_number(e, b"show")?;

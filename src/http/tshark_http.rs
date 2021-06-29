@@ -43,10 +43,7 @@ pub fn parse_http_info<B: BufRead>(
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Start(ref e)) => {
             if e.name() == b"field" {
-                let name = e
-                    .attributes()
-                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                    .map(|kv| kv.unwrap().value);
+                let name = tshark_communication::attr_by_name(&mut e.attributes(), b"name")?;
                 if name.as_deref() == Some(b"") && first_line.is_none() {
                     first_line = tshark_communication::element_attr_val_string(e, b"show")?
                         .map(|t| t.trim_end_matches("\\r\\n").to_string())
@@ -55,10 +52,7 @@ pub fn parse_http_info<B: BufRead>(
         }
         Ok(Event::Empty(ref e)) => {
             if e.name() == b"field" {
-                let name = e
-                    .attributes()
-                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                    .map(|kv| kv.unwrap().value);
+                let name = tshark_communication::attr_by_name(&mut e.attributes(), b"name")?;
                 match name.as_deref() {
                     Some(b"http.content_type") => {
                         content_type = tshark_communication::element_attr_val_string(e, b"show")?

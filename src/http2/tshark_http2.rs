@@ -19,10 +19,7 @@ pub fn parse_http2_info<B: BufRead>(
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Start(ref e)) => {
             if e.name() == b"field" {
-                let name = e
-                    .attributes()
-                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                    .map(|kv| kv.unwrap().value);
+                let name = tshark_communication::attr_by_name(&mut e.attributes(), b"name")?;
                 if name.as_deref() == Some(b"http2.stream")  {
                     let msg = parse_http2_stream(xml_reader)?;
                     if !msg.headers.is_empty() || matches!(&msg.data, Some(v) if !v.is_empty()) {
@@ -51,10 +48,7 @@ fn parse_http2_stream<B: BufRead>(
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Empty(ref e)) => {
             if e.name() == b"field" {
-                let name = e
-                    .attributes()
-                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                    .map(|kv| kv.unwrap().value);
+                let name = tshark_communication::attr_by_name(&mut e.attributes(), b"name")?;
                 match name.as_deref() {
                     Some(b"http2.streamid") => {
                         stream_id =
@@ -80,10 +74,7 @@ fn parse_http2_stream<B: BufRead>(
         Ok(Event::Start(ref e)) => {
             if e.name() == b"field" {
                 field_depth += 1;
-                let name = e
-                    .attributes()
-                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                    .map(|kv| kv.unwrap().value);
+                let name = tshark_communication::attr_by_name(&mut e.attributes(), b"name")?;
                 if name.as_deref() == Some(b"http2.header") {
                     headers.append(&mut parse_http2_headers(xml_reader)?);
                     field_depth -= 1; // assume the function parsed the </field>
@@ -115,10 +106,7 @@ fn parse_http2_headers<B: BufRead>(
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Empty(ref e)) => {
             if e.name() == b"field" {
-                let name = e
-                    .attributes()
-                    .find(|kv| kv.as_ref().unwrap().key == "name".as_bytes())
-                    .map(|kv| kv.unwrap().value);
+                let name = tshark_communication::attr_by_name(&mut e.attributes(), b"name")?;
                 match name.as_deref() {
                     Some(b"http2.header.name") => {
                         cur_name = tshark_communication::element_attr_val_string(e, b"show")?;
