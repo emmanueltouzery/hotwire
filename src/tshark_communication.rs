@@ -342,7 +342,7 @@ pub fn element_attr_val_string<'a>(
     e: &'a quick_xml::events::BytesStart<'a>,
     attr_name: &'static [u8],
 ) -> Result<Option<String>, String> {
-    Ok(element_attr_val_str_dynerr(e, attr_name).map_err(|e| e.to_string())?)
+    element_attr_val_str_dynerr(e, attr_name).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
