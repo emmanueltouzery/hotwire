@@ -72,7 +72,7 @@ pub fn parse_http_info<B: BufRead>(
                             other_lines.push(line);
                         }
                     }
-                    Some(b"http.file_data") => {
+                    Some(b"http.file_data" | b"data.data") => {
                         // binary will be in "value", text in "show"
                         let hex_body = if let Some(v) = tshark_communication::element_attr_val_string(e, b"value")? {
                             Some(v)
