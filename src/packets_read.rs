@@ -177,13 +177,13 @@ pub fn cleanup_child_processes(
 
         // try_wait doesn't work, wait hangs, not doing anything leaves zombie processes
         // i found this way of regularly calling try_wait until it succeeds...
-        glib::idle_add_local(move || {
-            glib::Continue(
-                !matches!(tshark_child.try_wait(), Ok(Some(s)) if s.code().is_some() || s.signal().is_some()),
-            )
-        });
+        glib::idle_add_local(move || glib::Continue(!try_wait_has_exited(&mut tshark_child)));
     }
     Ok(())
+}
+
+pub fn try_wait_has_exited(child: &mut Child) -> bool {
+    matches!(child.try_wait(), Ok(Some(s)) if s.code().is_some() || s.signal().is_some())
 }
 
 pub fn invoke_tcpdump() -> Result<(Child, PathBuf), Box<dyn std::error::Error>> {

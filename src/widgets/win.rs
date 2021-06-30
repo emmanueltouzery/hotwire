@@ -403,6 +403,15 @@ impl Widget for Win {
                 // i catch the SIGCHLD signal, which tells me that one of my child processes died
                 // (potentially pkexec). At that point if the capture is running, I stop it and clean up.
                 self.widgets.capture_btn.set_active(false);
+
+                if let Some(tshark_child) = self.model.tshark_child.as_mut() {
+                    // normally when we stop tshark ourselves, we first remove the pid
+                    // from self.model so if we find it there and tshark is dead, it
+                    // died on us
+                    if packets_read::try_wait_has_exited(tshark_child) {
+                        self.handle_got_loading_error("tshark exited");
+                    }
+                }
             }
             Msg::KeyPress(e) => {
                 self.handle_keypress(e);
@@ -640,44 +649,52 @@ impl Widget for Win {
             .capture_btn
             .unblock_signal(&self.model.capture_toggle_signal.as_ref().unwrap());
         self.widgets.loading_spinner.stop();
-        self.widgets
-            .root_stack
-            .set_visible_child_name(WELCOME_STACK_NAME);
-        self.model.window_subtitle = None;
-        self.model.current_file = None;
-        self.model.streams = HashMap::new();
-        // self.refresh_comm_targets();
-        let mut ips_treeview_state = self.model.ips_and_streams_treeview_state.take().unwrap();
-        ips_and_streams_treeview::init_remote_ips_streams_tree(&mut ips_treeview_state);
-        self.model.ips_and_streams_treeview_state = Some(ips_treeview_state);
-        let refresh_streams_tree = messages_treeview::refresh_remote_servers(
-            self.model.messages_treeview_state.as_ref().unwrap(),
-            self.model.selected_card.as_ref(),
-            &self.model.streams,
-            &self.widgets.remote_ips_streams_treeview,
-            self.model.sidebar_selection_change_signal_id.as_ref(),
-            &[],
-            &[],
-        );
-        if let RefreshRemoteIpsAndStreams::Yes(card, ips) = refresh_streams_tree {
-            let mut treeview_state = self.model.ips_and_streams_treeview_state.take().unwrap();
-            ips_and_streams_treeview::refresh_remote_ips_streams_tree(
-                &mut treeview_state,
-                &self.widgets.remote_ips_streams_treeview,
+
+        if self.model.streams.is_empty() {
+            // didn't load any data from the file at the time of the error,
+            // abort loading
+            self.widgets
+                .root_stack
+                .set_visible_child_name(WELCOME_STACK_NAME);
+            self.model.window_subtitle = None;
+            self.model.current_file = None;
+            self.model.streams = HashMap::new();
+            // self.refresh_comm_targets();
+            let mut ips_treeview_state = self.model.ips_and_streams_treeview_state.take().unwrap();
+            ips_and_streams_treeview::init_remote_ips_streams_tree(&mut ips_treeview_state);
+            self.model.ips_and_streams_treeview_state = Some(ips_treeview_state);
+            let refresh_streams_tree = messages_treeview::refresh_remote_servers(
+                self.model.messages_treeview_state.as_ref().unwrap(),
+                self.model.selected_card.as_ref(),
                 &self.model.streams,
-                &card,
-                &ips,
-                ips_and_streams_treeview::IsNewDataStillIncoming::No,
+                &self.widgets.remote_ips_streams_treeview,
+                self.model.sidebar_selection_change_signal_id.as_ref(),
+                &[],
+                &[],
             );
-            self.model.ips_and_streams_treeview_state = Some(treeview_state);
+            if let RefreshRemoteIpsAndStreams::Yes(card, ips) = refresh_streams_tree {
+                let mut treeview_state = self.model.ips_and_streams_treeview_state.take().unwrap();
+                ips_and_streams_treeview::refresh_remote_ips_streams_tree(
+                    &mut treeview_state,
+                    &self.widgets.remote_ips_streams_treeview,
+                    &self.model.streams,
+                    &card,
+                    &ips,
+                    ips_and_streams_treeview::IsNewDataStillIncoming::No,
+                );
+                self.model.ips_and_streams_treeview_state = Some(treeview_state);
+            }
+            messages_treeview::refresh_remote_servers_handle_selection(
+                self.model.messages_treeview_state.as_ref().unwrap(),
+                self.model.selected_card.as_ref(),
+                &self.widgets.remote_ips_streams_treeview,
+                self.model.sidebar_selection_change_signal_id.as_ref(),
+            );
+            Self::display_error_block("Cannot load file", Some(&msg));
+        } else {
+            // had already loaded some data, display what we have
+            self.handle_got_input_eof();
         }
-        messages_treeview::refresh_remote_servers_handle_selection(
-            self.model.messages_treeview_state.as_ref().unwrap(),
-            self.model.selected_card.as_ref(),
-            &self.widgets.remote_ips_streams_treeview,
-            self.model.sidebar_selection_change_signal_id.as_ref(),
-        );
-        Self::display_error_block("Cannot load file", Some(&msg));
     }
 
     fn handle_got_packet(&mut self, p: TSharkPacket) {
@@ -845,6 +862,9 @@ impl Widget for Win {
             self.widgets.loading_spinner.stop();
             self.widgets.open_btn.set_sensitive(true);
             self.widgets.capture_btn.set_sensitive(true);
+            self.widgets
+                .root_stack
+                .set_visible_child_name(WELCOME_STACK_NAME);
             return;
         }
 
