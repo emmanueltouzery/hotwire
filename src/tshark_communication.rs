@@ -120,7 +120,7 @@ pub fn parse_packet<B: BufRead>(
                     Some(b"frame") => {
                         frame_time = parse_frame_info(xml_reader)?;
                     }
-                    Some(b"ip") => {
+                    Some(b"ip") | Some(b"ipv6") => {
                         if ip_src.is_some() {
                             panic!("Unexpected IP at position {}", xml_reader.buffer_position());
                         }
@@ -128,7 +128,6 @@ pub fn parse_packet<B: BufRead>(
                         ip_src = ip_info.0;
                         ip_dst = ip_info.1;
                     }
-                    // TODO ipv6
                     Some(b"tcp") => {
                         // waiting for https://github.com/rust-lang/rust/issues/71126
                         let tcp_info = parse_tcp_info(xml_reader)?;
@@ -227,10 +226,10 @@ fn parse_ip_info<B: BufRead>(
             if e.name() == b"field" {
                 let name = attr_by_name(&mut e.attributes(), b"name")?;
                 match name.as_deref() {
-                    Some(b"ip.src") => {
+                    Some(b"ip.src") | Some(b"ipv6.src") => {
                         ip_src = element_attr_val_string(e, b"show")?.and_then(|s| s.parse().ok());
                     }
-                    Some(b"ip.dst") => {
+                    Some(b"ip.dst") | Some(b"ipv6.dst") => {
                         ip_dst = element_attr_val_string(e, b"show")?.and_then(|s| s.parse().ok());
                     }
                     _ => {}
