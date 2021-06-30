@@ -122,7 +122,7 @@ pub fn parse_packet<B: BufRead>(
                     }
                     Some(b"ip") | Some(b"ipv6") => {
                         if ip_src.is_some() {
-                            panic!("Unexpected IP at position {}", xml_reader.buffer_position());
+                            return Err(format!("Unexpected IP at position {}", xml_reader.buffer_position()));
                         }
                         let ip_info = parse_ip_info(xml_reader)?;
                         ip_src = ip_info.0;
@@ -138,7 +138,7 @@ pub fn parse_packet<B: BufRead>(
                     }
                     Some(b"http") => {
                         if http.is_some() {
-                            panic!("http already there");
+                            return Err(format!("Unexpected http at position {}", xml_reader.buffer_position()));
                         }
                         http = Some(tshark_http::parse_http_info(xml_reader)?);
                     }
