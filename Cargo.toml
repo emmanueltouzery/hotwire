@@ -38,6 +38,8 @@ signal-hook = "0.3.9"
 derive_more = "0.99.14"
 lazy_static = "1.4.0"
 num-traits = "0.2.14"
+serde_derive = "1.0.126"
+toml = "0.5.8"
 # filetime = "0.2.14"
 
 [dependencies.gtk]

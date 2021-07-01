@@ -1,4 +1,5 @@
 use crate::config;
+use crate::config::Config;
 use crate::tshark_communication;
 use crate::tshark_communication::TSharkPacket;
 use nix::sys::signal::Signal;
@@ -196,17 +197,24 @@ pub fn invoke_tcpdump() -> Result<(Child, PathBuf), Box<dyn std::error::Error>> 
             nix::sys::stat::Mode::S_IRUSR | nix::sys::stat::Mode::S_IWUSR,
         )?;
     }
+    let mut tcpdump_params = vec![
+        "tcpdump",
+        "-ni",
+        "any",
+        "-s0",
+        "--immediate-mode",
+        "--packet-buffered",
+        "-w",
+        fifo_path.to_str().unwrap(),
+    ];
+    let tcpdump_custom_buf_size_kib_str = Config::read_config()
+        .custom_tcpdump_buffer_size_kib
+        .map(|b| b.to_string());
+    if let Some(tcpdump_buf_str) = tcpdump_custom_buf_size_kib_str.as_ref() {
+        tcpdump_params.extend(&["-B", &tcpdump_buf_str]);
+    }
     let mut tcpdump_child = Command::new("pkexec")
-        .args(&[
-            "tcpdump",
-            "-ni",
-            "any",
-            "-s0",
-            "--immediate-mode",
-            "--packet-buffered",
-            "-w",
-            fifo_path.to_str().unwrap(),
-        ])
+        .args(&tcpdump_params)
         .spawn()
         .map_err(|e| format!("Error launching pkexec: {:?}", e))?;
 

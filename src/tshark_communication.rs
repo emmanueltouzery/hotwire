@@ -96,6 +96,7 @@ pub struct TSharkPacket {
     pub http: Option<tshark_http::TSharkHttp>,
     pub http2: Option<Vec<tshark_http2::TSharkHttp2Message>>,
     pub pgsql: Option<Vec<tshark_pgsql::PostgresWireMessage>>,
+    pub is_malformed: bool,
 }
 
 pub fn parse_packet<B: BufRead>(
@@ -111,6 +112,7 @@ pub fn parse_packet<B: BufRead>(
     let mut http = None;
     let mut http2 = None::<Vec<tshark_http2::TSharkHttp2Message>>;
     let mut pgsql = None::<Vec<tshark_pgsql::PostgresWireMessage>>;
+    let mut is_malformed = false;
     let buf = &mut vec![];
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Start(ref e)) => {
@@ -161,6 +163,9 @@ pub fn parse_packet<B: BufRead>(
                             }
                         }
                     }
+                    Some(b"_ws.malformed") => {
+                        is_malformed = true;
+                    }
                     _ => {}
                 }
             }
@@ -180,6 +185,7 @@ pub fn parse_packet<B: BufRead>(
                     http,
                     http2,
                     pgsql,
+                    is_malformed
                 });
             }
         }

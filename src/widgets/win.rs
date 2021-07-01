@@ -6,8 +6,10 @@ use super::headerbar_search::Msg::SearchActiveChanged as HbsMsgSearchActiveChang
 use super::headerbar_search::Msg::SearchTextChanged as HbsMsgSearchTextChanged;
 use super::ips_and_streams_treeview;
 use super::messages_treeview;
+use super::preferences::Preferences;
 use super::recent_file_item::RecentFileItem;
 use crate::config;
+use crate::config::Config;
 use crate::http::http_message_parser::Http;
 use crate::http2::http2_message_parser::Http2;
 use crate::icons::Icon;
@@ -69,6 +71,7 @@ pub enum InfobarOptions {
 pub enum Msg {
     OpenFile,
     OpenRecentFile(usize),
+    DisplayPreferences,
     DisplayAbout,
     CaptureToggled,
     SaveCapture,
@@ -136,6 +139,9 @@ pub struct Model {
     comm_targets_components: HashMap<CommTargetCardKey, Component<CommTargetCard>>,
     _recent_file_item_components: Vec<Component<RecentFileItem>>,
 
+    prefs_win: Option<Component<Preferences>>,
+
+    capture_malformed_packets: usize,
     tcpdump_child: Option<Child>,
     tshark_child: Option<Child>,
 }
@@ -307,6 +313,11 @@ impl Widget for Win {
             .unwrap()
             .add_resource_path("/icons");
 
+        let config = Config::read_config();
+        gtk::Settings::get_default()
+            .unwrap()
+            .set_property_gtk_application_prefer_dark_theme(config.prefer_dark_theme);
+
         let (_loaded_data_channel, loaded_data_sender) = {
             let stream = relm.stream().clone();
             relm::Channel::new(move |ch_data: ParseInputStep| {
@@ -337,6 +348,7 @@ impl Widget for Win {
                 .width_request(24)
                 .height_request(24)
                 .build(),
+            prefs_win: None,
             infobar_label: gtk::LabelBuilder::new().build(),
             comm_targets_components: HashMap::new(),
             set_sidebar_height: false,
@@ -354,6 +366,7 @@ impl Widget for Win {
             capture_toggle_signal: None,
             window_subtitle: None,
             search_text: "".to_string(),
+            capture_malformed_packets: 0,
             tcpdump_child: None,
             tshark_child: None,
         }
@@ -367,6 +380,9 @@ impl Widget for Win {
         //     }
         // }
         match event {
+            Msg::DisplayPreferences => {
+                self.display_preferences();
+            }
             Msg::DisplayAbout => {
                 self.display_about();
             }
@@ -647,12 +663,11 @@ impl Widget for Win {
             .unblock_signal(&self.model.capture_toggle_signal.as_ref().unwrap());
         self.widgets.loading_spinner.stop();
 
+        self.capture_finished();
+
         if self.model.streams.is_empty() {
             // didn't load any data from the file at the time of the error,
             // abort loading
-            self.widgets
-                .root_stack
-                .set_visible_child_name(WELCOME_STACK_NAME);
             self.model.window_subtitle = None;
             self.model.current_file = None;
             self.model.streams = HashMap::new();
@@ -695,6 +710,9 @@ impl Widget for Win {
     }
 
     fn handle_got_packet(&mut self, p: TSharkPacket) {
+        if p.is_malformed {
+            self.model.capture_malformed_packets += 1;
+        }
         if let Some((parser_index, parser)) = get_message_parsers()
             .iter()
             .enumerate()
@@ -1020,6 +1038,20 @@ impl Widget for Win {
             && e.get_keyval() != gdk::keys::constants::Escape
     }
 
+    fn display_preferences(&mut self) {
+        self.model.prefs_win =
+            Some(relm::init::<Preferences>(()).expect("Error initializing the preferences window"));
+        let prefs_win = self.model.prefs_win.as_ref().unwrap();
+        prefs_win
+            .widget()
+            .set_transient_for(Some(&self.widgets.window));
+        prefs_win
+            .widget()
+            .set_position(gtk::WindowPosition::CenterOnParent);
+        prefs_win.widget().set_modal(true);
+        prefs_win.widget().show();
+    }
+
     fn display_about(&mut self) {
         let tshark_version = Command::new("tshark")
             .args(&["--version"])
@@ -1074,16 +1106,10 @@ impl Widget for Win {
                 }))
                 .unwrap();
         } else {
+            self.capture_finished();
             self.widgets.capture_spinner.stop();
             self.widgets.open_btn.set_sensitive(true);
             self.widgets.capture_btn.set_sensitive(true);
-            self.widgets
-                .root_stack
-                .set_visible_child_name(if self.model.streams.is_empty() {
-                    WELCOME_STACK_NAME
-                } else {
-                    NORMAL_STACK_NAME
-                });
             packets_read::cleanup_child_processes(
                 self.model.tcpdump_child.take(),
                 self.model.tshark_child.take(),
@@ -1098,6 +1124,25 @@ impl Widget for Win {
                 .set_visible(Self::is_display_capture_btn());
         }
         Ok(())
+    }
+
+    fn capture_finished(&mut self) {
+        self.widgets
+            .root_stack
+            .set_visible_child_name(if self.model.streams.is_empty() {
+                WELCOME_STACK_NAME
+            } else {
+                NORMAL_STACK_NAME
+            });
+        if self.model.capture_malformed_packets > 0 {
+            Self::display_error_block(
+                &format!(
+                    "Encountered {} malformed packets during capture.",
+                    self.model.capture_malformed_packets
+                ),
+                Some("Consider increasing the capture buffer size in the settings"),
+            );
+        }
     }
 
     fn handle_save_capture(&mut self) {
@@ -1152,6 +1197,7 @@ impl Widget for Win {
             self.model.set_sidebar_height = true;
         }
 
+        self.model.capture_malformed_packets = 0;
         self.widgets.open_btn.set_sensitive(false);
         if filetype != TSharkInputType::Fifo {
             // prevent capture when we're opening a file, but obviously
@@ -1374,6 +1420,11 @@ impl Widget for Win {
                                     margin_start: 10,
                                     margin_end: 10,
                                     margin_bottom: 10,
+                                    gtk::ModelButton {
+                                        label: "Preferences",
+                                        hexpand: true,
+                                        clicked => Msg::DisplayPreferences,
+                                    },
                                     gtk::ModelButton {
                                         label: "About Hotwire",
                                         hexpand: true,
