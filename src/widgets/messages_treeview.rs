@@ -35,7 +35,7 @@ pub struct MessagesTreeviewState {
     message_treeviews: Vec<(gtk::TreeView, TreeViewSignals)>,
     details_component_emitters: Vec<DetailsCallback>,
     details_adjustments: Vec<gtk::Adjustment>,
-    cur_liststore: Option<(CommTargetCardKey, gtk::ListStore, i32)>,
+    cur_liststore: Option<(CommTargetCardKey, gtk::ListStore)>,
 }
 
 impl MessagesTreeviewState {
@@ -190,7 +190,7 @@ fn row_selected(
 }
 
 pub fn refresh_remote_servers(
-    tv_state: &MessagesTreeviewState,
+    tv_state: &mut MessagesTreeviewState,
     selected_card: Option<&CommTargetCardData>,
     streams: &HashMap<TcpStreamId, StreamData>,
     remote_ips_streams_treeview: &gtk::TreeView,
@@ -261,6 +261,8 @@ pub fn refresh_remote_servers(
         }
         mp.end_populate_treeview(tv, &ls);
         let ip_hash = by_remote_ip.keys().copied().collect::<HashSet<_>>();
+
+        tv_state.cur_liststore = Some((card.to_key(), ls));
         return RefreshRemoteIpsAndStreams::Yes(card, ip_hash);
     }
     RefreshRemoteIpsAndStreams::No
@@ -382,16 +384,16 @@ pub fn refresh_grids_new_messages(
             let ls = tv_state
                 .cur_liststore
                 .as_ref()
-                .filter(|(c, _s, _l)| {
+                .filter(|(c, _s)| {
                     c.ip == card.ip
                         && c.port == card.port
                         && c.protocol_index == card.protocol_index
                 })
-                .map(|(_c, s, _l)| s.clone())
+                .map(|(_c, s)| s.clone())
                 .unwrap_or_else(|| {
                     let key = card.to_key();
                     let ls = parser.get_empty_liststore();
-                    tv_state.cur_liststore = Some((key, ls.clone(), 0));
+                    tv_state.cur_liststore = Some((key, ls.clone()));
                     let (ref tv, ref _signals) =
                         &tv_state.message_treeviews.get(card.protocol_index).unwrap();
                     parser.end_populate_treeview(tv, &ls);
@@ -404,9 +406,6 @@ pub fn refresh_grids_new_messages(
                 &stream_data.messages[stream_data.messages.len() - added_messages..],
                 (stream_data.messages.len() - added_messages) as i32,
             );
-            let mut store = tv_state.cur_liststore.take().unwrap();
-            store.2 += added_messages as i32;
-            tv_state.cur_liststore = Some(store);
 
             packets_added_trigger_events(
                 tv_state,

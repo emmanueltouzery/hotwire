@@ -511,7 +511,7 @@ impl Widget for Win {
                     self.model.ips_and_streams_treeview_state.as_mut().unwrap();
                 ips_and_streams_treeview::init_remote_ips_streams_tree(&mut ips_treeview_state);
                 messages_treeview::refresh_remote_servers(
-                    self.model.messages_treeview_state.as_ref().unwrap(),
+                    self.model.messages_treeview_state.as_mut().unwrap(),
                     self.model.selected_card.as_ref(),
                     &self.model.streams,
                     &self.widgets.remote_ips_streams_treeview,
@@ -602,7 +602,7 @@ impl Widget for Win {
         let mut ips_treeview_state = self.model.ips_and_streams_treeview_state.as_mut().unwrap();
         ips_and_streams_treeview::init_remote_ips_streams_tree(&mut ips_treeview_state);
         let refresh_streams_tree = messages_treeview::refresh_remote_servers(
-            self.model.messages_treeview_state.as_ref().unwrap(),
+            self.model.messages_treeview_state.as_mut().unwrap(),
             self.model.selected_card.as_ref(),
             &self.model.streams,
             &self.widgets.remote_ips_streams_treeview,
@@ -676,7 +676,7 @@ impl Widget for Win {
                 self.model.ips_and_streams_treeview_state.as_mut().unwrap();
             ips_and_streams_treeview::init_remote_ips_streams_tree(&mut ips_treeview_state);
             let refresh_streams_tree = messages_treeview::refresh_remote_servers(
-                self.model.messages_treeview_state.as_ref().unwrap(),
+                self.model.messages_treeview_state.as_mut().unwrap(),
                 self.model.selected_card.as_ref(),
                 &self.model.streams,
                 &self.widgets.remote_ips_streams_treeview,
