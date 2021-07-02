@@ -248,7 +248,7 @@ impl Widget for Win {
     }
 
     fn is_display_capture_btn() -> bool {
-        cfg!(target_os = "linux") && !is_flatpak()
+        !cfg!(target_os = "windows")
     }
 
     fn refresh_recent_files(&mut self) {
@@ -1092,12 +1092,19 @@ impl Widget for Win {
         self.widgets.capture_spinner.set_visible(is_active);
         self.widgets.follow_packets_btn.set_active(true);
         self.widgets.follow_packets_btn.set_visible(is_active);
+        let config = Config::read_config();
         if is_active {
             self.widgets.capture_spinner.start();
             self.reset_open_file(None, TSharkInputType::Fifo);
-            let (tcpdump_child, fifo_path) = packets_read::invoke_tcpdump()?;
 
-            self.model.tcpdump_child = Some(tcpdump_child);
+            let fifo_path = packets_read::setup_fifo_path()?;
+            if is_flatpak() || !cfg!(target_os = "linux") || !config.tcpdump_use_pkexec_if_possible
+            {
+                self.handle_capture_non_pkexec(&fifo_path)?;
+            } else {
+                let tcpdump_child = packets_read::invoke_tcpdump(&fifo_path)?;
+                self.model.tcpdump_child = Some(tcpdump_child);
+            }
             let s = self.model.loaded_data_sender.clone();
             self.model
                 .bg_sender
@@ -1123,6 +1130,33 @@ impl Widget for Win {
                 .capture_btn
                 .set_visible(Self::is_display_capture_btn());
         }
+        Ok(())
+    }
+
+    fn handle_capture_non_pkexec(&mut self, fifo: &Path) -> Result<(), Box<dyn std::error::Error>> {
+        let dialog = gtk::MessageDialog::new(
+            None::<&gtk::Window>,
+            gtk::DialogFlags::all(),
+            gtk::MessageType::Info,
+            gtk::ButtonsType::Close,
+            "Please run tcpdump manually",
+        );
+        let command = "sudo ".to_string() + &packets_read::get_tcpdump_params(fifo).join(" ");
+        dialog.set_property_secondary_text(Some(&format!(
+            "Due to privilege issues, hotwire cannot capture packets itself. \
+             Please launch an external program to write the packets to a fifo \
+             that hotwire will listen to:\n\n<tt>{}</tt>",
+            command
+        )));
+        dialog.set_property_secondary_use_markup(true);
+        dialog.add_button("Copy command", gtk::ResponseType::Accept);
+        let r = dialog.run();
+        if r == gtk::ResponseType::Accept {
+            if let Some(clip) = gtk::Clipboard::get_default(&self.widgets.window.get_display()) {
+                clip.set_text(&command);
+            }
+        }
+        dialog.close();
         Ok(())
     }
 

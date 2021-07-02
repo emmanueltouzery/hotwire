@@ -12,6 +12,7 @@ pub type Result<T> = std::result::Result<T, Box<dyn Error + Sync + Send>>;
 pub struct Config {
     pub prefer_dark_theme: bool,
     pub custom_tcpdump_buffer_size_kib: Option<usize>,
+    pub tcpdump_use_pkexec_if_possible: bool,
 }
 
 impl Config {
@@ -19,6 +20,7 @@ impl Config {
         Config {
             prefer_dark_theme: false,
             custom_tcpdump_buffer_size_kib: Some(8192),
+            tcpdump_use_pkexec_if_possible: true,
         }
     }
 

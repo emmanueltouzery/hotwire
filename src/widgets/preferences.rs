@@ -9,11 +9,13 @@ pub enum Msg {
     DarkThemeToggled(bool),
     CustomTcpDumpBufferSizeToggled(bool),
     CustomTcpDumpBufferSizeValueChanged,
+    TcpdumpUsePkexecChanged(bool),
 }
 
 pub struct Model {
     prefer_dark_theme: bool,
     custom_tcpdump_buffer_size_kib: Option<usize>,
+    tcpdump_use_pkexec_if_possible: bool,
 }
 
 #[widget]
@@ -37,6 +39,7 @@ impl Widget for Preferences {
         Model {
             prefer_dark_theme: config.prefer_dark_theme,
             custom_tcpdump_buffer_size_kib: config.custom_tcpdump_buffer_size_kib,
+            tcpdump_use_pkexec_if_possible: config.tcpdump_use_pkexec_if_possible,
         }
     }
 
@@ -44,6 +47,7 @@ impl Widget for Preferences {
         Config {
             prefer_dark_theme: self.model.prefer_dark_theme,
             custom_tcpdump_buffer_size_kib: self.model.custom_tcpdump_buffer_size_kib,
+            tcpdump_use_pkexec_if_possible: self.model.tcpdump_use_pkexec_if_possible,
         }
     }
 
@@ -63,6 +67,10 @@ impl Widget for Preferences {
                     } else {
                         None
                     };
+                self.get_config().save_config(&self.widgets.prefs_window);
+            }
+            Msg::TcpdumpUsePkexecChanged(t) => {
+                self.model.tcpdump_use_pkexec_if_possible = t;
                 self.get_config().save_config(&self.widgets.prefs_window);
             }
         }
@@ -107,6 +115,12 @@ impl Widget for Preferences {
                         snap_to_ticks: true,
                         value_changed => Msg::CustomTcpDumpBufferSizeValueChanged,
                     },
+                },
+                gtk::CheckButton {
+                    label: "Use pkexec to launch tcpdump",
+                    active: self.model.tcpdump_use_pkexec_if_possible,
+                    toggled(t) => Msg::TcpdumpUsePkexecChanged(t.get_active()),
+                    visible: cfg!(target_os = "linux") && !win::is_flatpak()
                 },
             }
         }

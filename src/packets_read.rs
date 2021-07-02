@@ -6,6 +6,7 @@ use nix::sys::signal::Signal;
 use nix::unistd::Pid;
 use quick_xml::events::Event;
 use signal_hook::iterator::Signals;
+use std::borrow::Cow;
 use std::io::BufRead;
 use std::io::BufReader;
 #[cfg(target_family = "unix")]
@@ -187,7 +188,31 @@ pub fn try_wait_has_exited(child: &mut Child) -> bool {
     matches!(child.try_wait(), Ok(Some(s)) if s.code().is_some() || s.signal().is_some())
 }
 
-pub fn invoke_tcpdump() -> Result<(Child, PathBuf), Box<dyn std::error::Error>> {
+pub fn get_tcpdump_params(fifo_path: &Path) -> Vec<Cow<str>> {
+    let mut tcpdump_params: Vec<Cow<str>> = [
+        "tcpdump",
+        "-ni",
+        "any",
+        "-s0",
+        "--immediate-mode",
+        "--packet-buffered",
+        "-w",
+    ]
+    .iter()
+    .map(|s| Cow::Borrowed(*s))
+    .collect();
+    tcpdump_params.push(Cow::Owned(fifo_path.to_str().unwrap().to_string()));
+    let tcpdump_custom_buf_size_kib_str = Config::read_config()
+        .custom_tcpdump_buffer_size_kib
+        .map(|b| b.to_string());
+    if let Some(tcpdump_buf_str) = tcpdump_custom_buf_size_kib_str.as_ref() {
+        tcpdump_params.extend([Cow::Borrowed("-B"), Cow::Owned(tcpdump_buf_str.to_string())]);
+    }
+
+    tcpdump_params
+}
+
+pub fn setup_fifo_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
     // i wanted to use the temp folder but I got permissions issues,
     // which I don't fully understand.
     let fifo_path = config::get_tcpdump_fifo_path();
@@ -197,24 +222,13 @@ pub fn invoke_tcpdump() -> Result<(Child, PathBuf), Box<dyn std::error::Error>> 
             nix::sys::stat::Mode::S_IRUSR | nix::sys::stat::Mode::S_IWUSR,
         )?;
     }
-    let mut tcpdump_params = vec![
-        "tcpdump",
-        "-ni",
-        "any",
-        "-s0",
-        "--immediate-mode",
-        "--packet-buffered",
-        "-w",
-        fifo_path.to_str().unwrap(),
-    ];
-    let tcpdump_custom_buf_size_kib_str = Config::read_config()
-        .custom_tcpdump_buffer_size_kib
-        .map(|b| b.to_string());
-    if let Some(tcpdump_buf_str) = tcpdump_custom_buf_size_kib_str.as_ref() {
-        tcpdump_params.extend(&["-B", &tcpdump_buf_str]);
-    }
+    Ok(fifo_path)
+}
+
+pub fn invoke_tcpdump(fifo_path: &Path) -> Result<Child, Box<dyn std::error::Error>> {
+    let tcpdump_params = get_tcpdump_params(&fifo_path);
     let mut tcpdump_child = Command::new("pkexec")
-        .args(&tcpdump_params)
+        .args(tcpdump_params.iter().map(|s| s.to_string()))
         .spawn()
         .map_err(|e| format!("Error launching pkexec: {:?}", e))?;
 
@@ -225,7 +239,7 @@ pub fn invoke_tcpdump() -> Result<(Child, PathBuf), Box<dyn std::error::Error>> 
     if let Ok(Some(status)) = tcpdump_child.try_wait() {
         return Err(format!("Failed to execute tcpdump, pkexec exit code {}", status).into());
     }
-    Ok((tcpdump_child, fifo_path))
+    Ok(tcpdump_child)
 }
 
 pub fn register_child_process_death(sender: relm::Sender<()>) {
