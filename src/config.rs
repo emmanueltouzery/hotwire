@@ -90,7 +90,7 @@ pub fn config_folder() -> Result<PathBuf> {
     let home_dir = std::env::var("XDG_DATA_HOME")
         .ok()
         .map(PathBuf::from)
-        .unwrap_or(dirs::home_dir().expect("Can't find your home folder?"));
+        .unwrap_or_else(|| dirs::home_dir().expect("Can't find your home folder?"));
     let config_folder = home_dir.join(".hotwire");
     if !config_folder.is_dir() {
         std::fs::create_dir(&config_folder)?;
