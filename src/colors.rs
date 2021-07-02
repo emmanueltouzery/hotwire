@@ -9,3 +9,7 @@ pub const STREAM_COLORS: [&str; 33] = [
     "#f0ff5f", "#ff86d2", "#9d2326", "#ba9600", "#01cce4", "#008554", "#00feed", "#9eab00",
     "#d2dc2d",
 ];
+
+// https://developer.gnome.org/hig-book/unstable/design-color.html.en
+pub const WARNING_COLOR: &str = "#D1940C";
+pub const ERROR_COLOR: &str = "#DF421E";

@@ -183,6 +183,7 @@ impl MessageParser for Http {
             String::static_type(), // response content type
             u32::static_type(),    // tcp sequence number
             String::static_type(), // stream color
+            String::static_type(), // http response color
         ])
     }
 
@@ -227,6 +228,7 @@ impl MessageParser for Http {
         let cell_resp_txt = gtk::CellRendererTextBuilder::new().build();
         response_col.pack_start(&cell_resp_txt, true);
         response_col.add_attribute(&cell_resp_txt, "text", 1);
+        response_col.add_attribute(&cell_resp_txt, "foreground", 12);
         tv.append_column(&response_col);
 
         let duration_col = gtk::TreeViewColumnBuilder::new()
@@ -307,6 +309,25 @@ impl MessageParser for Http {
                 11,
                 &colors::STREAM_COLORS[session_id.as_u32() as usize % colors::STREAM_COLORS.len()]
                     .to_value(),
+            );
+            let str_is_numbers_only = |s: &&str| s.chars().find(|c| !c.is_numeric()).is_none();
+            let resp_code: Option<u16> = http
+                .response
+                .as_ref()
+                .and_then(|r| {
+                    r.first_line
+                        .split_ascii_whitespace()
+                        .find(str_is_numbers_only)
+                })
+                .and_then(|s| s.parse().ok());
+            ls.set_value(
+                &iter,
+                12,
+                &match resp_code {
+                    Some(r) if r >= 400 && r < 500 => colors::WARNING_COLOR.to_value(),
+                    Some(r) if r >= 500 && r < 600 => colors::ERROR_COLOR.to_value(),
+                    _ => None::<&str>.to_value(),
+                },
             );
         }
     }
