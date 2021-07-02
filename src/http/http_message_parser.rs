@@ -310,7 +310,7 @@ impl MessageParser for Http {
                 &colors::STREAM_COLORS[session_id.as_u32() as usize % colors::STREAM_COLORS.len()]
                     .to_value(),
             );
-            let str_is_numbers_only = |s: &&str| s.chars().find(|c| !c.is_numeric()).is_none();
+            let str_is_numbers_only = |s: &&str| s.chars().all(|c| c.is_numeric());
             let resp_code: Option<u16> = http
                 .response
                 .as_ref()
@@ -324,8 +324,8 @@ impl MessageParser for Http {
                 &iter,
                 12,
                 &match resp_code {
-                    Some(r) if r >= 400 && r < 500 => colors::WARNING_COLOR.to_value(),
-                    Some(r) if r >= 500 && r < 600 => colors::ERROR_COLOR.to_value(),
+                    Some(r) if (400..500).contains(&r) => colors::WARNING_COLOR.to_value(),
+                    Some(r) if (500..600).contains(&r) => colors::ERROR_COLOR.to_value(),
                     _ => None::<&str>.to_value(),
                 },
             );
