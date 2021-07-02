@@ -206,7 +206,10 @@ pub fn get_tcpdump_params(fifo_path: &Path) -> Vec<Cow<str>> {
         .custom_tcpdump_buffer_size_kib
         .map(|b| b.to_string());
     if let Some(tcpdump_buf_str) = tcpdump_custom_buf_size_kib_str.as_ref() {
-        tcpdump_params.extend([Cow::Borrowed("-B"), Cow::Owned(tcpdump_buf_str.to_string())]);
+        tcpdump_params.extend(vec![
+            Cow::Borrowed("-B"),
+            Cow::Owned(tcpdump_buf_str.to_string()),
+        ]);
     }
 
     tcpdump_params
