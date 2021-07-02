@@ -102,7 +102,7 @@ impl Widget for Preferences {
                 gtk::Box {
                     orientation: gtk::Orientation::Horizontal,
                     spacing: 5,
-                    visible: !win::is_flatpak(),
+                    visible: !cfg!(target_os = "windows"),
                     #[name="tcpdump_buf_size_cb"]
                     gtk::CheckButton {
                         label: "Custom tcpdump buffer size (KiB)",
