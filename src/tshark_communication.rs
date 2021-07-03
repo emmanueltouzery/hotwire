@@ -163,6 +163,10 @@ pub fn parse_packet<B: BufRead>(
                             }
                         }
                     }
+                    Some(b"icmp") => {
+                        // need to skip ICMP info, because it also contains IP info that can confuse us
+                        skip_until_proto_end(xml_reader)?;
+                    }
                     Some(b"_ws.malformed") => {
                         is_malformed = true;
                     }
@@ -187,6 +191,22 @@ pub fn parse_packet<B: BufRead>(
                     pgsql,
                     is_malformed
                 });
+            }
+        }
+    )
+}
+
+fn skip_until_proto_end<B: BufRead>(xml_reader: &mut quick_xml::Reader<B>) -> Result<(), String> {
+    let buf = &mut vec![];
+    let mut proto_count = 1;
+    xml_event_loop!(xml_reader, buf,
+        Ok(Event::Start(ref e)) if e.name() == b"proto" => {
+            proto_count += 1;
+        }
+        Ok(Event::End(ref e)) if e.name() == b"proto" => {
+            proto_count -= 1;
+            if proto_count == 0 {
+                return Ok(());
             }
         }
     )
