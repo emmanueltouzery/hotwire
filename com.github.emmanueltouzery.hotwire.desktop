@@ -4,4 +4,4 @@ Terminal=false
 Name=Hotwire
 Exec=hotwire
 Type=Application
-Icons=com.github.emmanueltouzery.hotwire
+Icon=com.github.emmanueltouzery.hotwire
