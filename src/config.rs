@@ -85,13 +85,18 @@ impl Config {
     }
 }
 
+pub fn data_folder() -> Result<PathBuf> {
+    let data_dir = dirs::data_dir().ok_or("Can't find your data folder?")?;
+    let data_folder = data_dir.join("hotwire");
+    if !data_folder.is_dir() {
+        std::fs::create_dir(&data_folder)?;
+    }
+    Ok(data_folder)
+}
+
 pub fn config_folder() -> Result<PathBuf> {
-    // $XDG_DATA_HOME is needed for flatpak
-    let home_dir = std::env::var("XDG_DATA_HOME")
-        .ok()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| dirs::home_dir().expect("Can't find your home folder?"));
-    let config_folder = home_dir.join(".hotwire");
+    let data_dir = dirs::config_dir().ok_or("Can't find your config folder?")?;
+    let config_folder = data_dir.join("hotwire");
     if !config_folder.is_dir() {
         std::fs::create_dir(&config_folder)?;
     }
@@ -107,7 +112,7 @@ pub enum RemoveMode {
 // can't blindly delete all files, because the app might be running
 // multiple times concurrently...
 pub fn remove_obsolete_tcpdump_files(remove_mode: RemoveMode) -> Result<()> {
-    let fifo_path = config_folder()?;
+    let fifo_path = data_folder()?;
     let paths = fs::read_dir(fifo_path)?;
     let is_old = |p: &std::path::Path| {
         fs::metadata(p)
@@ -141,13 +146,13 @@ pub fn remove_obsolete_tcpdump_files(remove_mode: RemoveMode) -> Result<()> {
 }
 
 pub fn get_tcpdump_fifo_path() -> PathBuf {
-    let mut fifo_path = config_folder().unwrap();
+    let mut fifo_path = data_folder().unwrap();
     fifo_path.push(format!("hotwire-record-{}", std::process::id()));
     fifo_path
 }
 
 pub fn get_tshark_pcap_output_path() -> PathBuf {
-    let mut pcap_path = config_folder().unwrap();
+    let mut pcap_path = data_folder().unwrap();
     pcap_path.push(format!("hotwire-save-{}.pcap", std::process::id()));
     pcap_path
 }
