@@ -36,7 +36,8 @@ and parameters (without types or column names though).
 
 ## HTTPS and HTTP2: decryption
 
-It is possible to view encrypted traffic in Hotwire, the same as with wireshark and tshark, if you have the encryption keys. You can recover the encryption keys from server software (for instance apache tomcat) or client
+It is possible to view encrypted traffic in Hotwire, the same as with wireshark and tshark, if you have the
+encryption keys. You can recover the encryption keys from server software (for instance apache tomcat) or client
 software (firefox, chrome). To recover the keys from chrome or firefox, launch them with:
 
     SSLKEYLOGFILE=browser_keylog.txt firefox
@@ -63,11 +64,12 @@ gives to the user a `tcpdump` command-line to run with `sudo`.
 ## Installation
 
 The recommended way to install the application on linux is with flatpak. For other platforms you'll have to
-build from source. `Hotwire` requires `tshark` to be installed and in the PATH to operate correctly, and `tcpdump`
-to record traffic, and on linux `pkexec` for simple recording. For other platforms you'll have to
-build from source. `Hotwire` requires `tshark` to be installed and in the PATH to operate correctly, and `tcpdump`
-to record traffic, and on linux `pkexec` for simple recording.
+build from source -- using the rust toolchain. `Hotwire` requires `tshark` to be installed and in the PATH
+to operate correctly, and `tcpdump` to record traffic, and on linux `pkexec` for simple recording.
 
-![Main view screenshot](https://raw.githubusercontent.com/wiki/emmanueltouzery/Hotwire/pic2.png)
+To build from source: install rust and cargo, then run `cargo run --release`. The binary in `target/bin/hotwire`
+can be copied anywhere, as it embeds icons and other dependencies (but not shared libraries like gtk).
 
-![Main view screenshot](https://raw.githubusercontent.com/wiki/emmanueltouzery/Hotwire/pic3.png)
+![HTTP traffic](https://raw.githubusercontent.com/wiki/emmanueltouzery/Hotwire/pic2.png)
+
+![Dark mode and SSL](https://raw.githubusercontent.com/wiki/emmanueltouzery/Hotwire/pic3.png)
