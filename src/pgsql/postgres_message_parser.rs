@@ -482,7 +482,7 @@ fn decode_bool(val: &str) -> Option<bool> {
         Some("f") => Some(false),
         Some("0") => Some(false),
         _ => {
-            eprintln!("expected bool value: {}", val,);
+            // eprintln!("expected bool value: {}", val,);
             Some(true) // I've seen values such as 54525545 or 46414c5345.. maybe PG optimises "anything non-zero is true"?
         }
     }
