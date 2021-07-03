@@ -11,15 +11,15 @@
   </description>
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/wiki/emmanueltouzery/hotwire/pics/pic1.png</image>
+      <image>https://raw.githubusercontent.com/wiki/emmanueltouzery/hotwire/pic1.png</image>
       <caption>Main Window</caption>
     </screenshot>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/wiki/emmanueltouzery/hotwire/pics/pic2.png</image>
+      <image>https://raw.githubusercontent.com/wiki/emmanueltouzery/hotwire/pic2.png</image>
       <caption>HTTP traffic</caption>
     </screenshot>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/wiki/emmanueltouzery/hotwire/pics/pic3.png</image>
+      <image>https://raw.githubusercontent.com/wiki/emmanueltouzery/hotwire/pic3.png</image>
       <caption>Dark mode and SSL</caption>
     </screenshot>
   </screenshots>
