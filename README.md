@@ -1,5 +1,7 @@
 # Hotwire
 
+<a href='https://flathub.org/apps/details/com.github.emmanueltouzery.hotwire'><img width='180' align='right' alt='Download on Flathub' src='https://flathub.org/assets/badges/flathub-badge-en.png'/></a>
+
 Hotwire is a gtk GUI application that leverages the wireshark and tshark infrastructure to capture traffic and explore the contents
 of tcpdump files, but displays the data in a more focused way than wireshark. Hotwire supports only a
 few protocols (currently PostgreSQL, HTTP and HTTP2), but for these protocols it offers a high-level,
@@ -64,11 +66,12 @@ gives to the user a `tcpdump` command-line to run with `sudo`.
 ## Installation
 
 The recommended way to install the application on linux is with flatpak. For other platforms you'll have to
-build from source -- using the rust toolchain. `Hotwire` requires `tshark` to be installed and in the PATH
-to operate correctly, and `tcpdump` to record traffic, and on linux `pkexec` for simple recording.
+build from source -- using [the rust toolchain](https://rustup.rs/). `Hotwire` requires `tshark` to be installed and in the PATH
+to operate correctly, and `tcpdump` to record traffic, and on non-flatpak linux `pkexec` for simple recording.
 
-To build from source: install rust and cargo, then run `cargo run --release`. The binary in `target/bin/hotwire`
-can be copied anywhere, as it embeds icons and other dependencies (but not shared libraries like gtk).
+To build from source: [install rust and cargo](https://rustup.rs/), then run `cargo run --release`. The binary in `target/bin/hotwire`
+can be copied anywhere, as it embeds icons and other dependencies (but not shared libraries like gtk). On OSX,
+you'll need gtk+3 and adwaita-icon-theme from homebrew.
 
 ![HTTP traffic](https://raw.githubusercontent.com/wiki/emmanueltouzery/Hotwire/pic2.png)
 
