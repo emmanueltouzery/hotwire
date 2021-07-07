@@ -69,7 +69,7 @@ The recommended way to install the application on linux is with flatpak. For oth
 build from source -- using [the rust toolchain](https://rustup.rs/). `Hotwire` requires `tshark` to be installed and in the PATH
 to operate correctly, and `tcpdump` to record traffic, and on non-flatpak linux `pkexec` for simple recording.
 
-To build from source: [install rust and cargo](https://rustup.rs/), then run `cargo run --release`. The binary in `target/bin/hotwire`
+To build from source: [install rust and cargo](https://rustup.rs/), then run `cargo run --release`. The binary in `target/release/hotwire`
 can be copied anywhere, as it embeds icons and other dependencies (but not shared libraries like gtk). On OSX,
 you'll need gtk+3 and adwaita-icon-theme from homebrew.
 
