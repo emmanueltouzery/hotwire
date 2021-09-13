@@ -74,7 +74,7 @@ pub fn got_packet_refresh_remote_ips_treeview(
     let remote_ip_iter = treeview_state
         .remote_ips_streams_iptopath
         .get(&stream_data.client_server.as_ref().unwrap().client_ip)
-        .and_then(|path| treestore.iter(&path))
+        .and_then(|path| treestore.iter(path))
         .unwrap_or_else(|| {
             let new_iter = treestore.insert_with_values(
                 None,
@@ -130,7 +130,7 @@ pub fn refresh_remote_ip_stream(
             }
             x if x.len() == 1 => {
                 // remote ip
-                if let Some(iter) = remote_ips_streams_tree_store.iter(&path) {
+                if let Some(iter) = remote_ips_streams_tree_store.iter(path) {
                     let remote_ip: Option<String> =
                         remote_ips_streams_tree_store.value(&iter, 0).get().unwrap();
                     allowed_ips.push(remote_ip.unwrap().parse::<IpAddr>().unwrap());
@@ -138,7 +138,7 @@ pub fn refresh_remote_ip_stream(
             }
             x if x.len() == 2 => {
                 // stream
-                let stream_iter = remote_ips_streams_tree_store.iter(&path).unwrap();
+                let stream_iter = remote_ips_streams_tree_store.iter(path).unwrap();
                 let stream_id = remote_ips_streams_tree_store.value(&stream_iter, 2);
                 allowed_stream_ids.push(TcpStreamId(stream_id.get().unwrap()));
             }

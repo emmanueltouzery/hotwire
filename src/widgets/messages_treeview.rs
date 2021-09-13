@@ -177,7 +177,7 @@ fn row_selected(
     path: &gtk::TreePath,
     rstream: &relm::StreamHandle<win::Msg>,
 ) {
-    let iter = store.iter(&path).unwrap();
+    let iter = store.iter(path).unwrap();
     let stream_id = store.value(&iter, 2);
     let idx = store.value(&iter, 3);
     rstream.emit(win::Msg::DisplayDetails(
@@ -215,7 +215,7 @@ pub fn refresh_remote_servers(
                 .as_ref()
                 .filter(|cs| constrain_remote_ips.contains(&cs.client_ip))
                 .is_some();
-            let allowed_stream = constrain_stream_ids.contains(&stream_id);
+            let allowed_stream = constrain_stream_ids.contains(stream_id);
             let allowed = allowed_all || allowed_ip || allowed_stream;
 
             if !allowed {
@@ -273,7 +273,7 @@ pub fn refresh_remote_servers_handle_selection(
 ) {
     setup_selection_signals(
         tv_state,
-        &remote_ips_streams_treeview,
+        remote_ips_streams_treeview,
         sidebar_selection_change_signal_id,
         RefreshOngoing::No,
     );

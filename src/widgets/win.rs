@@ -581,7 +581,7 @@ impl Widget for Win {
                 Msg::InfoBarShow(None, InfobarOptions::Default)
             });
         }
-        self.model.infobar_label.set_text(&msg);
+        self.model.infobar_label.set_text(msg);
         self.widgets.infobar.set_visible(true);
     }
 
@@ -653,13 +653,13 @@ impl Widget for Win {
         }
         self.widgets
             .capture_btn
-            .block_signal(&self.model.capture_toggle_signal.as_ref().unwrap());
+            .block_signal(self.model.capture_toggle_signal.as_ref().unwrap());
         self.widgets.capture_btn.set_active(false);
         self.widgets.capture_spinner.set_visible(false);
         self.widgets.capture_spinner.stop();
         self.widgets
             .capture_btn
-            .unblock_signal(&self.model.capture_toggle_signal.as_ref().unwrap());
+            .unblock_signal(self.model.capture_toggle_signal.as_ref().unwrap());
         self.widgets.loading_spinner.stop();
 
         self.capture_finished();
@@ -701,7 +701,7 @@ impl Widget for Win {
                 &self.widgets.remote_ips_streams_treeview,
                 self.model.sidebar_selection_change_signal_id.as_ref(),
             );
-            Self::display_error_block("Cannot load file", Some(&msg));
+            Self::display_error_block("Cannot load file", Some(msg));
         } else {
             // had already loaded some data, display what we have
             self.handle_got_input_eof();
@@ -892,7 +892,7 @@ impl Widget for Win {
                 &mut treeview_state,
                 &self.widgets.remote_ips_streams_treeview,
                 &self.model.streams,
-                &card,
+                card,
                 &remote_ips,
                 ips_and_streams_treeview::IsNewDataStillIncoming::No,
             );
@@ -1247,7 +1247,7 @@ impl Widget for Win {
         let mut ips_treeview_state = self.model.ips_and_streams_treeview_state.as_mut().unwrap();
         ips_and_streams_treeview::init_remote_ips_streams_tree(&mut ips_treeview_state);
         ips_and_streams_treeview::connect_remote_ips_streams_tree(
-            &ips_treeview_state,
+            ips_treeview_state,
             &self.widgets.remote_ips_streams_treeview,
         );
         self.components
@@ -1331,7 +1331,7 @@ impl Widget for Win {
         if is_fifo {
             self.widgets
                 .capture_btn
-                .block_signal(&self.model.capture_toggle_signal.as_ref().unwrap());
+                .block_signal(self.model.capture_toggle_signal.as_ref().unwrap());
             // the capture button is invisible by default except on linux
             // in case of file opening through fifo, make it visible always
             // (so the user can stop the import)
@@ -1341,7 +1341,7 @@ impl Widget for Win {
             self.widgets.capture_spinner.start();
             self.widgets
                 .capture_btn
-                .unblock_signal(&self.model.capture_toggle_signal.as_ref().unwrap());
+                .unblock_signal(self.model.capture_toggle_signal.as_ref().unwrap());
         }
 
         let s = self.model.loaded_data_sender.clone();

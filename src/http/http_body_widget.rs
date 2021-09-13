@@ -196,7 +196,7 @@ impl Widget for HttpBodyWidget {
             })
             .and_then(|d| {
                 d.strip_prefix("attachment: filename=\"")
-                    .and_then(|f| f.strip_suffix("\""))
+                    .and_then(|f| f.strip_suffix('"'))
                     .map(|f| f.to_string())
             });
         attachment_name

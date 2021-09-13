@@ -229,7 +229,7 @@ pub fn setup_fifo_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
 }
 
 pub fn invoke_tcpdump(fifo_path: &Path) -> Result<Child, Box<dyn std::error::Error>> {
-    let tcpdump_params = get_tcpdump_params(&fifo_path);
+    let tcpdump_params = get_tcpdump_params(fifo_path);
     let mut tcpdump_child = Command::new("pkexec")
         .args(tcpdump_params.iter().map(|s| s.to_string()))
         .spawn()

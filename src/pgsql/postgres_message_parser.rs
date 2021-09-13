@@ -489,7 +489,7 @@ impl MessageParser for Postgres {
 }
 
 fn decode_bool(val: &str) -> Option<bool> {
-    match hex_chars_to_string(&val).as_deref() {
+    match hex_chars_to_string(val).as_deref() {
         Some("t") => Some(true),
         Some("1") => Some(true),
         Some("null") => None,
@@ -514,9 +514,9 @@ fn decode_unknown(val: &str) -> String {
         .iter()
         .any(|b| b == &0)
     {
-        decode_integer_as_str::<i32>(PostgresColType::Int8, &val)
+        decode_integer_as_str::<i32>(PostgresColType::Int8, val)
     } else {
-        hex_chars_to_string(&val).unwrap_or_else(|| val.to_string())
+        hex_chars_to_string(val).unwrap_or_else(|| val.to_string())
     }
 }
 
@@ -534,7 +534,7 @@ fn decode_param(typ: PostgresColType, val: &str, length: i64) -> String {
         .to_string(),
         PostgresColType::Int4 | PostgresColType::Int2 => decode_integer_as_str::<i32>(typ, val),
         PostgresColType::Int8 => decode_integer_as_str::<i64>(typ, val),
-        PostgresColType::Unknown => decode_unknown(&val),
+        PostgresColType::Unknown => decode_unknown(val),
         _ => hex_chars_to_string(val).unwrap_or_else(|| format!("Error decoding: {}", val)),
     }
 }
@@ -546,7 +546,7 @@ fn decode_integer<T: num_traits::Num + ToString + FromStr>(
     if val.starts_with("00") {
         T::from_str_radix(val, 16).ok()
     } else {
-        hex_chars_to_bytes(&val)
+        hex_chars_to_bytes(val)
             .and_then(|bytes| String::from_utf8(bytes).ok())
             .and_then(|s| s.parse().ok())
     }

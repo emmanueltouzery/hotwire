@@ -133,7 +133,7 @@ pub fn remove_obsolete_tcpdump_files(remove_mode: RemoveMode) -> Result<()> {
             .and_then(|f| f.to_str())
             .filter(|f| f.starts_with("hotwire-record-") || f.starts_with("hotwire-save-"))
             .filter(|f| {
-                is_old(&path) || (remove_mode == RemoveMode::OldFilesAndMyFiles && is_my_file(&f))
+                is_old(&path) || (remove_mode == RemoveMode::OldFilesAndMyFiles && is_my_file(f))
             })
             .is_some();
         if should_remove {

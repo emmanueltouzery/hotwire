@@ -265,7 +265,7 @@ impl Widget for PostgresCommEntry {
         }
 
         for (idx, col_name) in self.model.data.resultset_col_names.iter().enumerate() {
-            let col1 = gtk::TreeViewColumnBuilder::new().title(&col_name).build();
+            let col1 = gtk::TreeViewColumnBuilder::new().title(col_name).build();
             let cell_r_txt = gtk::CellRendererText::new();
             col1.pack_start(&cell_r_txt, true);
             col1.add_attribute(&cell_r_txt, "text", idx as i32);

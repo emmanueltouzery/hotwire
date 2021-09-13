@@ -147,12 +147,12 @@ impl Widget for HttpCommEntry {
             },
             #[style_class="http_first_line"]
             gtk::Label {
-                label: &self.model.data.request.as_ref().map(|r| r.first_line.as_str()).unwrap_or("Missing request info"),
+                label: self.model.data.request.as_ref().map(|r| r.first_line.as_str()).unwrap_or("Missing request info"),
                 xalign: 0.0,
                 selectable: true,
             },
             gtk::Label {
-                label: &self.model.data.request.as_ref()
+                label: self.model.data.request.as_ref()
                                             .map(|r| &r.headers[..])
                                             .map(Self::format_headers)
                                             .as_deref()
@@ -165,12 +165,12 @@ impl Widget for HttpCommEntry {
             gtk::Separator {},
             #[style_class="http_first_line"]
             gtk::Label {
-                label: &self.model.data.response.as_ref().map(|r| r.first_line.as_str()).unwrap_or("Missing response info"),
+                label: self.model.data.response.as_ref().map(|r| r.first_line.as_str()).unwrap_or("Missing response info"),
                 xalign: 0.0,
                 selectable: true,
             },
             gtk::Label {
-                label: &self.model.data.response.as_ref()
+                label: self.model.data.response.as_ref()
                                             .map(|r| &r.headers[..])
                                             .map(Self::format_headers)
                                             .as_deref()

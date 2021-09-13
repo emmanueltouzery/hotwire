@@ -456,7 +456,7 @@ pub struct HttpRequestResponseData {
 impl HttpRequestResponseData {
     pub fn body_as_str(&self) -> Option<Cow<str>> {
         match (&self.body, &self.content_encoding) {
-            (HttpBody::Text(s), _) => Some(Cow::Borrowed(&s)), // tshark will do some decoding for us... could have text even if the encoding is gzip
+            (HttpBody::Text(s), _) => Some(Cow::Borrowed(s)), // tshark will do some decoding for us... could have text even if the encoding is gzip
             (HttpBody::Binary(bytes), ContentEncoding::Brotli) => {
                 let mut r = String::new();
                 brotli::Decompressor::new(&bytes[..], 4096)
