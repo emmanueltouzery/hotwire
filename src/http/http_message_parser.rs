@@ -341,30 +341,26 @@ impl MessageParser for Http {
     fn matches_filter(&self, filter: &str, model: &gtk::TreeModel, iter: &gtk::TreeIter) -> bool {
         let filter = &filter.to_lowercase();
         model
-            .get_value(iter, 0) // req info
+            .value(iter, 0) // req info
             .get::<&str>()
-            .unwrap()
             .unwrap()
             .to_lowercase()
             .contains(filter)
             || model
-                .get_value(iter, 1) // resp info
+                .value(iter, 1) // resp info
                 .get::<&str>()
-                .unwrap()
                 .unwrap()
                 .to_lowercase()
                 .contains(filter)
             || model
-                .get_value(iter, 8) // req content type
+                .value(iter, 8) // req content type
                 .get::<&str>()
-                .unwrap()
                 .unwrap_or("")
                 .to_lowercase()
                 .contains(filter)
             || model
-                .get_value(iter, 9) // resp content type
+                .value(iter, 9) // resp content type
                 .get::<&str>()
-                .unwrap()
                 .unwrap_or("")
                 .to_lowercase()
                 .contains(filter)

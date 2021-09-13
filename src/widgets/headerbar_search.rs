@@ -34,7 +34,7 @@ impl Widget for HeaderbarSearch {
     fn update(&mut self, event: Msg) {
         match event {
             Msg::SearchClicked => {
-                let new_visible = self.widgets.search_toggle.get_active();
+                let new_visible = self.widgets.search_toggle.is_active();
                 self.widgets.search_entry.grab_focus();
                 self.model
                     .relm
@@ -47,7 +47,7 @@ impl Widget for HeaderbarSearch {
             }
             Msg::SearchTextChanged(_) => {} // meant for my parent
             Msg::SearchTextChangedFromElsewhere((txt, _evt)) => {
-                if !self.widgets.search_toggle.get_active() {
+                if !self.widgets.search_toggle.is_active() {
                     // we want to block the signal of the search button toggle,
                     // because when you click the search button we set the focus
                     // and select the search text. if we did that when search
@@ -78,7 +78,7 @@ impl Widget for HeaderbarSearch {
             #[name="search_entry"]
             gtk::SearchEntry {
                 visible: false,
-                changed(entry) => Msg::SearchTextChanged(entry.get_text().to_string())
+                changed(entry) => Msg::SearchTextChanged(entry.text().to_string())
             },
             #[name="search_toggle"]
             gtk::ToggleButton {

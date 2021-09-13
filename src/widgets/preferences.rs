@@ -1,6 +1,7 @@
 use super::win;
 use crate::config::Config;
 use gtk::prelude::*;
+use gtk::traits::SettingsExt;
 use relm::Widget;
 use relm_derive::{widget, Msg};
 
@@ -54,16 +55,16 @@ impl Widget for Preferences {
     fn update(&mut self, event: Msg) {
         match event {
             Msg::DarkThemeToggled(t) => {
-                gtk::Settings::get_default()
+                gtk::Settings::default()
                     .unwrap()
-                    .set_property_gtk_application_prefer_dark_theme(t);
+                    .set_gtk_application_prefer_dark_theme(t);
                 self.model.prefer_dark_theme = t;
                 self.get_config().save_config(&self.widgets.prefs_window);
             }
             Msg::CustomTcpDumpBufferSizeToggled(_) | Msg::CustomTcpDumpBufferSizeValueChanged => {
                 self.model.custom_tcpdump_buffer_size_kib =
-                    if self.widgets.tcpdump_buf_size_cb.get_active() {
-                        Some(self.widgets.tcpdump_buf_size_spinner.get_value() as usize)
+                    if self.widgets.tcpdump_buf_size_cb.is_active() {
+                        Some(self.widgets.tcpdump_buf_size_spinner.value() as usize)
                     } else {
                         None
                     };
@@ -85,8 +86,8 @@ impl Widget for Preferences {
                     show_close_button: true,
                 }
             },
-            property_default_width: 600,
-            property_default_height: 200,
+            default_width: 600,
+            default_height: 200,
             gtk::Box {
                 orientation: gtk::Orientation::Vertical,
                 margin_top: 10,
@@ -97,7 +98,7 @@ impl Widget for Preferences {
                 gtk::CheckButton {
                     label: "Prefer dark theme",
                     active: self.model.prefer_dark_theme,
-                    toggled(t) => Msg::DarkThemeToggled(t.get_active()),
+                    toggled(t) => Msg::DarkThemeToggled(t.is_active()),
                 },
                 gtk::Box {
                     orientation: gtk::Orientation::Horizontal,
@@ -107,7 +108,7 @@ impl Widget for Preferences {
                     gtk::CheckButton {
                         label: "Custom tcpdump buffer size (KiB)",
                         active: self.model.custom_tcpdump_buffer_size_kib.is_some(),
-                        toggled(t) => Msg::CustomTcpDumpBufferSizeToggled(t.get_active()),
+                        toggled(t) => Msg::CustomTcpDumpBufferSizeToggled(t.is_active()),
                     },
                     #[name="tcpdump_buf_size_spinner"]
                     gtk::SpinButton {
@@ -119,7 +120,7 @@ impl Widget for Preferences {
                 gtk::CheckButton {
                     label: "Use pkexec to launch tcpdump",
                     active: self.model.tcpdump_use_pkexec_if_possible,
-                    toggled(t) => Msg::TcpdumpUsePkexecChanged(t.get_active()),
+                    toggled(t) => Msg::TcpdumpUsePkexecChanged(t.is_active()),
                     visible: cfg!(target_os = "linux") && !win::is_flatpak()
                 },
             }

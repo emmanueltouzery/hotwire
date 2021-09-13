@@ -92,26 +92,23 @@ fn add_message_parser_grid_and_pane(
     let selection_change_signal_id = {
         let rstream = relm.stream().clone();
         let tv = tv.clone();
-        tv.get_selection().connect_changed(move |selection| {
-            if let Some((model, iter)) = selection.get_selected() {
+        tv.selection().connect_changed(move |selection| {
+            if let Some((model, iter)) = selection.selected() {
                 let (modelsort, path) = if model.is::<gtk::TreeModelFilter>() {
                     let modelfilter = model.dynamic_cast::<gtk::TreeModelFilter>().unwrap();
-                    let model = modelfilter.get_model().unwrap();
+                    let model = modelfilter.model().unwrap();
                     (
                         model.dynamic_cast::<gtk::TreeModelSort>().unwrap(),
                         modelfilter
-                            .get_path(&iter)
+                            .path(&iter)
                             .and_then(|p| modelfilter.convert_path_to_child_path(&p)),
                     )
                 } else {
                     let smodel = model.dynamic_cast::<gtk::TreeModelSort>().unwrap();
-                    let path = smodel.get_path(&iter);
+                    let path = smodel.path(&iter);
                     (smodel, path)
                 };
-                let model = modelsort
-                    .get_model()
-                    .dynamic_cast::<gtk::ListStore>()
-                    .unwrap();
+                let model = modelsort.model().dynamic_cast::<gtk::ListStore>().unwrap();
                 if let Some(childpath) = path.and_then(|p| modelsort.convert_path_to_child_path(&p))
                 {
                     row_selected(&model, &childpath, &rstream);
@@ -140,7 +137,7 @@ fn add_message_parser_grid_and_pane(
     paned.pack1(&scroll, true, true);
 
     let scroll2 = gtk::ScrolledWindowBuilder::new().margin_start(3).build();
-    scroll2.set_property_height_request(200);
+    scroll2.set_height_request(200);
 
     let (child, overlay) = if message_parser.requests_details_overlay() {
         let overlay = gtk::OverlayBuilder::new().child(&scroll2).build();
@@ -158,7 +155,7 @@ fn add_message_parser_grid_and_pane(
         bg_sender.clone(),
         relm.stream().clone(),
     );
-    let adj = scroll2.get_vadjustment().unwrap();
+    let adj = scroll2.vadjustment();
 
     comm_remote_servers_stack.add_named(&paned, &mp_idx.to_string());
     paned.show_all();
@@ -180,12 +177,12 @@ fn row_selected(
     path: &gtk::TreePath,
     rstream: &relm::StreamHandle<win::Msg>,
 ) {
-    let iter = store.get_iter(&path).unwrap();
-    let stream_id = store.get_value(&iter, 2);
-    let idx = store.get_value(&iter, 3);
+    let iter = store.iter(&path).unwrap();
+    let stream_id = store.value(&iter, 2);
+    let idx = store.value(&iter, 3);
     rstream.emit(win::Msg::DisplayDetails(
-        TcpStreamId(stream_id.get::<u32>().unwrap().unwrap()),
-        idx.get::<u32>().unwrap().unwrap(),
+        TcpStreamId(stream_id.get::<u32>().unwrap()),
+        idx.get::<u32>().unwrap(),
     ));
 }
 
@@ -286,7 +283,7 @@ pub fn refresh_remote_servers_handle_selection(
             .get(card.protocol_index)
             .unwrap()
             .0
-            .get_selection()
+            .selection()
             .select_path(&gtk::TreePath::new_first());
     }
 }
@@ -301,9 +298,9 @@ fn setup_selection_signals(
         RefreshOngoing::Yes => {
             for (tv, signals) in &tv_state.message_treeviews {
                 remote_ips_streams_treeview
-                    .get_selection()
+                    .selection()
                     .block_signal(sidebar_selection_change_signal_id.unwrap());
-                tv.get_selection()
+                tv.selection()
                     .block_signal(&signals.selection_change_signal_id);
                 // tv.unblock_signal(&signals.row_activation_signal_id);
             }
@@ -311,9 +308,9 @@ fn setup_selection_signals(
         RefreshOngoing::No => {
             for (tv, signals) in &tv_state.message_treeviews {
                 remote_ips_streams_treeview
-                    .get_selection()
+                    .selection()
                     .unblock_signal(sidebar_selection_change_signal_id.as_ref().unwrap());
-                tv.get_selection()
+                tv.selection()
                     .unblock_signal(&signals.selection_change_signal_id);
                 // tv.block_signal(&signals.row_activation_signal_id);
             }
@@ -327,15 +324,15 @@ fn get_model_sort(
 ) -> (&gtk::TreeView, gtk::TreeModelSort) {
     let (ref tv, ref _signals) = tv_state.message_treeviews.get(protocol_index).unwrap();
     let model_sort = tv
-        .get_model()
+        .model()
         .unwrap()
         .dynamic_cast::<gtk::TreeModelSort>()
         .unwrap_or_else(|_| {
-            tv.get_model()
+            tv.model()
                 .unwrap()
                 .dynamic_cast::<gtk::TreeModelFilter>()
                 .unwrap()
-                .get_model()
+                .model()
                 .unwrap()
                 .dynamic_cast::<gtk::TreeModelSort>()
                 .unwrap()
@@ -433,18 +430,18 @@ fn packets_added_trigger_events(
         let stack = tv_state.comm_remote_servers_stack.clone();
         glib::idle_add_local(move || {
             let scrolledwindow = stack
-                .get_visible_child()
+                .visible_child()
                 .unwrap()
                 .dynamic_cast::<gtk::Paned>()
                 .unwrap()
-                .get_child1()
+                .child1()
                 .unwrap()
                 .dynamic_cast::<gtk::ScrolledWindow>()
                 .unwrap();
-            let vadj = scrolledwindow.get_vadjustment().unwrap();
+            let vadj = scrolledwindow.vadjustment();
             // new packets were added to the view,
             // => scroll to reveal new packets
-            vadj.set_value(vadj.get_upper());
+            vadj.set_value(vadj.upper());
             glib::Continue(false)
         });
     }
@@ -456,7 +453,7 @@ fn packets_added_trigger_events(
             .get(stream_data.parser_index)
             .unwrap()
             .0
-            .get_selection()
+            .selection()
             .select_path(&gtk::TreePath::new_first());
 
         rstream.emit(win::Msg::OpenFileFirstPacketDisplayed);

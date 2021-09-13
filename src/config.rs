@@ -49,7 +49,7 @@ impl Config {
                 gtk::ButtonsType::Close,
                 "Error loading the configuration",
             );
-            dialog.set_property_secondary_text(Some(&format!(
+            dialog.set_secondary_text(Some(&format!(
                 "{}: {:}",
                 Self::config_file_path()
                     .ok()
@@ -78,7 +78,7 @@ impl Config {
                 gtk::ButtonsType::Close,
                 "Error saving the configuration",
             );
-            dialog.set_property_secondary_text(Some(&format!("{}", e)));
+            dialog.set_secondary_text(Some(&format!("{}", e)));
             let _r = dialog.run();
             dialog.close();
         });

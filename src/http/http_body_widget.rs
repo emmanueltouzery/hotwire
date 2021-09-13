@@ -51,7 +51,7 @@ pub struct Model {
 #[widget]
 impl Widget for HttpBodyWidget {
     fn init_view(&mut self) {
-        self.widgets.too_long_infobar.get_content_area().add(
+        self.widgets.too_long_infobar.content_area().add(
             &gtk::LabelBuilder::new()
                 .label("The message body is too large, has been truncated for display")
                 .build(),
@@ -144,7 +144,7 @@ impl Widget for HttpBodyWidget {
                     .build();
                 dialog.set_current_name(&self.body_save_filename());
                 if dialog.run() == gtk::ResponseType::Accept {
-                    let target_fname = dialog.get_filename().unwrap(); // ## unwrap
+                    let target_fname = dialog.filename().unwrap(); // ## unwrap
                     self.model.win_msg_sender.emit(win::Msg::InfoBarShow(
                         Some(format!(
                             "Saving to file {}",
@@ -179,7 +179,7 @@ impl Widget for HttpBodyWidget {
         if r.is_ok() {
             self.widgets
                 .body_image
-                .set_from_pixbuf(loader.get_pixbuf().as_ref());
+                .set_from_pixbuf(loader.pixbuf().as_ref());
             self.widgets
                 .contents_stack
                 .set_visible_child_name(IMAGE_CONTENTS_STACK_NAME);
@@ -286,7 +286,7 @@ impl Widget for HttpBodyWidget {
                    }
                },
                gtk::ScrolledWindow {
-                   property_vscrollbar_policy: gtk::PolicyType::Never,
+                   vscrollbar_policy: gtk::PolicyType::Never,
                    gtk::Label {
                        markup: &code_formatting::highlight_indent_truncate(
                            self.model.format_code,

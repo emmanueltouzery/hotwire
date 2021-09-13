@@ -26,6 +26,7 @@ use crate::widgets::comm_target_card::SummaryDetails;
 use crate::BgFunc;
 use gdk::prelude::*;
 use gtk::prelude::*;
+use gtk::traits::SettingsExt;
 use itertools::Itertools;
 use relm::{Component, ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
@@ -195,7 +196,7 @@ impl Widget for Win {
             Some(
                 self.widgets
                     .remote_ips_streams_treeview
-                    .get_selection()
+                    .selection()
                     .connect_changed(move |selection| {
                         stream.emit(Msg::SelectRemoteIpStream(selection.clone()));
                     }),
@@ -204,21 +205,21 @@ impl Widget for Win {
 
         self.widgets
             .remote_ips_streams_treeview
-            .get_selection()
+            .selection()
             .set_mode(gtk::SelectionMode::Multiple);
 
         let infobar_box = gtk::BoxBuilder::new().spacing(15).build();
         infobar_box.add(&self.model.infobar_spinner);
         infobar_box.add(&self.model.infobar_label);
         infobar_box.show_all();
-        self.widgets.infobar.get_content_area().add(&infobar_box);
+        self.widgets.infobar.content_area().add(&infobar_box);
 
         self.model.infobar_spinner.set_visible(false);
 
         // https://bugzilla.gnome.org/show_bug.cgi?id=305277
-        gtk::Settings::get_default()
+        gtk::Settings::default()
             .unwrap()
-            .set_property_gtk_alternative_sort_arrows(true);
+            .set_gtk_alternative_sort_arrows(true);
 
         self.model.messages_treeview_state = Some(messages_treeview::init_grids_and_panes(
             &self.model.relm,
@@ -252,13 +253,13 @@ impl Widget for Win {
     }
 
     fn refresh_recent_files(&mut self) {
-        for child in self.widgets.recent_files_list.get_children() {
+        for child in self.widgets.recent_files_list.children() {
             self.widgets.recent_files_list.remove(&child);
         }
         self.model.recent_files.clear();
         self.model._recent_file_item_components.clear();
-        let rm = gtk::RecentManager::get_default().unwrap();
-        let mut items = rm.get_items();
+        let rm = gtk::RecentManager::default().unwrap();
+        let mut items = rm.items();
         let normalize_uri = |uri: Option<glib::GString>| {
             uri.map(|u| u.to_string()).map(|u| {
                 if u.starts_with('/') {
@@ -268,19 +269,19 @@ impl Widget for Win {
                 }
             })
         };
-        items.sort_by_key(|i| normalize_uri(i.get_uri()));
-        items.dedup_by_key(|i| normalize_uri(i.get_uri()));
-        items.sort_by_key(|i| Reverse(i.get_modified()));
+        items.sort_by_key(|i| normalize_uri(i.uri()));
+        items.dedup_by_key(|i| normalize_uri(i.uri()));
+        items.sort_by_key(|i| Reverse(i.modified()));
         items
             .into_iter()
             .filter(|i| {
                 i.last_application().map(|a| a.to_string()) == Some("hotwire".to_string())
                     // if we don't also filter by mimetype, we get also the files we saved (for instance
                     // when saving http bodies to files on disk)
-                    && i.get_mime_type() == Some(PCAP_MIME_TYPE.into())
+                    && i.mime_type() == Some(PCAP_MIME_TYPE.into())
             })
             .take(5)
-            .flat_map(|fi| fi.get_uri())
+            .flat_map(|fi| fi.uri())
             .map(|gs| tshark_communication::string_to_path(gs.as_str()))
             .for_each(|pb| {
                 self.model.recent_files.push(pb.clone());
@@ -293,7 +294,7 @@ impl Widget for Win {
     }
 
     fn load_style(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let screen = self.widgets.window.get_screen().unwrap();
+        let screen = self.widgets.window.screen().unwrap();
         let css = gtk::CssProvider::new();
         css.load_from_data(CSS_DATA)?;
         gtk::StyleContext::add_provider_for_screen(
@@ -309,14 +310,14 @@ impl Widget for Win {
         params: (mpsc::Sender<BgFunc>, Option<(PathBuf, TSharkInputType)>),
     ) -> Model {
         let (bg_sender, current_file) = params;
-        gtk::IconTheme::get_default()
+        gtk::IconTheme::default()
             .unwrap()
             .add_resource_path("/icons");
 
         let config = Config::read_config();
-        gtk::Settings::get_default()
+        gtk::Settings::default()
             .unwrap()
-            .set_property_gtk_application_prefer_dark_theme(config.prefer_dark_theme);
+            .set_gtk_application_prefer_dark_theme(config.prefer_dark_theme);
 
         let (_loaded_data_channel, loaded_data_sender) = {
             let stream = relm.stream().clone();
@@ -388,7 +389,7 @@ impl Widget for Win {
             }
             Msg::DragDataReceived(_context, sel_data) => {
                 if let Some(uri) = sel_data
-                    .get_uris()
+                    .uris()
                     .first()
                     .map(|u| u.as_str())
                     .and_then(|u| u.strip_prefix("file://"))
@@ -498,7 +499,7 @@ impl Widget for Win {
                 self.handle_select_card(maybe_idx);
             }
             Msg::SelectRemoteIpStream(selection) => {
-                let (mut paths, _model) = selection.get_selected_rows();
+                let (mut paths, _model) = selection.selected_rows();
                 ips_and_streams_treeview::refresh_remote_ip_stream(
                     self.model.relm.stream(),
                     self.model.selected_card.as_ref(),
@@ -585,11 +586,9 @@ impl Widget for Win {
     }
 
     fn handle_select_card(&mut self, maybe_idx: Option<usize>) {
-        let wait_cursor = gdk::Cursor::new_for_display(
-            &self.widgets.window.get_display(),
-            gdk::CursorType::Watch,
-        );
-        if let Some(p) = self.widgets.root_stack.get_parent_window() {
+        let wait_cursor =
+            gdk::Cursor::for_display(&self.widgets.window.display(), gdk::CursorType::Watch);
+        if let Some(p) = self.widgets.root_stack.parent_window() {
             p.set_cursor(Some(&wait_cursor));
         }
         self.widgets.comm_target_list.set_sensitive(false);
@@ -632,7 +631,7 @@ impl Widget for Win {
             &self.widgets.remote_ips_streams_treeview,
             self.model.sidebar_selection_change_signal_id.as_ref(),
         );
-        if let Some(p) = self.widgets.root_stack.get_parent_window() {
+        if let Some(p) = self.widgets.root_stack.parent_window() {
             p.set_cursor(None);
         }
         self.widgets.comm_target_list.set_sensitive(true);
@@ -807,7 +806,7 @@ impl Widget for Win {
 
     fn get_follow_packets(&self) -> messages_treeview::FollowPackets {
         if self.widgets.follow_packets_btn.is_visible()
-            && self.widgets.follow_packets_btn.get_active()
+            && self.widgets.follow_packets_btn.is_active()
         {
             messages_treeview::FollowPackets::Follow
         } else {
@@ -914,7 +913,7 @@ impl Widget for Win {
             gtk::ButtonsType::Close,
             msg,
         );
-        dialog.set_property_secondary_text(secondary);
+        dialog.set_secondary_text(secondary);
         let _r = dialog.run();
         dialog.close();
     }
@@ -978,25 +977,25 @@ impl Widget for Win {
             if self.model.comm_target_cards.len() == 1 {
                 self.widgets
                     .comm_target_list
-                    .select_row(self.widgets.comm_target_list.get_row_at_index(0).as_ref());
+                    .select_row(self.widgets.comm_target_list.row_at_index(0).as_ref());
             }
         }
     }
 
     fn handle_keypress(&self, e: gdk::EventKey) {
-        if e.get_keyval() == gdk::keys::constants::Escape {
+        if e.keyval() == gdk::keys::constants::Escape {
             self.components
                 .headerbar_search
                 .emit(HeaderbarSearchMsg::SearchActiveChanged(false));
         }
-        if let Some(k) = e.get_keyval().to_unicode() {
+        if let Some(k) = e.keyval().to_unicode() {
             if Self::is_plaintext_key(&e) {
                 // we don't want to trigger the global search if the
                 // note search text entry is focused.
                 if self
                     .widgets
                     .window
-                    .get_focus()
+                    .focus()
                     // is an entry focused?
                     .and_then(|w| w.downcast::<gtk::Entry>().ok())
                     // is it visible? (because when global search is off,
@@ -1029,13 +1028,13 @@ impl Widget for Win {
         // (then the state won't be empty)
         // could be ctrl-c on notes for instance
         // whitelist MOD2 (num lock) and LOCK (shift or caps lock)
-        let mut state = e.get_state();
+        let mut state = e.state();
         state.remove(gdk::ModifierType::MOD2_MASK);
         state.remove(gdk::ModifierType::LOCK_MASK);
         state.is_empty()
-            && e.get_keyval() != gdk::keys::constants::Return
-            && e.get_keyval() != gdk::keys::constants::KP_Enter
-            && e.get_keyval() != gdk::keys::constants::Escape
+            && e.keyval() != gdk::keys::constants::Return
+            && e.keyval() != gdk::keys::constants::KP_Enter
+            && e.keyval() != gdk::keys::constants::Escape
     }
 
     fn display_preferences(&mut self) {
@@ -1088,7 +1087,7 @@ impl Widget for Win {
 
     fn handle_capture_toggled(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         // TODO don't call from the GUI thread
-        let is_active = self.widgets.capture_btn.get_active();
+        let is_active = self.widgets.capture_btn.is_active();
         self.widgets.capture_spinner.set_visible(is_active);
         self.widgets.follow_packets_btn.set_active(true);
         self.widgets.follow_packets_btn.set_visible(is_active);
@@ -1142,17 +1141,17 @@ impl Widget for Win {
             "Please run tcpdump manually",
         );
         let command = "sudo ".to_string() + &packets_read::get_tcpdump_params(fifo).join(" ");
-        dialog.set_property_secondary_text(Some(&format!(
+        dialog.set_secondary_text(Some(&format!(
             "Due to privilege issues, hotwire cannot capture packets itself. \
              Please launch an external program to write the packets to a fifo \
              that hotwire will listen to:\n\n<tt>{}</tt>",
             command
         )));
-        dialog.set_property_secondary_use_markup(true);
+        dialog.set_secondary_use_markup(true);
         dialog.add_button("Copy command", gtk::ResponseType::Accept);
         let r = dialog.run();
         if r == gtk::ResponseType::Accept {
-            if let Some(clip) = gtk::Clipboard::get_default(&self.widgets.window.get_display()) {
+            if let Some(clip) = gtk::Clipboard::default(&self.widgets.window.display()) {
                 clip.set_text(&command);
             }
         }
@@ -1190,7 +1189,7 @@ impl Widget for Win {
         filter.add_pattern("*.pcapng");
         dialog.set_filter(&filter);
         if dialog.run() == gtk::ResponseType::Accept {
-            if let Some(fname) = dialog.get_filename() {
+            if let Some(fname) = dialog.filename() {
                 if let Err(e) = std::fs::copy(config::get_tshark_pcap_output_path(), fname.clone())
                 {
                     Self::display_error_block("Error saving capture file", Some(&e.to_string()));
@@ -1213,7 +1212,7 @@ impl Widget for Win {
         filter.add_pattern("*.pcapng");
         dialog.set_filter(&filter);
         if dialog.run() == gtk::ResponseType::Accept {
-            if let Some(fname) = dialog.get_filename() {
+            if let Some(fname) = dialog.filename() {
                 self.gui_load_file(fname);
             }
         }
@@ -1227,7 +1226,7 @@ impl Widget for Win {
         if !self.model.set_sidebar_height {
             self.widgets
                 .sidebar_pane
-                .set_position((self.widgets.window.get_allocated_height() as f32 * 0.6) as i32);
+                .set_position((self.widgets.window.allocated_height() as f32 * 0.6) as i32);
             self.model.set_sidebar_height = true;
         }
 
@@ -1285,14 +1284,14 @@ impl Widget for Win {
         }
         self.model.selected_card = None;
         self.model.comm_target_cards.clear();
-        for child in self.widgets.comm_target_list.get_children() {
+        for child in self.widgets.comm_target_list.children() {
             self.widgets.comm_target_list.remove(&child);
         }
         self.model.comm_targets_components.clear();
     }
 
     fn add_to_recent_files(fname: &Path) {
-        if let Some(rm) = gtk::RecentManager::get_default() {
+        if let Some(rm) = gtk::RecentManager::default() {
             if let Some(fname_str) = fname.to_str() {
                 let recent_data = gtk::RecentData {
                     display_name: None,
@@ -1375,8 +1374,8 @@ impl Widget for Win {
     view! {
         #[name="window"]
         gtk::Window {
-            property_default_width: 1000,
-            property_default_height: 650,
+            default_width: 1000,
+            default_height: 650,
             titlebar: view! {
                 gtk::HeaderBar {
                     show_close_button: true,
@@ -1391,7 +1390,7 @@ impl Widget for Win {
                         active: false,
                         popover: view! {
                             gtk::Popover {
-                                property_width_request: 450,
+                                width_request: 450,
                                 visible: false,
                                 gtk::Box {
                                     orientation: gtk::Orientation::Vertical,
@@ -1408,7 +1407,7 @@ impl Widget for Win {
                                             selection_mode: gtk::SelectionMode::None,
                                             activate_on_single_click: true,
                                             row_activated(_, row) =>
-                                                Msg::OpenRecentFile(row.get_index() as usize)
+                                                Msg::OpenRecentFile(row.index() as usize)
                                         },
                                     },
                                     gtk::Button {
@@ -1550,15 +1549,15 @@ impl Widget for Win {
                                 child: {
                                     resize: true,
                                 },
-                                property_width_request: 250,
+                                width_request: 250,
                                 #[name="comm_target_list"]
                                 gtk::ListBox {
                                     row_selected(_, row) =>
-                                        Msg::SelectCard(row.map(|r| r.get_index() as usize))
+                                        Msg::SelectCard(row.map(|r| r.index() as usize))
                                 }
                             },
                             gtk::ScrolledWindow {
-                                property_width_request: 150,
+                                width_request: 150,
                                 #[name="remote_ips_streams_treeview"]
                                 gtk::TreeView {
                                     activate_on_single_click: true,

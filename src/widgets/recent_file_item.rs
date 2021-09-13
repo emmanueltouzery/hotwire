@@ -25,7 +25,7 @@ impl Widget for RecentFileItem {
             margin_start: 7,
             margin_end: 7,
             margin_bottom: 7,
-            property_width_request: 250,
+            width_request: 250,
             orientation: gtk::Orientation::Vertical,
             gtk::Label {
                 halign: gtk::Align::Start,

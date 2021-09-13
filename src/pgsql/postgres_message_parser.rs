@@ -384,33 +384,48 @@ impl MessageParser for Postgres {
             let postgres = message.as_postgres().unwrap();
             ls.insert_with_values(
                 None,
-                &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
                 &[
-                    &postgres
-                        .query
-                        .as_deref()
-                        .map(|q| if q.len() > 250 { &q[..250] } else { q })
-                        .unwrap_or("couldn't get query")
-                        .replace("\n", "")
+                    (
+                        0,
+                        &postgres
+                            .query
+                            .as_deref()
+                            .map(|q| if q.len() > 250 { &q[..250] } else { q })
+                            .unwrap_or("couldn't get query")
+                            .replace("\n", "")
+                            .to_value(),
+                    ),
+                    (
+                        1,
+                        &format!("{} rows", postgres.resultset_row_count).to_value(),
+                    ),
+                    (2, &session_id.as_u32().to_value()),
+                    (3, &(start_idx + idx as i32).to_value()),
+                    (4, &postgres.query_timestamp.to_string().to_value()),
+                    (5, &postgres.query_timestamp.timestamp_nanos().to_value()),
+                    (
+                        6,
+                        &(postgres.result_timestamp - postgres.query_timestamp)
+                            .num_milliseconds()
+                            .to_value(),
+                    ),
+                    (
+                        7,
+                        &format!(
+                            "{} ms",
+                            (postgres.result_timestamp - postgres.query_timestamp)
+                                .num_milliseconds()
+                        )
                         .to_value(),
-                    &format!("{} rows", postgres.resultset_row_count).to_value(),
-                    &session_id.as_u32().to_value(),
-                    &(start_idx + idx as i32).to_value(),
-                    &postgres.query_timestamp.to_string().to_value(),
-                    &postgres.query_timestamp.timestamp_nanos().to_value(),
-                    &(postgres.result_timestamp - postgres.query_timestamp)
-                        .num_milliseconds()
+                    ),
+                    (8, &(postgres.resultset_row_count as u32).to_value()),
+                    (9, &get_query_type_desc(&postgres.query).to_value()),
+                    (
+                        10,
+                        &colors::STREAM_COLORS
+                            [session_id.as_u32() as usize % colors::STREAM_COLORS.len()]
                         .to_value(),
-                    &format!(
-                        "{} ms",
-                        (postgres.result_timestamp - postgres.query_timestamp).num_milliseconds()
-                    )
-                    .to_value(),
-                    &(postgres.resultset_row_count as u32).to_value(),
-                    &get_query_type_desc(&postgres.query).to_value(),
-                    &colors::STREAM_COLORS
-                        [session_id.as_u32() as usize % colors::STREAM_COLORS.len()]
-                    .to_value(),
+                    ),
                 ],
             );
         }
@@ -424,9 +439,8 @@ impl MessageParser for Postgres {
 
     fn matches_filter(&self, filter: &str, model: &gtk::TreeModel, iter: &gtk::TreeIter) -> bool {
         model
-            .get_value(iter, 0)
+            .value(iter, 0)
             .get::<&str>()
-            .unwrap()
             .unwrap()
             .to_lowercase()
             .contains(&filter.to_lowercase())

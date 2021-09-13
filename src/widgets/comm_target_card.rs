@@ -132,9 +132,8 @@ impl Widget for CommTargetCard {
                     orientation: gtk::Orientation::Horizontal,
                     spacing: 5,
                     gtk::Image {
-                        property_icon_name: Some(self.model.protocol_icon.name()),
-                        // https://github.com/gtk-rs/gtk/issues/837
-                        property_icon_size: 2, // gtk::IconSize::SmallToolbar,
+                        icon_name: Some(self.model.protocol_icon.name()),
+                        icon_size: gtk::IconSize::SmallToolbar,
                     },
                     #[style_class="target_server_ip_port"]
                     gtk::Label {
@@ -147,8 +146,8 @@ impl Widget for CommTargetCard {
                     spacing: 3,
                     #[style_class="card_stats"]
                     gtk::Image {
-                        property_icon_name: Some(Icon::REMOTE_HOST.name()),
-                        property_icon_size: 2, // gtk::IconSize::SmallToolbar,
+                        icon_name: Some(Icon::REMOTE_HOST.name()),
+                        icon_size: gtk::IconSize::SmallToolbar,
                     },
                     #[style_class="card_stats"]
                     gtk::Label {
@@ -157,8 +156,8 @@ impl Widget for CommTargetCard {
                     #[style_class="card_stats"]
                     gtk::Image {
                         margin_start: 3,
-                        property_icon_name: Some(Icon::SESSION.name()),
-                        property_icon_size: 2, // gtk::IconSize::SmallToolbar,
+                        icon_name: Some(Icon::SESSION.name()),
+                        icon_size: gtk::IconSize::SmallToolbar,
                     },
                     #[style_class="card_stats"]
                     gtk::Label {

@@ -204,7 +204,7 @@ impl Widget for PostgresCommEntry {
                     .build();
                 dialog.set_current_name("resultset.csv");
                 if dialog.run() == gtk::ResponseType::Accept {
-                    let target_fname = dialog.get_filename().unwrap(); // ## unwrap
+                    let target_fname = dialog.filename().unwrap(); // ## unwrap
                     self.model.win_msg_sender.emit(win::Msg::InfoBarShow(
                         Some(format!(
                             "Saving to file {}",
@@ -260,7 +260,7 @@ impl Widget for PostgresCommEntry {
         };
 
         let list_store = gtk::ListStore::new(&descs);
-        for col in &self.widgets.resultset.get_columns() {
+        for col in &self.widgets.resultset.columns() {
             self.widgets.resultset.remove_column(col);
         }
 

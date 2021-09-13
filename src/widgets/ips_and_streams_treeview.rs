@@ -3,7 +3,6 @@ use crate::colors;
 use crate::message_parser::StreamData;
 use crate::tshark_communication::TcpStreamId;
 use crate::widgets::comm_target_card::CommTargetCardData;
-use glib::translate::ToGlib;
 use gtk::prelude::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -75,26 +74,28 @@ pub fn got_packet_refresh_remote_ips_treeview(
     let remote_ip_iter = treeview_state
         .remote_ips_streams_iptopath
         .get(&stream_data.client_server.as_ref().unwrap().client_ip)
-        .and_then(|path| treestore.get_iter(&path))
+        .and_then(|path| treestore.iter(&path))
         .unwrap_or_else(|| {
             let new_iter = treestore.insert_with_values(
                 None,
                 None,
-                &[0, 1],
                 &[
-                    &stream_data
-                        .client_server
-                        .as_ref()
-                        .unwrap()
-                        .client_ip
-                        .to_string()
-                        .to_value(),
-                    &pango::Weight::Normal.to_glib().to_value(),
+                    (
+                        0,
+                        &stream_data
+                            .client_server
+                            .as_ref()
+                            .unwrap()
+                            .client_ip
+                            .to_string()
+                            .to_value(),
+                    ),
+                    (1, &pango::Weight::Normal.to_value()),
                 ],
             );
             treeview_state.remote_ips_streams_iptopath.insert(
                 stream_data.client_server.as_ref().unwrap().client_ip,
-                treestore.get_path(&new_iter).unwrap(),
+                treestore.path(&new_iter).unwrap(),
             );
             new_iter
         });
@@ -118,9 +119,9 @@ pub fn refresh_remote_ip_stream(
 ) {
     let mut allowed_ips = vec![];
     let mut allowed_stream_ids = vec![];
-    let remote_ips_streams_tree_store = remote_ips_streams_treeview.get_model().unwrap();
+    let remote_ips_streams_tree_store = remote_ips_streams_treeview.model().unwrap();
     for path in paths {
-        match path.get_indices_with_depth().as_slice() {
+        match path.indices_with_depth().as_slice() {
             &[0] => {
                 // everything is allowed
                 allowed_ips.clear();
@@ -129,21 +130,19 @@ pub fn refresh_remote_ip_stream(
             }
             x if x.len() == 1 => {
                 // remote ip
-                if let Some(iter) = remote_ips_streams_tree_store.get_iter(&path) {
-                    let remote_ip: Option<String> = remote_ips_streams_tree_store
-                        .get_value(&iter, 0)
-                        .get()
-                        .unwrap();
+                if let Some(iter) = remote_ips_streams_tree_store.iter(&path) {
+                    let remote_ip: Option<String> =
+                        remote_ips_streams_tree_store.value(&iter, 0).get().unwrap();
                     allowed_ips.push(remote_ip.unwrap().parse::<IpAddr>().unwrap());
                 }
             }
             x if x.len() == 2 => {
                 // stream
-                let stream_iter = remote_ips_streams_tree_store.get_iter(&path).unwrap();
-                let stream_id = remote_ips_streams_tree_store.get_value(&stream_iter, 2);
-                allowed_stream_ids.push(TcpStreamId(stream_id.get().unwrap().unwrap()));
+                let stream_iter = remote_ips_streams_tree_store.iter(&path).unwrap();
+                let stream_id = remote_ips_streams_tree_store.value(&stream_iter, 2);
+                allowed_stream_ids.push(TcpStreamId(stream_id.get().unwrap()));
             }
-            _ => panic!("unexpected path depth: {}", path.get_depth()),
+            _ => panic!("unexpected path depth: {}", path.depth()),
         }
     }
     if let Some(card) = selected_card {
@@ -163,8 +162,7 @@ pub fn init_remote_ips_streams_tree(treeview_state: &mut IpsAndStreamsTreeviewSt
         .insert_with_values(
             None,
             None,
-            &[0, 1],
-            &[&"All".to_value(), &pango::Weight::Bold.to_glib().to_value()],
+            &[(0, &"All".to_value()), (1, &pango::Weight::Bold.to_value())],
         );
 }
 
@@ -187,18 +185,17 @@ fn tv_insert_stream_leaf(
     treeview_state.remote_ips_streams_treestore.insert_with_values(
                     Some(remote_ip_iter),
                     None,
-                    &[0, 1, 2, 3],
                     &[
-                        &format!(
+                        (0,&format!(
                             r#"<span foreground="{}" size="smaller">⬤</span> <span rise="-1700">Stream {}</span>"#,
                             colors::STREAM_COLORS
                                 [stream_id.as_u32() as usize % colors::STREAM_COLORS.len()],
                             stream_id.as_u32()
                         )
-                        .to_value(),
-                        &pango::Weight::Normal.to_glib().to_value(),
-                        &stream_id.as_u32().to_value(),
-                        stream_message_count_val,
+                        .to_value()),
+                        (1,&pango::Weight::Normal.to_value()),
+                        (2,&stream_id.as_u32().to_value()),
+                        (3,stream_message_count_val),
                     ],
                 );
 }
@@ -235,17 +232,16 @@ pub fn refresh_remote_ips_streams_tree(
             .insert_with_values(
                 None,
                 None,
-                &[0, 1],
                 &[
-                    &remote_ip.to_string().to_value(),
-                    &pango::Weight::Normal.to_glib().to_value(),
+                    (0, &remote_ip.to_string().to_value()),
+                    (1, &pango::Weight::Normal.to_value()),
                 ],
             );
         treeview_state.remote_ips_streams_iptopath.insert(
             *remote_ip,
             treeview_state
                 .remote_ips_streams_treestore
-                .get_path(&remote_ip_iter)
+                .path(&remote_ip_iter)
                 .unwrap(),
         );
         for (stream_id, messages) in streams {
