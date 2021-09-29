@@ -1,5 +1,6 @@
+use super::search_options::SearchOptions;
 use gtk::prelude::*;
-use relm::Widget;
+use relm::{Component, Widget};
 use relm_derive::{widget, Msg};
 
 #[derive(Msg)]
@@ -13,6 +14,7 @@ pub enum Msg {
 pub struct Model {
     relm: relm::Relm<HeaderbarSearch>,
     search_toggle_signal: Option<glib::SignalHandlerId>,
+    search_options: Option<Component<SearchOptions>>,
 }
 
 #[widget]
@@ -23,11 +25,23 @@ impl Widget for HeaderbarSearch {
             Some(self.widgets.search_toggle.connect_toggled(move |_| {
                 relm.stream().emit(Msg::SearchClicked);
             }));
+
+        self.model.search_options =
+            Some(relm::init::<SearchOptions>(()).expect("Error initializing the search options"));
+
+        let search_options_popover = gtk::PopoverBuilder::new()
+            .child(self.model.search_options.as_ref().unwrap().widget())
+            .build();
+        self.widgets
+            .search_options_btn
+            .set_popover(Some(&search_options_popover));
     }
+
     fn model(relm: &relm::Relm<Self>, _: ()) -> Model {
         Model {
             relm: relm.clone(),
             search_toggle_signal: None,
+            search_options: None,
         }
     }
 
@@ -43,7 +57,7 @@ impl Widget for HeaderbarSearch {
             }
             Msg::SearchActiveChanged(is_active) => {
                 self.widgets.search_toggle.set_active(is_active);
-                self.widgets.search_entry.set_visible(is_active);
+                self.widgets.search_box.set_visible(is_active);
             }
             Msg::SearchTextChanged(_) => {} // meant for my parent
             Msg::SearchTextChangedFromElsewhere((txt, _evt)) => {
@@ -58,7 +72,7 @@ impl Widget for HeaderbarSearch {
                     self.widgets
                         .search_toggle
                         .block_signal(self.model.search_toggle_signal.as_ref().unwrap());
-                    self.widgets.search_entry.set_visible(true);
+                    self.widgets.search_box.set_visible(true);
                     self.widgets.search_toggle.set_active(true);
                     self.widgets.search_entry.grab_focus_without_selecting();
 
@@ -73,17 +87,26 @@ impl Widget for HeaderbarSearch {
     }
 
     view! {
-        #[style_class="linked"]
         gtk::Box {
-            #[name="search_entry"]
-            gtk::SearchEntry {
+            #[style_class="linked"]
+            #[name="search_box"]
+            gtk::Box {
                 visible: false,
-                changed(entry) => Msg::SearchTextChanged(entry.text().to_string())
+                #[name="search_entry"]
+                gtk::SearchEntry {
+                    changed(entry) => Msg::SearchTextChanged(entry.text().to_string())
+                },
+                #[name="search_options_btn"]
+                gtk::MenuButton {
+                    image: Some(&gtk::Image::from_icon_name(Some("document-properties-symbolic"), gtk::IconSize::Menu)),
+                    active: false,
+                },
             },
             #[name="search_toggle"]
             gtk::ToggleButton {
                 image: Some(&gtk::Image::from_icon_name(Some("edit-find-symbolic"), gtk::IconSize::Menu)),
+                margin_start: 10,
             },
-        }
+        },
     }
 }
