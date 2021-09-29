@@ -2,8 +2,11 @@ use gtk::prelude::*;
 use relm::Widget;
 use relm_derive::{widget, Msg};
 
-#[derive(Msg)]
-pub enum Msg {}
+#[derive(Msg, Debug)]
+pub enum Msg {
+    TriggerAdvancedModeToggle,
+    AdvancedModeWasToggled,
+}
 
 pub struct Model {}
 
@@ -13,7 +16,14 @@ impl Widget for SearchOptions {
         Model {}
     }
 
-    fn update(&mut self, event: Msg) {}
+    fn update(&mut self, event: Msg) {
+        match event {
+            Msg::TriggerAdvancedModeToggle => {
+                self.widgets.is_advanced_mode.emit_activate();
+            }
+            Msg::AdvancedModeWasToggled => {}
+        }
+    }
 
     view! {
          gtk::Box {
@@ -23,10 +33,16 @@ impl Widget for SearchOptions {
              margin_end: 10,
              margin_bottom: 10,
              spacing: 10,
-             gtk::Switch {},
-             gtk::Label {
-                 text: "Advanced search mode"
-             }
+             #[name="is_advanced_mode"]
+             gtk::Switch {
+                 active_notify => Msg::AdvancedModeWasToggled,
+             },
+             gtk::EventBox {
+                 gtk::Label {
+                     text: "Advanced search mode",
+                 },
+                 button_press_event(_, _) => (Msg::TriggerAdvancedModeToggle, Inhibit(false)),
+             },
          },
     }
 }
