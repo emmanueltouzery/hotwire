@@ -3,10 +3,7 @@ use relm::Widget;
 use relm_derive::{widget, Msg};
 
 #[derive(Msg, Debug)]
-pub enum Msg {
-    TriggerAdvancedModeToggle,
-    AdvancedModeWasToggled,
-}
+pub enum Msg {}
 
 pub struct Model {}
 
@@ -17,31 +14,47 @@ impl Widget for SearchOptions {
     }
 
     fn update(&mut self, event: Msg) {
-        match event {
-            Msg::TriggerAdvancedModeToggle => {
-                self.widgets.is_advanced_mode.emit_activate();
-            }
-            Msg::AdvancedModeWasToggled => {}
-        }
+        match event {}
     }
 
     view! {
-         gtk::Box {
-             orientation: gtk::Orientation::Horizontal,
+         gtk::Grid {
+             orientation: gtk::Orientation::Vertical,
              margin_top: 10,
              margin_start: 10,
              margin_end: 10,
              margin_bottom: 10,
-             spacing: 10,
-             #[name="is_advanced_mode"]
-             gtk::Switch {
-                 active_notify => Msg::AdvancedModeWasToggled,
-             },
-             gtk::EventBox {
-                 gtk::Label {
-                     text: "Advanced search mode",
+             row_spacing: 5,
+             column_spacing: 10,
+             #[style_class="label"]
+             gtk::Label {
+                 cell: {
+                     left_attach: 0,
+                     top_attach: 0,
                  },
-                 button_press_event(_, _) => (Msg::TriggerAdvancedModeToggle, Inhibit(false)),
+                 text: "Grid cells",
+                 halign: gtk::Align::End,
+             },
+             gtk::SearchEntry {
+                 cell: {
+                     left_attach: 1,
+                     top_attach: 0,
+                 }
+             },
+             #[style_class="label"]
+             gtk::Label {
+                 cell: {
+                     left_attach: 0,
+                     top_attach: 1,
+                 },
+                 text: "Details",
+                 halign: gtk::Align::End,
+             },
+             gtk::SearchEntry {
+                 cell: {
+                     left_attach: 1,
+                     top_attach: 1,
+                 },
              },
          },
     }
