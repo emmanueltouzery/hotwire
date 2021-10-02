@@ -40,6 +40,7 @@ num-traits = "0.2.14"
 serde_derive = "1.0.126"
 toml = "0.5.8"
 # filetime = "0.2.14"
+nom = "7.0.0"
 
 [dependencies.gtk]
 version = "0.14.1"

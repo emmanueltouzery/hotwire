@@ -1,5 +1,11 @@
 use super::search_options::SearchOptions;
 use gtk::prelude::*;
+use nom;
+use nom::branch::*;
+use nom::bytes::complete::tag;
+use nom::character::complete::*;
+use nom::combinator::*;
+use nom::multi::*;
 use relm::{Component, Widget};
 use relm_derive::{widget, Msg};
 
@@ -17,128 +23,188 @@ pub struct Model {
     search_options: Option<Component<SearchOptions>>,
 }
 
-enum Operator {
+// #[derive(PartialEq, Eq, Debug)]
+// enum SearchOperator {
+//     And,
+//     Or,
+// }
+
+// enum SearchNode<'a> {
+//     String(&'a str),
+//     Contains(&'a str, &'a str),
+//     BinaryExpr {
+//         op: SearchOperator,
+//         lhs: Box<SearchNode<'a>>,
+//         rhs: Box<SearchNode<'a>>,
+//     },
+// }
+
+enum SearchOperator {
+    Contains,
+}
+
+enum SearchCombinator {
     And,
     Or,
 }
 
-enum FilterElement {
-    GridCell(String),
-    DetailContents(String),
+fn parse_search(
+    input: &str,
+) -> nom::IResult<
+    &str,
+    (
+        (String, SearchOperator, String),
+        Vec<(SearchCombinator, (String, SearchOperator, String))>,
+    ),
+> {
+    let (input, se) = parse_search_expr(input)?;
+    let (input, rest) = many1(parse_extra_search_expr)(input)?;
+    Ok((input, (se, rest)))
 }
 
-struct SearchInfo {
-    elements: Vec<(Operator, FilterElement)>,
+fn parse_extra_search_expr(
+    input: &str,
+) -> nom::IResult<&str, (SearchCombinator, (String, SearchOperator, String))> {
+    let (input, combinator) = parse_search_combinator(input)?;
+    let (input, search_expr) = parse_search_expr(input)?;
+    Ok((input, (combinator, search_expr)))
 }
 
-#[derive(PartialEq, Eq, Debug)]
-enum Token<'a> {
-    String(&'a str),
-    ContainKeyword,
-    GridCellsKeyword,
-    DetailContentsKeyword,
-    AndKeyword,
-    OrKeyword,
-    InvalidExpr(&'a str),
-}
-
-fn parse_search_expression(expr: &str) -> SearchInfo {
-    let mut rest = Some(expr);
-    let mut grid_cells = None;
-    let mut detail_contents = None;
-    loop {
-        let token_rest = search_expression_next_token(rest.unwrap());
-        match token_rest.0 {
-            Some(Token::InvalidExpr(_)) => {
-                // abort everything, the whole string is a grid filter.
-                grid_cells = Some(expr);
-                detail_contents = None;
-                break;
-            }
-        }
-        rest = token_rest.1;
-        if rest.is_none() {
-            break;
-        }
-    }
-    SearchInfo {
-        grid_cells,
-        detail_contents,
-    }
-}
-
-fn search_expression_next_token<'a>(expr: &'a str) -> (Option<Token<'a>>, Option<&'a str>) {
-    let mut offset = 0;
-    let mut end_chr = None;
-    let mut cur_token_start = 0;
-    for chr in expr.chars() {
-        match end_chr {
-            None => {
-                // still searching for the token start
-                if chr == ' ' {
-                    offset += 1;
-                    continue;
-                }
-                cur_token_start = offset;
-                if chr == '"' {
-                    end_chr = Some('"');
-                    offset += 1;
-                } else {
-                    end_chr = Some(' ');
-                }
-            }
-            Some('"') if chr == '"' => {
-                // hit the token end
-                return (
-                    Some(Token::String(&expr[(cur_token_start + 1)..(offset - 1)])),
-                    Some(&expr[offset..]),
-                );
-            }
-            Some(' ') if chr == ' ' => {
-                return (
-                    Some(parse_simple_token(&expr[cur_token_start..offset])),
-                    Some(&expr[offset..]),
-                );
-            }
-            Some(_) => {
-                // character within token
-            }
-        }
-        offset += 1;
-    }
-    // hit the end of the string
-
-    match end_chr {
-        Some(' ') => {
-            // when we search for the end character ' ',
-            // we also accept EOF to conclude the token
-            (
-                Some(parse_simple_token(&expr[cur_token_start..offset])),
-                None,
-            )
-        }
-        Some('"') => {
-            // unterminated string, that's an invalid expression
-            (
-                Some(Token::InvalidExpr(&expr[cur_token_start..(offset - 1)])),
-                None,
-            )
-        }
-        _ => (None, None),
-    }
-}
-
-fn parse_simple_token<'a>(val: &'a str) -> Token<'a> {
-    let token = match val {
-        "contain" => Token::ContainKeyword,
-        "detail_contents" => Token::DetailContentsKeyword,
-        "grid_cells" => Token::GridCellsKeyword,
-        "and" => Token::AndKeyword,
-        "or" => Token::OrKeyword,
-        _ => Token::InvalidExpr(val),
+fn parse_search_combinator(input: &str) -> nom::IResult<&str, SearchCombinator> {
+    let (input, t) = alt((tag("and"), tag("or")))(input)?;
+    let comb = match t {
+        "and" => SearchCombinator::And,
+        "or" => SearchCombinator::Or,
+        _ => panic!(), // ####
     };
-    token
+    Ok((input, comb))
 }
+
+fn parse_search_expr(input: &str) -> nom::IResult<&str, (String, SearchOperator, String)> {
+    let (input, filter_key) = parse_filter_key(input)?;
+    let (input, op) = parse_filter_op(input)?;
+    let (input, val) = parse_filter_val(input)?;
+    Ok((input, (filter_key, op, val)))
+}
+
+fn parse_filter_val(input: &str) -> nom::IResult<&str, String> {
+    alt((parse_quoted_string, parse_word))(input)
+}
+
+fn parse_filter_op(input: &str) -> nom::IResult<&str, SearchOperator> {
+    let (input, _t) = tag("contains")(input)?;
+    Ok((input, SearchOperator::Contains))
+}
+
+fn parse_filter_key(input: &str) -> nom::IResult<&str, String> {
+    let (input, part1) = alpha1(input)?;
+    let (input, _) = char('.')(input)?;
+    let (input, part2) = alpha1(input)?;
+    let mut filter_key = part1.to_string();
+    filter_key.push('.');
+    filter_key.push_str(part2);
+    Ok((input, filter_key))
+}
+
+fn parse_quoted_string(input: &str) -> nom::IResult<&str, String> {
+    let (input, _) = char('"')(input)?;
+    let res = fold_many0(quoted_string_char, String::new, |mut sofar, cur| {
+        sofar.push(cur);
+        sofar
+    })(input)?;
+    char('"')(input)?;
+    Ok(res)
+}
+
+fn quoted_string_char(input: &str) -> nom::IResult<&str, char> {
+    alt((none_of("\\"), escaped_char))(input)
+}
+
+fn escaped_char(input: &str) -> nom::IResult<&str, char> {
+    let (input, _) = char('\\')(input)?;
+    none_of("\\")(input)
+}
+
+fn parse_word(input: &str) -> nom::IResult<&str, String> {
+    // input.split_at_position1_complete(|item| {
+    //     item == ' ' || item == '\t' || item == '\r' || item == '\n'
+    // })
+    fold_many1(none_of(" \t\r\n"), String::new, |mut sofar, cur| {
+        sofar.push(cur);
+        sofar
+    })(input)
+}
+
+// fn search_expression_next_token<'a>(expr: &'a str) -> (Option<Token<'a>>, Option<&'a str>) {
+//     let mut offset = 0;
+//     let mut end_chr = None;
+//     let mut cur_token_start = 0;
+//     for chr in expr.chars() {
+//         match end_chr {
+//             None => {
+//                 // still searching for the token start
+//                 if chr == ' ' {
+//                     offset += 1;
+//                     continue;
+//                 }
+//                 cur_token_start = offset;
+//                 if chr == '"' {
+//                     end_chr = Some('"');
+//                     offset += 1;
+//                 } else {
+//                     end_chr = Some(' ');
+//                 }
+//             }
+//             Some('"') if chr == '"' => {
+//                 // hit the token end
+//                 return (
+//                     Some(Token::String(&expr[(cur_token_start + 1)..(offset - 1)])),
+//                     Some(&expr[offset..]),
+//                 );
+//             }
+//             Some(' ') if chr == ' ' => {
+//                 return (
+//                     Some(parse_simple_token(&expr[cur_token_start..offset])),
+//                     Some(&expr[offset..]),
+//                 );
+//             }
+//             Some(_) => {
+//                 // character within token
+//             }
+//         }
+//         offset += 1;
+//     }
+//     // hit the end of the string
+
+//     match end_chr {
+//         Some(' ') => {
+//             // when we search for the end character ' ',
+//             // we also accept EOF to conclude the token
+//             (
+//                 Some(parse_simple_token(&expr[cur_token_start..offset])),
+//                 None,
+//             )
+//         }
+//         Some('"') => {
+//             // unterminated string, that's an invalid expression
+//             (
+//                 Some(Token::InvalidExpr(&expr[cur_token_start..(offset - 1)])),
+//                 None,
+//             )
+//         }
+//         _ => (None, None),
+//     }
+// }
+
+// fn parse_simple_token<'a>(val: &'a str) -> Token<'a> {
+//     let token = match val {
+//         "contains" => Token::ContainsKeyword,
+//         "and" => Token::AndKeyword,
+//         "or" => Token::OrKeyword,
+//         _ => Token::String(val),
+//     };
+//     token
+// }
 
 #[widget]
 impl Widget for HeaderbarSearch {
@@ -209,17 +275,17 @@ impl Widget for HeaderbarSearch {
         }
     }
 
-    fn parse_search_entry(&self) -> SearchInfo {
-        let search_contents = self.widgets.search_entry.text().to_string();
-        if search_contents.contains(" grid_cells ") || search_contents.contains(" details ") {
-            parse_search_expression(&search_contents)
-        } else {
-            SearchInfo {
-                grid_cells: Some(search_contents),
-                detail_contents: None,
-            }
-        }
-    }
+    // fn parse_search_entry(&self) -> SearchInfo {
+    //     let search_contents = self.widgets.search_entry.text().to_string();
+    //     if search_contents.contains(" grid_cells ") || search_contents.contains(" details ") {
+    //         parse_search_expression(&search_contents)
+    //     } else {
+    //         SearchInfo {
+    //             grid_cells: Some(search_contents),
+    //             detail_contents: None,
+    //         }
+    //     }
+    // }
 
     view! {
         gtk::Box {
@@ -250,58 +316,56 @@ impl Widget for HeaderbarSearch {
 mod tests {
     use super::*;
 
-    fn get_tokens_vec(expr: &str) -> Vec<Token> {
-        let mut res = vec![];
-        let mut rest = Some(expr);
-        loop {
-            let token_rest = search_expression_next_token(rest.unwrap());
-            if token_rest.0.is_some() {
-                res.push(token_rest.0.unwrap());
-            }
-            rest = token_rest.1;
-            if rest.is_none() {
-                return res;
-            }
-        }
-    }
+    // fn get_tokens_vec(expr: &str) -> Vec<Token> {
+    //     let mut res = vec![];
+    //     let mut rest = Some(expr);
+    //     loop {
+    //         let token_rest = search_expression_next_token(rest.unwrap());
+    //         if token_rest.0.is_some() {
+    //             res.push(token_rest.0.unwrap());
+    //         }
+    //         rest = token_rest.1;
+    //         if rest.is_none() {
+    //             return res;
+    //         }
+    //     }
+    // }
 
-    #[test]
-    fn tokenize_empty_search_expression() {
-        assert_eq!(Vec::<Token>::new(), get_tokens_vec(""));
-    }
+    //     #[test]
+    //     fn tokenize_empty_search_expression() {
+    //         assert_eq!(Vec::<Token>::new(), get_tokens_vec(""));
+    //     }
 
-    #[test]
-    fn tokenize_incomplete_string_search_expression() {
-        assert_eq!(vec![Token::InvalidExpr("\"a")], get_tokens_vec("\"a"));
-    }
+    //     #[test]
+    //     fn tokenize_incomplete_string_search_expression() {
+    //         assert_eq!(vec![Token::InvalidExpr("\"a")], get_tokens_vec("\"a"));
+    //     }
 
-    #[test]
-    fn tokenize_simple_search_expression() {
-        assert_eq!(
-            vec![
-                Token::GridCellsKeyword,
-                Token::ContainKeyword,
-                Token::String("test")
-            ],
-            get_tokens_vec("grid_cells contain \"test\"")
-        );
-    }
+    //     #[test]
+    //     fn tokenize_simple_search_expression() {
+    //         assert_eq!(
+    //             vec![
+    //                 Token::String("grid.cells"),
+    //                 Token::ContainsKeyword,
+    //                 Token::String("test")
+    //             ],
+    //             get_tokens_vec("grid.cells contain \"test\"")
+    //         );
+    //     }
 
-    #[test]
-    fn tokenize_combined_search_expression() {
-        assert_eq!(
-            vec![
-                Token::GridCellsKeyword,
-                Token::ContainKeyword,
-                Token::String("test"),
-                Token::AndKeyword,
-                Token::DetailContentsKeyword,
-                Token::ContainKeyword,
-                Token::String("details val"),
-            ],
-            get_tokens_vec(
-                "grid_cells contain \"test\" and detail_contents contain \"details val\""
-            )
-        );
-    }
+    //     #[test]
+    //     fn tokenize_combined_search_expression() {
+    //         assert_eq!(
+    //             vec![
+    //                 Token::String("grid.cells"),
+    //                 Token::ContainsKeyword,
+    //                 Token::String("test"),
+    //                 Token::AndKeyword,
+    //                 Token::String("detail.contents"),
+    //                 Token::ContainsKeyword,
+    //                 Token::String("details val"),
+    //             ],
+    //             get_tokens_vec("grid.cells contains test and detail.contents contains \"details val\"")
+    //         );
+    //     }
 }
