@@ -39,10 +39,12 @@ pub struct Model {
 //     },
 // }
 
+#[derive(PartialEq, Eq, Debug)]
 enum SearchOperator {
     Contains,
 }
 
+#[derive(PartialEq, Eq, Debug)]
 enum SearchCombinator {
     And,
     Or,
@@ -354,19 +356,29 @@ mod tests {
     //         );
     //     }
 
-    //     #[test]
-    //     fn tokenize_combined_search_expression() {
-    //         assert_eq!(
-    //             vec![
-    //                 Token::String("grid.cells"),
-    //                 Token::ContainsKeyword,
-    //                 Token::String("test"),
-    //                 Token::AndKeyword,
-    //                 Token::String("detail.contents"),
-    //                 Token::ContainsKeyword,
-    //                 Token::String("details val"),
-    //             ],
-    //             get_tokens_vec("grid.cells contains test and detail.contents contains \"details val\"")
-    //         );
-    //     }
+    #[test]
+    fn parse_combined_search_expression() {
+        assert_eq!(
+            (
+                "",
+                (
+                    (
+                        "grid.cells".to_string(),
+                        SearchOperator::Contains,
+                        "test".to_string()
+                    ),
+                    vec![(
+                        SearchCombinator::And,
+                        (
+                            "detail.contents".to_string(),
+                            SearchOperator::Contains,
+                            "details val".to_string()
+                        )
+                    )]
+                )
+            ),
+            parse_search("grid.cells contains test and detail.contents contains \"details val\"")
+                .unwrap()
+        );
+    }
 }
