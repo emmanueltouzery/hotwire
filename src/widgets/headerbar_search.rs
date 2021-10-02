@@ -68,6 +68,7 @@ fn parse_extra_search_expr(
     input: &str,
 ) -> nom::IResult<&str, (SearchCombinator, (String, SearchOperator, String))> {
     let (input, combinator) = parse_search_combinator(input)?;
+    let (input, _) = many1(one_of(" \t"))(input)?;
     let (input, search_expr) = parse_search_expr(input)?;
     Ok((input, (combinator, search_expr)))
 }
@@ -85,8 +86,11 @@ fn parse_search_combinator(input: &str) -> nom::IResult<&str, SearchCombinator> 
 // TODO allow negation (not X contains Y)
 fn parse_search_expr(input: &str) -> nom::IResult<&str, (String, SearchOperator, String)> {
     let (input, filter_key) = parse_filter_key(input)?;
+    let (input, _) = many1(one_of(" \t"))(input)?;
     let (input, op) = parse_filter_op(input)?;
+    let (input, _) = many1(one_of(" \t"))(input)?;
     let (input, val) = parse_filter_val(input)?;
+    let (input, _) = many0(one_of(" \t"))(input)?; // eat trailing spaces
     Ok((input, (filter_key, op, val)))
 }
 
@@ -123,6 +127,7 @@ fn quoted_string_char(input: &str) -> nom::IResult<&str, char> {
     alt((none_of("\\"), escaped_char))(input)
 }
 
+// meant for \" mostly for now
 fn escaped_char(input: &str) -> nom::IResult<&str, char> {
     let (input, _) = char('\\')(input)?;
     none_of("\\")(input)
@@ -355,6 +360,11 @@ mod tests {
     //             get_tokens_vec("grid.cells contain \"test\"")
     //         );
     //     }
+
+    #[test]
+    fn parse_quoted_string_simple_case() {
+        assert_eq!("my string", parse_quoted_string("\"string\"").unwrap().1);
+    }
 
     #[test]
     fn parse_combined_search_expression() {
