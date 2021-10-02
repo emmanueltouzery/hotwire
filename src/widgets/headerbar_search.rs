@@ -115,16 +115,16 @@ fn parse_filter_key(input: &str) -> nom::IResult<&str, String> {
 
 fn parse_quoted_string(input: &str) -> nom::IResult<&str, String> {
     let (input, _) = char('"')(input)?;
-    let res = fold_many0(quoted_string_char, String::new, |mut sofar, cur| {
+    let (input, st) = fold_many0(quoted_string_char, String::new, |mut sofar, cur| {
         sofar.push(cur);
         sofar
     })(input)?;
-    char('"')(input)?;
-    Ok(res)
+    let (input, _) = char('"')(input)?;
+    Ok((input, st))
 }
 
 fn quoted_string_char(input: &str) -> nom::IResult<&str, char> {
-    alt((none_of("\\"), escaped_char))(input)
+    alt((none_of("\\\""), escaped_char))(input)
 }
 
 // meant for \" mostly for now
@@ -363,7 +363,10 @@ mod tests {
 
     #[test]
     fn parse_quoted_string_simple_case() {
-        assert_eq!("my string", parse_quoted_string("\"string\"").unwrap().1);
+        assert_eq!(
+            "my \"string",
+            parse_quoted_string("\"my \\\"string\"").unwrap().1
+        );
     }
 
     #[test]
