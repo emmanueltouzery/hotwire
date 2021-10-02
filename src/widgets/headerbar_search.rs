@@ -80,6 +80,7 @@ fn parse_search_combinator(input: &str) -> nom::IResult<&str, SearchCombinator> 
     Ok((input, comb))
 }
 
+// TODO allow negation (not X contains Y)
 fn parse_search_expr(input: &str) -> nom::IResult<&str, (String, SearchOperator, String)> {
     let (input, filter_key) = parse_filter_key(input)?;
     let (input, op) = parse_filter_op(input)?;
