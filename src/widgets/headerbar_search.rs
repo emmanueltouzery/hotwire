@@ -44,23 +44,24 @@ enum SearchCombinator {
     Or,
 }
 
-fn parse_search(
-    known_filter_keys: HashSet<&'static str>,
-) -> impl FnMut(&str) -> nom::IResult<&str, (SearchExpr, Vec<(SearchCombinator, SearchExpr)>)> {
+fn parse_search<'a>(
+    known_filter_keys: &'a HashSet<&'static str>,
+) -> impl 'a + FnMut(&str) -> nom::IResult<&str, (SearchExpr, Vec<(SearchCombinator, SearchExpr)>)>
+{
     move |mut input: &str| {
-        let (input, se) = parse_search_expr(known_filter_keys.clone())(input)?;
-        let (input, rest) = many1(parse_extra_search_expr(known_filter_keys.clone()))(input)?;
+        let (input, se) = parse_search_expr(known_filter_keys)(input)?;
+        let (input, rest) = many1(parse_extra_search_expr(known_filter_keys))(input)?;
         Ok((input, (se, rest)))
     }
 }
 
-fn parse_extra_search_expr(
-    known_filter_keys: HashSet<&'static str>,
-) -> impl FnMut(&str) -> nom::IResult<&str, (SearchCombinator, SearchExpr)> {
+fn parse_extra_search_expr<'a>(
+    known_filter_keys: &'a HashSet<&'static str>,
+) -> impl 'a + FnMut(&str) -> nom::IResult<&str, (SearchCombinator, SearchExpr)> {
     move |mut input: &str| {
         let (input, combinator) = parse_search_combinator(input)?;
         let (input, _) = space1(input)?;
-        let (input, search_expr) = parse_search_expr(known_filter_keys.clone())(input)?;
+        let (input, search_expr) = parse_search_expr(known_filter_keys)(input)?;
         Ok((input, (combinator, search_expr)))
     }
 }
@@ -76,9 +77,9 @@ fn parse_search_combinator(input: &str) -> nom::IResult<&str, SearchCombinator> 
 }
 
 // TODO allow negation (not X contains Y)
-fn parse_search_expr(
-    known_filter_keys: HashSet<&'static str>,
-) -> impl FnMut(&str) -> nom::IResult<&str, SearchExpr> {
+fn parse_search_expr<'a>(
+    known_filter_keys: &'a HashSet<&'static str>,
+) -> impl 'a + FnMut(&str) -> nom::IResult<&str, SearchExpr> {
     move |mut input: &str| {
         let (input, filter_key) = parse_filter_key(known_filter_keys.clone())(input)?;
         let (input, _) = space1(input)?;
@@ -267,8 +268,10 @@ mod tests {
     fn should_reject_unknown_filter_key() {
         assert_eq!(
             true,
-            parse_search(["detail.contents"].iter().cloned().collect())("grid.cells contains test")
-                .is_err()
+            parse_search(&["detail.contents"].iter().cloned().collect())(
+                "grid.cells contains test"
+            )
+            .is_err()
         );
     }
 
@@ -294,7 +297,7 @@ mod tests {
                 )
             ),
             parse_search(
-                ["grid.cells", "detail.contents", "other"]
+                &["grid.cells", "detail.contents", "other"]
                     .iter()
                     .cloned()
                     .collect()
