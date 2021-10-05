@@ -27,53 +27,50 @@ pub struct Model {
 }
 
 #[derive(PartialEq, Eq, Debug)]
+enum SearchExpr {
+    And(Box<SearchExpr>, Box<SearchExpr>),
+    Or(Box<SearchExpr>, Box<SearchExpr>),
+    SearchOpExpr {
+        filter_key: &'static str,
+        op: SearchOperator,
+        filter_val: String,
+    },
+}
+
+#[derive(PartialEq, Eq, Debug)]
 enum SearchOperator {
     Contains,
 }
 
-#[derive(PartialEq, Eq, Debug)]
-struct SearchExpr {
-    filter_key: &'static str,
-    op: SearchOperator,
-    filter_val: String,
-}
-
-#[derive(PartialEq, Eq, Debug)]
-enum SearchCombinator {
-    And,
-    Or,
-}
-
 fn parse_search<'a>(
     known_filter_keys: &'a HashSet<&'static str>,
-) -> impl 'a + FnMut(&str) -> nom::IResult<&str, (SearchExpr, Vec<(SearchCombinator, SearchExpr)>)>
+) -> impl 'a + FnMut(&'a str) -> nom::IResult<&'a str, SearchExpr> {
+    move |mut input: &'a str| {
+        alt((
+            parse_search_combinator(known_filter_keys, tag("and"), SearchExpr::And),
+            parse_search_combinator(known_filter_keys, tag("or"), SearchExpr::Or),
+            parse_search_expr(known_filter_keys),
+        ))(input)
+    }
+}
+
+fn parse_search_combinator<'a, CP: 'a, B: 'a>(
+    known_filter_keys: &'a HashSet<&'static str>,
+    combinator_parser: CP,
+    builder: B,
+) -> impl 'a + FnMut(&'a str) -> nom::IResult<&'a str, SearchExpr>
+where
+    CP: Fn(&'a str) -> nom::IResult<&'a str, &'a str>,
+    B: Fn(Box<SearchExpr>, Box<SearchExpr>) -> SearchExpr,
 {
     move |mut input: &str| {
         let (input, se) = parse_search_expr(known_filter_keys)(input)?;
-        let (input, rest) = many1(parse_extra_search_expr(known_filter_keys))(input)?;
-        Ok((input, (se, rest)))
-    }
-}
-
-fn parse_extra_search_expr<'a>(
-    known_filter_keys: &'a HashSet<&'static str>,
-) -> impl 'a + FnMut(&str) -> nom::IResult<&str, (SearchCombinator, SearchExpr)> {
-    move |mut input: &str| {
-        let (input, combinator) = parse_search_combinator(input)?;
         let (input, _) = space1(input)?;
-        let (input, search_expr) = parse_search_expr(known_filter_keys)(input)?;
-        Ok((input, (combinator, search_expr)))
+        let (input, _) = combinator_parser(input)?;
+        let (input, _) = space1(input)?;
+        let (input, se2) = parse_search_expr(known_filter_keys)(input)?;
+        Ok((input, builder(Box::new(se), Box::new(se2))))
     }
-}
-
-fn parse_search_combinator(input: &str) -> nom::IResult<&str, SearchCombinator> {
-    let (input, t) = alt((tag("and"), tag("or")))(input)?;
-    let comb = match t {
-        "and" => SearchCombinator::And,
-        "or" => SearchCombinator::Or,
-        _ => panic!(), // ####
-    };
-    Ok((input, comb))
 }
 
 // TODO allow negation (not X contains Y)
@@ -86,10 +83,9 @@ fn parse_search_expr<'a>(
         let (input, op) = parse_filter_op(input)?;
         let (input, _) = space1(input)?;
         let (input, filter_val) = parse_filter_val(input)?;
-        let (input, _) = space0(input)?; // eat trailing spaces
         Ok((
             input,
-            SearchExpr {
+            SearchExpr::SearchOpExpr {
                 filter_key,
                 op,
                 filter_val,
@@ -280,21 +276,18 @@ mod tests {
         assert_eq!(
             (
                 "",
-                (
-                    SearchExpr {
+                (SearchExpr::And(
+                    Box::new(SearchExpr::SearchOpExpr {
                         filter_key: "grid.cells",
                         op: SearchOperator::Contains,
                         filter_val: "test".to_string(),
-                    },
-                    vec![(
-                        SearchCombinator::And,
-                        SearchExpr {
-                            filter_key: "detail.contents",
-                            op: SearchOperator::Contains,
-                            filter_val: "details val".to_string(),
-                        }
-                    )]
-                )
+                    }),
+                    Box::new(SearchExpr::SearchOpExpr {
+                        filter_key: "detail.contents",
+                        op: SearchOperator::Contains,
+                        filter_val: "details val".to_string(),
+                    }),
+                ))
             ),
             parse_search(
                 &["grid.cells", "detail.contents", "other"]
