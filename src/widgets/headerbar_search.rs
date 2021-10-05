@@ -4,9 +4,13 @@ use nom;
 use nom::branch::*;
 use nom::bytes::complete::tag;
 use nom::character::complete::*;
+use nom::combinator::*;
+use nom::error::*;
 use nom::multi::*;
+use nom::Err;
 use relm::{Component, Widget};
 use relm_derive::{widget, Msg};
+use std::collections::HashSet;
 
 #[derive(Msg)]
 pub enum Msg {
@@ -28,32 +32,37 @@ enum SearchOperator {
 }
 
 #[derive(PartialEq, Eq, Debug)]
+struct SearchExpr {
+    filter_key: &'static str,
+    op: SearchOperator,
+    filter_val: String,
+}
+
+#[derive(PartialEq, Eq, Debug)]
 enum SearchCombinator {
     And,
     Or,
 }
 
 fn parse_search(
-    input: &str,
-) -> nom::IResult<
-    &str,
-    (
-        (String, SearchOperator, String),
-        Vec<(SearchCombinator, (String, SearchOperator, String))>,
-    ),
-> {
-    let (input, se) = parse_search_expr(input)?;
-    let (input, rest) = many1(parse_extra_search_expr)(input)?;
-    Ok((input, (se, rest)))
+    known_filter_keys: HashSet<&'static str>,
+) -> impl FnMut(&str) -> nom::IResult<&str, (SearchExpr, Vec<(SearchCombinator, SearchExpr)>)> {
+    move |mut input: &str| {
+        let (input, se) = parse_search_expr(known_filter_keys.clone())(input)?;
+        let (input, rest) = many1(parse_extra_search_expr(known_filter_keys.clone()))(input)?;
+        Ok((input, (se, rest)))
+    }
 }
 
 fn parse_extra_search_expr(
-    input: &str,
-) -> nom::IResult<&str, (SearchCombinator, (String, SearchOperator, String))> {
-    let (input, combinator) = parse_search_combinator(input)?;
-    let (input, _) = space1(input)?;
-    let (input, search_expr) = parse_search_expr(input)?;
-    Ok((input, (combinator, search_expr)))
+    known_filter_keys: HashSet<&'static str>,
+) -> impl FnMut(&str) -> nom::IResult<&str, (SearchCombinator, SearchExpr)> {
+    move |mut input: &str| {
+        let (input, combinator) = parse_search_combinator(input)?;
+        let (input, _) = space1(input)?;
+        let (input, search_expr) = parse_search_expr(known_filter_keys.clone())(input)?;
+        Ok((input, (combinator, search_expr)))
+    }
 }
 
 fn parse_search_combinator(input: &str) -> nom::IResult<&str, SearchCombinator> {
@@ -67,14 +76,25 @@ fn parse_search_combinator(input: &str) -> nom::IResult<&str, SearchCombinator> 
 }
 
 // TODO allow negation (not X contains Y)
-fn parse_search_expr(input: &str) -> nom::IResult<&str, (String, SearchOperator, String)> {
-    let (input, filter_key) = parse_filter_key(input)?;
-    let (input, _) = space1(input)?;
-    let (input, op) = parse_filter_op(input)?;
-    let (input, _) = space1(input)?;
-    let (input, val) = parse_filter_val(input)?;
-    let (input, _) = space0(input)?; // eat trailing spaces
-    Ok((input, (filter_key, op, val)))
+fn parse_search_expr(
+    known_filter_keys: HashSet<&'static str>,
+) -> impl FnMut(&str) -> nom::IResult<&str, SearchExpr> {
+    move |mut input: &str| {
+        let (input, filter_key) = parse_filter_key(known_filter_keys.clone())(input)?;
+        let (input, _) = space1(input)?;
+        let (input, op) = parse_filter_op(input)?;
+        let (input, _) = space1(input)?;
+        let (input, filter_val) = parse_filter_val(input)?;
+        let (input, _) = space0(input)?; // eat trailing spaces
+        Ok((
+            input,
+            SearchExpr {
+                filter_key,
+                op,
+                filter_val,
+            },
+        ))
+    }
 }
 
 fn parse_filter_val(input: &str) -> nom::IResult<&str, String> {
@@ -86,14 +106,25 @@ fn parse_filter_op(input: &str) -> nom::IResult<&str, SearchOperator> {
     Ok((input, SearchOperator::Contains))
 }
 
-fn parse_filter_key(input: &str) -> nom::IResult<&str, String> {
-    let (input, part1) = alpha1(input)?;
+fn parse_filter_key(
+    known_filter_keys: HashSet<&'static str>,
+) -> impl FnMut(&str) -> nom::IResult<&str, &'static str> {
+    move |mut input: &str| {
+        // let (input, filter_key) = recognize(parse_filter_key_basic)(input)?;
+        map_res(recognize(parse_filter_key_basic), |s: &str| {
+            known_filter_keys
+                .get(s)
+                .map(|s| *s)
+                .ok_or(Err::Error(("bad filter key", ErrorKind::Verify)))
+        })(input)
+    }
+}
+
+fn parse_filter_key_basic(input: &str) -> nom::IResult<&str, ()> {
+    let (input, _) = alpha1(input)?;
     let (input, _) = char('.')(input)?;
-    let (input, part2) = alpha1(input)?;
-    let mut filter_key = part1.to_string();
-    filter_key.push('.');
-    filter_key.push_str(part2);
-    Ok((input, filter_key))
+    let (input, _) = alpha1(input)?;
+    Ok((input, ()))
 }
 
 fn parse_quoted_string(input: &str) -> nom::IResult<&str, String> {
@@ -233,28 +264,42 @@ mod tests {
     }
 
     #[test]
+    fn should_reject_unknown_filter_key() {
+        assert_eq!(
+            true,
+            parse_search(["detail.contents"].iter().cloned().collect())("grid.cells contains test")
+                .is_err()
+        );
+    }
+
+    #[test]
     fn parse_combined_search_expression() {
         assert_eq!(
             (
                 "",
                 (
-                    (
-                        "grid.cells".to_string(),
-                        SearchOperator::Contains,
-                        "test".to_string()
-                    ),
+                    SearchExpr {
+                        filter_key: "grid.cells",
+                        op: SearchOperator::Contains,
+                        filter_val: "test".to_string(),
+                    },
                     vec![(
                         SearchCombinator::And,
-                        (
-                            "detail.contents".to_string(),
-                            SearchOperator::Contains,
-                            "details val".to_string()
-                        )
+                        SearchExpr {
+                            filter_key: "detail.contents",
+                            op: SearchOperator::Contains,
+                            filter_val: "details val".to_string(),
+                        }
                     )]
                 )
             ),
-            parse_search("grid.cells contains test and detail.contents contains \"details val\"")
-                .unwrap()
+            parse_search(
+                ["grid.cells", "detail.contents", "other"]
+                    .iter()
+                    .cloned()
+                    .collect()
+            )("grid.cells contains test and detail.contents contains \"details val\"")
+            .unwrap()
         );
     }
 }
