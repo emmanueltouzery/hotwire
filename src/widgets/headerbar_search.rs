@@ -7,6 +7,7 @@ use nom::character::complete::*;
 use nom::combinator::*;
 use nom::error::*;
 use nom::multi::*;
+use nom::sequence::*;
 use nom::Err;
 use relm::{Component, Widget};
 use relm_derive::{widget, Msg};
@@ -47,10 +48,38 @@ fn parse_search<'a>(
 ) -> impl 'a + FnMut(&'a str) -> nom::IResult<&'a str, SearchExpr> {
     move |mut input: &'a str| {
         alt((
+            parse_search_bracket_combinator(known_filter_keys, tag("and"), SearchExpr::And),
+            parse_search_bracket_combinator(known_filter_keys, tag("or"), SearchExpr::Or),
+            // TODO spaces after the bracket
+            delimited(
+                space0,
+                delimited(tag("("), parse_search(known_filter_keys), tag(")")),
+                space0,
+            ),
             parse_search_combinator(known_filter_keys, tag("and"), SearchExpr::And),
             parse_search_combinator(known_filter_keys, tag("or"), SearchExpr::Or),
             parse_search_expr(known_filter_keys),
         ))(input)
+    }
+}
+
+fn parse_search_bracket_combinator<'a, CP: 'a, B: 'a>(
+    known_filter_keys: &'a HashSet<&'static str>,
+    combinator_parser: CP,
+    builder: B,
+) -> impl 'a + FnMut(&'a str) -> nom::IResult<&'a str, SearchExpr>
+where
+    CP: Fn(&'a str) -> nom::IResult<&'a str, &'a str>,
+    B: Fn(Box<SearchExpr>, Box<SearchExpr>) -> SearchExpr,
+{
+    move |mut input: &str| {
+        // TODO spaces around the bracket
+        let (input, se) = delimited(tag("("), parse_search(known_filter_keys), tag(")"))(input)?;
+        let (input, _) = space1(input)?;
+        let (input, _) = combinator_parser(input)?;
+        let (input, _) = space1(input)?;
+        let (input, se2) = parse_search(known_filter_keys)(input)?;
+        Ok((input, builder(Box::new(se), Box::new(se2))))
     }
 }
 
@@ -301,6 +330,41 @@ mod tests {
                     .cloned()
                     .collect()
             )("grid.cells contains test and detail.contents contains \"details val\" or detail.contents contains val2")
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn parse_combined_search_expression_with_brackets() {
+        assert_eq!(
+            (
+                "",
+                (SearchExpr::Or(
+                    Box::new(SearchExpr::And(
+                        Box::new(SearchExpr::SearchOpExpr {
+                            filter_key: "grid.cells",
+                            op: SearchOperator::Contains,
+                            filter_val: "test".to_string(),
+                        }),
+                        Box::new(SearchExpr::SearchOpExpr {
+                            filter_key: "detail.contents",
+                            op: SearchOperator::Contains,
+                            filter_val: "details val".to_string(),
+                        }),
+                    )),
+                    Box::new(SearchExpr::SearchOpExpr {
+                        filter_key: "detail.contents",
+                        op: SearchOperator::Contains,
+                        filter_val: "val2".to_string(),
+                    }),
+                )
+            )),
+            parse_search(
+                &["grid.cells", "detail.contents", "other"]
+                    .iter()
+                    .cloned()
+                    .collect()
+            )("(grid.cells contains test and detail.contents contains \"details val\") or detail.contents contains val2")
             .unwrap()
         );
     }
