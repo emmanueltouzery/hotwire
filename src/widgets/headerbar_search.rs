@@ -68,7 +68,7 @@ where
         let (input, _) = space1(input)?;
         let (input, _) = combinator_parser(input)?;
         let (input, _) = space1(input)?;
-        let (input, se2) = parse_search_expr(known_filter_keys)(input)?;
+        let (input, se2) = parse_search(known_filter_keys)(input)?;
         Ok((input, builder(Box::new(se), Box::new(se2))))
     }
 }
@@ -282,19 +282,25 @@ mod tests {
                         op: SearchOperator::Contains,
                         filter_val: "test".to_string(),
                     }),
-                    Box::new(SearchExpr::SearchOpExpr {
-                        filter_key: "detail.contents",
-                        op: SearchOperator::Contains,
-                        filter_val: "details val".to_string(),
-                    }),
-                ))
+                    Box::new(SearchExpr::Or(
+                        Box::new(SearchExpr::SearchOpExpr {
+                            filter_key: "detail.contents",
+                            op: SearchOperator::Contains,
+                            filter_val: "details val".to_string(),
+                        }),
+                        Box::new(SearchExpr::SearchOpExpr {
+                            filter_key: "detail.contents",
+                            op: SearchOperator::Contains,
+                            filter_val: "val2".to_string(),
+                        }),
+                ))))
             ),
             parse_search(
                 &["grid.cells", "detail.contents", "other"]
                     .iter()
                     .cloned()
                     .collect()
-            )("grid.cells contains test and detail.contents contains \"details val\"")
+            )("grid.cells contains test and detail.contents contains \"details val\" or detail.contents contains val2")
             .unwrap()
         );
     }
