@@ -52,12 +52,12 @@ fn print_node(f: &mut fmt::Formatter<'_>, depth: i32, node: &SearchExpr) -> Resu
         SearchExpr::And(lhs, rhs) => {
             print_parent(f, depth, "and")?;
             print_node(f, depth + 1, lhs)?;
-            &print_node(f, depth + 1, rhs)?;
+            print_node(f, depth + 1, rhs)?;
         }
         SearchExpr::Or(lhs, rhs) => {
             print_parent(f, depth, "or")?;
             print_node(f, depth + 1, lhs)?;
-            &print_node(f, depth + 1, rhs)?;
+            print_node(f, depth + 1, rhs)?;
         }
         SearchExpr::SearchOpExpr {
             filter_key,
@@ -89,38 +89,45 @@ fn parse_search<'a>(
 ) -> impl 'a + FnMut(&'a str) -> nom::IResult<&'a str, SearchExpr> {
     move |mut input: &'a str| {
         alt((
-            parse_search_bracket_combinator(known_filter_keys, tag("and"), SearchExpr::And),
-            parse_search_bracket_combinator(known_filter_keys, tag("or"), SearchExpr::Or),
             // TODO spaces after the bracket
             // delimited(
             //     space0,
-            delimited(tag("("), parse_search(known_filter_keys), tag(")")),
             //     space0,
             // ),
             parse_search_and(known_filter_keys),
             parse_search_or(known_filter_keys),
+            delimited(
+                with_spaces_ba(tag("(")),
+                parse_search(known_filter_keys),
+                with_spaces_b(tag(")")),
+            ),
             parse_search_expr(known_filter_keys),
         ))(input)
     }
 }
 
-fn parse_search_bracket_combinator<'a, CP: 'a, B: 'a>(
-    known_filter_keys: &'a HashSet<&'static str>,
-    combinator_parser: CP,
-    builder: B,
-) -> impl 'a + FnMut(&'a str) -> nom::IResult<&'a str, SearchExpr>
+// b = before
+fn with_spaces_b<'a, P>(p: P) -> impl FnMut(&'a str) -> nom::IResult<&'a str, &'a str>
 where
-    CP: Fn(&'a str) -> nom::IResult<&'a str, &'a str>,
-    B: Fn(Box<SearchExpr>, Box<SearchExpr>) -> SearchExpr,
+    P: Fn(&'a str) -> nom::IResult<&'a str, &'a str>,
 {
     move |mut input: &str| {
-        // TODO spaces around the bracket
-        let (input, se) = delimited(tag("("), parse_search(known_filter_keys), tag(")"))(input)?;
-        let (input, _) = space1(input)?;
-        let (input, _) = combinator_parser(input)?;
-        let (input, _) = space1(input)?;
-        let (input, se2) = parse_search(known_filter_keys)(input)?;
-        Ok((input, builder(Box::new(se), Box::new(se2))))
+        let (input, _) = space0(input)?;
+        let (input, r) = p(input)?;
+        Ok((input, r))
+    }
+}
+
+// ba = before/after
+fn with_spaces_ba<'a, P>(p: P) -> impl FnMut(&'a str) -> nom::IResult<&'a str, &'a str>
+where
+    P: Fn(&'a str) -> nom::IResult<&'a str, &'a str>,
+{
+    move |mut input: &str| {
+        let (input, _) = space0(input)?;
+        let (input, r) = p(input)?;
+        let (input, _) = space0(input)?;
+        Ok((input, r))
     }
 }
 
@@ -128,11 +135,19 @@ fn parse_search_and<'a>(
     known_filter_keys: &'a HashSet<&'static str>,
 ) -> impl 'a + FnMut(&'a str) -> nom::IResult<&'a str, SearchExpr> {
     move |mut input: &str| {
-        let (input, se) = parse_search_expr(known_filter_keys)(input)?;
+        let (input, se) = alt((
+            parse_search_expr(known_filter_keys),
+            delimited(
+                with_spaces_ba(tag("(")),
+                parse_search(known_filter_keys),
+                with_spaces_b(tag(")")),
+            ),
+        ))(input)?;
         let (input, _) = space1(input)?;
         let (input, _) = tag("and")(input)?;
         let (input, _) = space1(input)?;
-        let next_is_bracketed = peek::<_, _, nom::error::Error<&str>, _>(tag("("))(input).is_ok();
+        let next_is_bracketed =
+            peek::<_, _, nom::error::Error<&str>, _>(with_spaces_ba(tag("(")))(input).is_ok();
         let (input, se2) = parse_search(known_filter_keys)(input)?;
         match se2 {
             // we want AND to bind tighter than OR
@@ -155,7 +170,14 @@ fn parse_search_or<'a>(
     known_filter_keys: &'a HashSet<&'static str>,
 ) -> impl 'a + FnMut(&'a str) -> nom::IResult<&'a str, SearchExpr> {
     move |mut input: &str| {
-        let (input, se) = parse_search_expr(known_filter_keys)(input)?;
+        let (input, se) = alt((
+            parse_search_expr(known_filter_keys),
+            delimited(
+                with_spaces_ba(tag("(")),
+                parse_search(known_filter_keys),
+                with_spaces_b(tag(")")),
+            ),
+        ))(input)?;
         let (input, _) = space1(input)?;
         let (input, _) = tag("or")(input)?;
         let (input, _) = space1(input)?;
