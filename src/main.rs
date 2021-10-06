@@ -10,6 +10,7 @@ pub mod config;
 pub mod icons;
 pub mod message_parser;
 pub mod packets_read;
+pub mod search_expr;
 #[macro_use]
 mod tshark_communication;
 mod widgets;
