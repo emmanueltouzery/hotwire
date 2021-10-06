@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use std::fmt;
 
 #[derive(PartialEq, Eq)]
-enum SearchExpr {
+pub enum SearchExpr {
     And(Box<SearchExpr>, Box<SearchExpr>),
     Or(Box<SearchExpr>, Box<SearchExpr>),
     SearchOpExpr {
@@ -22,7 +22,7 @@ enum SearchExpr {
 }
 
 fn print_parent(f: &mut fmt::Formatter<'_>, depth: i32, title: &str) -> Result<(), fmt::Error> {
-    for i in 0..depth {
+    for _ in 0..depth {
         f.write_str(" ")?;
     }
     f.write_fmt(format_args!("{}\n", title))?;
@@ -62,14 +62,14 @@ impl fmt::Debug for SearchExpr {
 }
 
 #[derive(PartialEq, Eq, Debug)]
-enum SearchOperator {
+pub enum SearchOperator {
     Contains,
 }
 
-fn parse_search<'a>(
+pub fn parse_search<'a>(
     known_filter_keys: &'a HashSet<&'static str>,
-) -> impl 'a + FnMut(&'a str) -> nom::IResult<&'a str, SearchExpr> {
-    move |mut input: &'a str| {
+) -> impl 'a + Fn(&'a str) -> nom::IResult<&'a str, SearchExpr> {
+    move |input: &'a str| {
         alt((
             parse_search_and(known_filter_keys),
             parse_search_or(known_filter_keys),
@@ -88,7 +88,7 @@ fn with_spaces_b<'a, P>(p: P) -> impl FnMut(&'a str) -> nom::IResult<&'a str, &'
 where
     P: Fn(&'a str) -> nom::IResult<&'a str, &'a str>,
 {
-    move |mut input: &str| {
+    move |input: &str| {
         let (input, _) = space0(input)?;
         let (input, r) = p(input)?;
         Ok((input, r))
@@ -100,7 +100,7 @@ fn with_spaces_ba<'a, P>(p: P) -> impl FnMut(&'a str) -> nom::IResult<&'a str, &
 where
     P: Fn(&'a str) -> nom::IResult<&'a str, &'a str>,
 {
-    move |mut input: &str| {
+    move |input: &str| {
         let (input, _) = space0(input)?;
         let (input, r) = p(input)?;
         let (input, _) = space0(input)?;
@@ -111,7 +111,7 @@ where
 fn parse_search_and<'a>(
     known_filter_keys: &'a HashSet<&'static str>,
 ) -> impl 'a + FnMut(&'a str) -> nom::IResult<&'a str, SearchExpr> {
-    move |mut input: &str| {
+    move |input: &str| {
         let (input, se) = alt((
             parse_search_expr(known_filter_keys),
             delimited(
@@ -145,8 +145,8 @@ fn parse_search_and<'a>(
 
 fn parse_search_or<'a>(
     known_filter_keys: &'a HashSet<&'static str>,
-) -> impl 'a + FnMut(&'a str) -> nom::IResult<&'a str, SearchExpr> {
-    move |mut input: &str| {
+) -> impl 'a + Fn(&'a str) -> nom::IResult<&'a str, SearchExpr> {
+    move |input: &str| {
         let (input, se) = alt((
             parse_search_expr(known_filter_keys),
             delimited(
@@ -166,8 +166,8 @@ fn parse_search_or<'a>(
 // TODO allow negation (not X contains Y)
 fn parse_search_expr<'a>(
     known_filter_keys: &'a HashSet<&'static str>,
-) -> impl 'a + FnMut(&str) -> nom::IResult<&str, SearchExpr> {
-    move |mut input: &str| {
+) -> impl 'a + Fn(&str) -> nom::IResult<&str, SearchExpr> {
+    move |input: &str| {
         let (input, filter_key) = parse_filter_key(known_filter_keys.clone())(input)?;
         let (input, _) = space1(input)?;
         let (input, op) = parse_filter_op(input)?;
@@ -195,8 +195,8 @@ fn parse_filter_op(input: &str) -> nom::IResult<&str, SearchOperator> {
 
 fn parse_filter_key(
     known_filter_keys: HashSet<&'static str>,
-) -> impl FnMut(&str) -> nom::IResult<&str, &'static str> {
-    move |mut input: &str| {
+) -> impl Fn(&str) -> nom::IResult<&str, &'static str> {
+    move |input: &str| {
         // let (input, filter_key) = recognize(parse_filter_key_basic)(input)?;
         map_res(recognize(parse_filter_key_basic), |s: &str| {
             known_filter_keys
