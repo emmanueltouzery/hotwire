@@ -12,6 +12,7 @@ use nom::Err;
 use relm::{Component, Widget};
 use relm_derive::{widget, Msg};
 use std::collections::HashSet;
+use std::fmt;
 
 #[derive(Msg)]
 pub enum Msg {
@@ -27,7 +28,7 @@ pub struct Model {
     search_options: Option<Component<SearchOptions>>,
 }
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq)]
 enum SearchExpr {
     And(Box<SearchExpr>, Box<SearchExpr>),
     Or(Box<SearchExpr>, Box<SearchExpr>),
@@ -36,6 +37,46 @@ enum SearchExpr {
         op: SearchOperator,
         filter_val: String,
     },
+}
+
+fn print_parent(f: &mut fmt::Formatter<'_>, depth: i32, title: &str) -> Result<(), fmt::Error> {
+    for i in 0..depth {
+        f.write_str(" ")?;
+    }
+    f.write_fmt(format_args!("{}\n", title))?;
+    Ok(())
+}
+
+fn print_node(f: &mut fmt::Formatter<'_>, depth: i32, node: &SearchExpr) -> Result<(), fmt::Error> {
+    match node {
+        SearchExpr::And(lhs, rhs) => {
+            print_parent(f, depth, "and")?;
+            print_node(f, depth + 1, lhs)?;
+            &print_node(f, depth + 1, rhs)?;
+        }
+        SearchExpr::Or(lhs, rhs) => {
+            print_parent(f, depth, "or")?;
+            print_node(f, depth + 1, lhs)?;
+            &print_node(f, depth + 1, rhs)?;
+        }
+        SearchExpr::SearchOpExpr {
+            filter_key,
+            op,
+            filter_val,
+        } => {
+            print_parent(f, depth, &format!("{:?}", op))?;
+            print_parent(f, depth + 1, filter_key)?;
+            print_parent(f, depth + 1, filter_val)?;
+        }
+    }
+    Ok(())
+}
+
+impl fmt::Debug for SearchExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        f.write_str("\n")?;
+        print_node(f, 0, self)
+    }
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -425,6 +466,46 @@ mod tests {
                     .cloned()
                     .collect()
             )("(grid.cells contains test and detail.contents contains \"details val\") or detail.contents contains val2")
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn parse_combined_search_expression_with_brackets3() {
+        assert_eq!(
+            (
+                "",
+                (SearchExpr::Or(Box::new(SearchExpr::And(
+                    Box::new(SearchExpr::And(
+                        Box::new(SearchExpr::SearchOpExpr {
+                            filter_key: "grid.cells",
+                            op: SearchOperator::Contains,
+                            filter_val: "test".to_string(),
+                        }),
+                        Box::new(SearchExpr::SearchOpExpr {
+                            filter_key: "detail.contents",
+                            op: SearchOperator::Contains,
+                            filter_val: "details val".to_string(),
+                        }),
+                    )),
+                    Box::new(SearchExpr::SearchOpExpr {
+                        filter_key: "detail.contents",
+                        op: SearchOperator::Contains,
+                        filter_val: "val2".to_string(),
+                    }),
+                )),
+                 Box::new(SearchExpr::SearchOpExpr {
+                     filter_key: "grid.cells",
+                     op: SearchOperator::Contains,
+                     filter_val: "val3".to_string(),
+                 })
+            ))),
+            parse_search(
+                &["grid.cells", "detail.contents", "other"]
+                    .iter()
+                    .cloned()
+                    .collect()
+            )("(grid.cells contains test and detail.contents contains \"details val\") and detail.contents contains val2 or grid.cells contains val3")
             .unwrap()
         );
     }
