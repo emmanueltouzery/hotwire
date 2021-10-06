@@ -51,13 +51,13 @@ fn parse_search<'a>(
             parse_search_bracket_combinator(known_filter_keys, tag("and"), SearchExpr::And),
             parse_search_bracket_combinator(known_filter_keys, tag("or"), SearchExpr::Or),
             // TODO spaces after the bracket
-            delimited(
-                space0,
-                delimited(tag("("), parse_search(known_filter_keys), tag(")")),
-                space0,
-            ),
-            parse_search_combinator(known_filter_keys, tag("and"), SearchExpr::And),
-            parse_search_combinator(known_filter_keys, tag("or"), SearchExpr::Or),
+            // delimited(
+            //     space0,
+            delimited(tag("("), parse_search(known_filter_keys), tag(")")),
+            //     space0,
+            // ),
+            parse_search_and(known_filter_keys),
+            parse_search_or(known_filter_keys),
             parse_search_expr(known_filter_keys),
         ))(input)
     }
@@ -83,22 +83,43 @@ where
     }
 }
 
-fn parse_search_combinator<'a, CP: 'a, B: 'a>(
+fn parse_search_and<'a>(
     known_filter_keys: &'a HashSet<&'static str>,
-    combinator_parser: CP,
-    builder: B,
-) -> impl 'a + FnMut(&'a str) -> nom::IResult<&'a str, SearchExpr>
-where
-    CP: Fn(&'a str) -> nom::IResult<&'a str, &'a str>,
-    B: Fn(Box<SearchExpr>, Box<SearchExpr>) -> SearchExpr,
-{
+) -> impl 'a + FnMut(&'a str) -> nom::IResult<&'a str, SearchExpr> {
     move |mut input: &str| {
         let (input, se) = parse_search_expr(known_filter_keys)(input)?;
         let (input, _) = space1(input)?;
-        let (input, _) = combinator_parser(input)?;
+        let (input, _) = tag("and")(input)?;
+        let (input, _) = space1(input)?;
+        let next_is_bracketed = peek::<_, _, nom::error::Error<&str>, _>(tag("("))(input).is_ok();
+        let (input, se2) = parse_search(known_filter_keys)(input)?;
+        match se2 {
+            // we want AND to bind tighter than OR
+            // so not...
+            // a AND (b OR c)
+            // but rather...
+            // (a AND b) OR c
+            // at the same time we don't want to reorder if the next expression is
+            // bracketed, for instance "a and (b or c)"
+            SearchExpr::Or(ose1, ose2) if !next_is_bracketed => Ok((
+                input,
+                SearchExpr::Or(Box::new(SearchExpr::And(Box::new(se), ose1)), ose2),
+            )),
+            _ => Ok((input, SearchExpr::And(Box::new(se), Box::new(se2)))),
+        }
+    }
+}
+
+fn parse_search_or<'a>(
+    known_filter_keys: &'a HashSet<&'static str>,
+) -> impl 'a + FnMut(&'a str) -> nom::IResult<&'a str, SearchExpr> {
+    move |mut input: &str| {
+        let (input, se) = parse_search_expr(known_filter_keys)(input)?;
+        let (input, _) = space1(input)?;
+        let (input, _) = tag("or")(input)?;
         let (input, _) = space1(input)?;
         let (input, se2) = parse_search(known_filter_keys)(input)?;
-        Ok((input, builder(Box::new(se), Box::new(se2))))
+        Ok((input, SearchExpr::Or(Box::new(se), Box::new(se2))))
     }
 }
 
@@ -174,13 +195,15 @@ fn escaped_char(input: &str) -> nom::IResult<&str, char> {
 }
 
 fn parse_word(input: &str) -> nom::IResult<&str, String> {
-    // input.split_at_position1_complete(|item| {
-    //     item == ' ' || item == '\t' || item == '\r' || item == '\n'
-    // })
-    fold_many1(none_of(" \t\r\n"), String::new, |mut sofar, cur| {
-        sofar.push(cur);
-        sofar
-    })(input)
+    // i want to allow unicode characters here, so alphanumeric is not good enough, I think
+    fold_many1(
+        none_of(" \t\r\n()\",;:!?/*+"),
+        String::new,
+        |mut sofar, cur| {
+            sofar.push(cur);
+            sofar
+        },
+    )(input)
 }
 
 #[widget]
@@ -305,6 +328,41 @@ mod tests {
         assert_eq!(
             (
                 "",
+                (SearchExpr::Or(
+                    Box::new(SearchExpr::And(
+                        Box::new(SearchExpr::SearchOpExpr {
+                            filter_key: "grid.cells",
+                            op: SearchOperator::Contains,
+                            filter_val: "test".to_string(),
+                        }),
+                        Box::new(SearchExpr::SearchOpExpr {
+                            filter_key: "detail.contents",
+                            op: SearchOperator::Contains,
+                            filter_val: "details val".to_string(),
+                        }),
+                    )),
+                    Box::new(SearchExpr::SearchOpExpr {
+                        filter_key: "detail.contents",
+                        op: SearchOperator::Contains,
+                        filter_val: "val2".to_string(),
+                    }),
+                ))
+            ),
+            parse_search(
+                &["grid.cells", "detail.contents", "other"]
+                    .iter()
+                    .cloned()
+                    .collect()
+            )("grid.cells contains test and detail.contents contains \"details val\" or detail.contents contains val2")
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn parse_combined_search_expression_with_brackets() {
+        assert_eq!(
+            Ok((
+                "",
                 (SearchExpr::And(
                     Box::new(SearchExpr::SearchOpExpr {
                         filter_key: "grid.cells",
@@ -322,20 +380,22 @@ mod tests {
                             op: SearchOperator::Contains,
                             filter_val: "val2".to_string(),
                         }),
-                ))))
-            ),
+                    ))
+                ))
+            )),
             parse_search(
                 &["grid.cells", "detail.contents", "other"]
                     .iter()
                     .cloned()
                     .collect()
-            )("grid.cells contains test and detail.contents contains \"details val\" or detail.contents contains val2")
-            .unwrap()
+            )(
+                "grid.cells contains test and (detail.contents contains \"details val\" or detail.contents contains val2)"
+            )
         );
     }
 
     #[test]
-    fn parse_combined_search_expression_with_brackets() {
+    fn parse_combined_search_expression_with_brackets2() {
         assert_eq!(
             (
                 "",
@@ -357,8 +417,8 @@ mod tests {
                         op: SearchOperator::Contains,
                         filter_val: "val2".to_string(),
                     }),
-                )
-            )),
+                ))
+            ),
             parse_search(
                 &["grid.cells", "detail.contents", "other"]
                     .iter()
