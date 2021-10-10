@@ -246,6 +246,15 @@ impl Widget for Win {
         if let Some(p) = path {
             self.gui_load_file(p);
         }
+
+        self.streams
+            .headerbar_search
+            .emit(HeaderbarSearchMsg::SearchFilterKeysChanged(
+                ["grid.cells", "detail.contents"]
+                    .iter()
+                    .cloned()
+                    .collect::<HashSet<&'static str>>(),
+            ));
     }
 
     fn is_display_capture_btn() -> bool {
@@ -1468,7 +1477,7 @@ impl Widget for Win {
                         },
                     },
                     #[name="headerbar_search"]
-                    HeaderbarSearch {
+                    HeaderbarSearch(HashSet::new()) {
                         child: {
                             pack_type: gtk::PackType::End,
                         },

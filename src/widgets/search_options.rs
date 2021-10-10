@@ -1,11 +1,28 @@
+use crate::search_expr::SearchOperator;
 use gtk::prelude::*;
 use relm::Widget;
 use relm_derive::{widget, Msg};
 
-#[derive(Msg, Debug)]
+pub enum CombineOperator {
+    And,
+    Or,
+}
+
+#[derive(Msg)]
 pub enum Msg {
-    Add,
-    AddAndClose,
+    AddClick,
+    AddAndCloseClick,
+    Add(
+        (
+            Option<CombineOperator>,
+            &'static str,
+            SearchOperator,
+            String,
+        ),
+    ),
+    DisableOptions,
+    EnableOptionsWithAndOr,
+    EnableOptionsWithoutAndOr,
 }
 
 pub struct Model {}
@@ -28,12 +45,26 @@ impl Widget for SearchOptions {
 
     fn update(&mut self, event: Msg) {
         match event {
-            Msg::Add => {}
-            Msg::AddAndClose => {}
+            Msg::DisableOptions => {
+                self.widgets.root_grid.set_sensitive(false);
+            }
+            Msg::EnableOptionsWithAndOr => {
+                self.widgets.root_grid.set_sensitive(true);
+                self.widgets.and_or_combo.set_sensitive(true);
+            }
+            Msg::EnableOptionsWithoutAndOr => {
+                self.widgets.root_grid.set_sensitive(true);
+                self.widgets.and_or_combo.set_sensitive(false);
+            }
+            Msg::AddClick => {}
+            Msg::AddAndCloseClick => {}
+            // meant for my parent
+            Msg::Add(_) => {}
         }
     }
 
     view! {
+        #[name="root_grid"]
          gtk::Grid {
              orientation: gtk::Orientation::Vertical,
              margin_top: 10,
@@ -78,11 +109,11 @@ impl Widget for SearchOptions {
                  layout_style: gtk::ButtonBoxStyle::Expand,
                  gtk::Button {
                      label: "Add",
-                     clicked => Msg::Add,
+                     clicked => Msg::AddClick,
                  },
                  gtk::Button {
                      label: "Add and close",
-                     clicked => Msg::AddAndClose,
+                     clicked => Msg::AddAndCloseClick,
                  },
              },
          },

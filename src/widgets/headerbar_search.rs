@@ -1,7 +1,10 @@
+use super::search_options;
 use super::search_options::SearchOptions;
+use crate::search_expr;
 use gtk::prelude::*;
 use relm::{Component, Widget};
 use relm_derive::{widget, Msg};
+use std::collections::HashSet;
 
 #[derive(Msg)]
 pub enum Msg {
@@ -9,12 +12,14 @@ pub enum Msg {
     SearchActiveChanged(bool),
     SearchTextChanged(String),
     SearchTextChangedFromElsewhere((String, gdk::EventKey)),
+    SearchFilterKeysChanged(HashSet<&'static str>),
 }
 
 pub struct Model {
     relm: relm::Relm<HeaderbarSearch>,
     search_toggle_signal: Option<glib::SignalHandlerId>,
     search_options: Option<Component<SearchOptions>>,
+    known_filter_keys: HashSet<&'static str>,
 }
 
 #[widget]
@@ -37,16 +42,20 @@ impl Widget for HeaderbarSearch {
             .set_popover(Some(&search_options_popover));
     }
 
-    fn model(relm: &relm::Relm<Self>, _: ()) -> Model {
+    fn model(relm: &relm::Relm<Self>, known_filter_keys: HashSet<&'static str>) -> Model {
         Model {
             relm: relm.clone(),
             search_toggle_signal: None,
             search_options: None,
+            known_filter_keys,
         }
     }
 
     fn update(&mut self, event: Msg) {
         match event {
+            Msg::SearchFilterKeysChanged(hash) => {
+                self.model.known_filter_keys = hash;
+            }
             Msg::SearchClicked => {
                 let new_visible = self.widgets.search_toggle.is_active();
                 self.widgets.search_entry.grab_focus();
@@ -59,7 +68,24 @@ impl Widget for HeaderbarSearch {
                 self.widgets.search_toggle.set_active(is_active);
                 self.widgets.search_box.set_visible(is_active);
             }
-            Msg::SearchTextChanged(_) => {} // meant for my parent
+            Msg::SearchTextChanged(_) => {
+                if let Some(opt) = self.model.search_options.as_ref() {
+                    let text = self.widgets.search_entry.text().to_string();
+                    if text.is_empty() {
+                        opt.stream()
+                            .emit(search_options::Msg::EnableOptionsWithoutAndOr);
+                    } else {
+                        let parsed_expr =
+                            search_expr::parse_search(&self.model.known_filter_keys)(&text);
+                        match parsed_expr {
+                            Err(_) => opt.stream().emit(search_options::Msg::DisableOptions),
+                            Ok(_) => opt
+                                .stream()
+                                .emit(search_options::Msg::EnableOptionsWithAndOr),
+                        }
+                    }
+                }
+            }
             Msg::SearchTextChangedFromElsewhere((txt, _evt)) => {
                 if !self.widgets.search_toggle.is_active() {
                     // we want to block the signal of the search button toggle,
