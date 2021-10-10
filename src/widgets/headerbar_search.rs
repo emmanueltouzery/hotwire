@@ -127,7 +127,13 @@ impl Widget for HeaderbarSearch {
                         t.push_str(" contains ");
                     }
                 }
-                t.push_str(&val);
+                if val.contains(' ') {
+                    t.push('"');
+                    t.push_str(&val.replace('"', "\""));
+                    t.push('"');
+                } else {
+                    t.push_str(&val);
+                }
                 self.widgets.search_entry.set_text(&t);
             }
         }
