@@ -124,8 +124,26 @@ impl Widget for HeaderbarSearch {
                     self.widgets.search_entry.set_position(1);
                 }
             }
-            Msg::SearchAddVals(vals) => {
-                dbg!("search add");
+            Msg::SearchAddVals((combine_op, filter_key, search_op, val)) => {
+                let mut t = self.widgets.search_entry.text().to_string();
+                t.push_str(" ");
+                match combine_op {
+                    Some(search_options::CombineOperator::And) => {
+                        t.push_str("and ");
+                    }
+                    Some(search_options::CombineOperator::Or) => {
+                        t.push_str("or ");
+                    }
+                    None => {}
+                }
+                t.push_str(filter_key);
+                match search_op {
+                    search_expr::SearchOperator::Contains => {
+                        t.push_str(" contains ");
+                    }
+                }
+                t.push_str(&val);
+                self.widgets.search_entry.set_text(&t);
             }
         }
     }
