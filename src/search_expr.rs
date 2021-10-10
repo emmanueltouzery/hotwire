@@ -61,7 +61,7 @@ impl fmt::Debug for SearchExpr {
     }
 }
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, Copy, Clone)]
 pub enum SearchOperator {
     Contains,
 }

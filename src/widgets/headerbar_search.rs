@@ -1,4 +1,5 @@
 use super::search_options;
+use super::search_options::Msg as SearchOptionsMsg;
 use super::search_options::SearchOptions;
 use crate::search_expr;
 use gtk::prelude::*;
@@ -13,6 +14,14 @@ pub enum Msg {
     SearchTextChanged(String),
     SearchTextChangedFromElsewhere((String, gdk::EventKey)),
     SearchFilterKeysChanged(HashSet<&'static str>),
+    SearchAddVals(
+        (
+            Option<search_options::CombineOperator>,
+            &'static str,
+            search_expr::SearchOperator,
+            String,
+        ),
+    ),
 }
 
 pub struct Model {
@@ -31,8 +40,10 @@ impl Widget for HeaderbarSearch {
                 relm.stream().emit(Msg::SearchClicked);
             }));
 
-        self.model.search_options =
-            Some(relm::init::<SearchOptions>(()).expect("Error initializing the search options"));
+        let so = relm::init::<SearchOptions>(HashSet::new())
+            .expect("Error initializing the search options");
+        relm::connect!(so@SearchOptionsMsg::Add(ref vals), self.model.relm, Msg::SearchAddVals(vals.clone()));
+        self.model.search_options = Some(so);
 
         let search_options_popover = gtk::PopoverBuilder::new()
             .child(self.model.search_options.as_ref().unwrap().widget())
@@ -54,6 +65,10 @@ impl Widget for HeaderbarSearch {
     fn update(&mut self, event: Msg) {
         match event {
             Msg::SearchFilterKeysChanged(hash) => {
+                if let Some(so) = self.model.search_options.as_ref() {
+                    so.stream()
+                        .emit(search_options::Msg::FilterKeysUpdated(hash.clone()));
+                }
                 self.model.known_filter_keys = hash;
             }
             Msg::SearchClicked => {
@@ -108,6 +123,9 @@ impl Widget for HeaderbarSearch {
                         .unblock_signal(self.model.search_toggle_signal.as_ref().unwrap());
                     self.widgets.search_entry.set_position(1);
                 }
+            }
+            Msg::SearchAddVals(vals) => {
+                dbg!("search add");
             }
         }
     }
