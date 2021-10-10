@@ -78,10 +78,10 @@ impl Widget for HeaderbarSearch {
                         let parsed_expr =
                             search_expr::parse_search(&self.model.known_filter_keys)(&text);
                         match parsed_expr {
-                            Err(_) => opt.stream().emit(search_options::Msg::DisableOptions),
-                            Ok(_) => opt
+                            Ok(("", _)) => opt
                                 .stream()
                                 .emit(search_options::Msg::EnableOptionsWithAndOr),
+                            _ => opt.stream().emit(search_options::Msg::DisableOptions),
                         }
                     }
                 }
