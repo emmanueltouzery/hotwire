@@ -51,6 +51,7 @@ impl Widget for HeaderbarSearch {
         self.widgets
             .search_options_btn
             .set_popover(Some(&search_options_popover));
+        self.update_search_options_status();
     }
 
     fn model(relm: &relm::Relm<Self>, known_filter_keys: HashSet<&'static str>) -> Model {
@@ -84,22 +85,7 @@ impl Widget for HeaderbarSearch {
                 self.widgets.search_box.set_visible(is_active);
             }
             Msg::SearchTextChanged(_) => {
-                if let Some(opt) = self.model.search_options.as_ref() {
-                    let text = self.widgets.search_entry.text().to_string();
-                    if text.is_empty() {
-                        opt.stream()
-                            .emit(search_options::Msg::EnableOptionsWithoutAndOr);
-                    } else {
-                        let parsed_expr =
-                            search_expr::parse_search(&self.model.known_filter_keys)(&text);
-                        match parsed_expr {
-                            Ok(("", _)) => opt
-                                .stream()
-                                .emit(search_options::Msg::EnableOptionsWithAndOr),
-                            _ => opt.stream().emit(search_options::Msg::DisableOptions),
-                        }
-                    }
-                }
+                self.update_search_options_status();
             }
             Msg::SearchTextChangedFromElsewhere((txt, _evt)) => {
                 if !self.widgets.search_toggle.is_active() {
@@ -126,13 +112,12 @@ impl Widget for HeaderbarSearch {
             }
             Msg::SearchAddVals((combine_op, filter_key, search_op, val)) => {
                 let mut t = self.widgets.search_entry.text().to_string();
-                t.push_str(" ");
                 match combine_op {
                     Some(search_options::CombineOperator::And) => {
-                        t.push_str("and ");
+                        t.push_str(" and ");
                     }
                     Some(search_options::CombineOperator::Or) => {
-                        t.push_str("or ");
+                        t.push_str(" or ");
                     }
                     None => {}
                 }
@@ -144,6 +129,24 @@ impl Widget for HeaderbarSearch {
                 }
                 t.push_str(&val);
                 self.widgets.search_entry.set_text(&t);
+            }
+        }
+    }
+
+    fn update_search_options_status(&mut self) {
+        if let Some(opt) = self.model.search_options.as_ref() {
+            let text = self.widgets.search_entry.text().to_string();
+            if text.is_empty() {
+                opt.stream()
+                    .emit(search_options::Msg::EnableOptionsWithoutAndOr);
+            } else {
+                let parsed_expr = search_expr::parse_search(&self.model.known_filter_keys)(&text);
+                match parsed_expr {
+                    Ok(("", _)) => opt
+                        .stream()
+                        .emit(search_options::Msg::EnableOptionsWithAndOr),
+                    _ => opt.stream().emit(search_options::Msg::DisableOptions),
+                }
             }
         }
     }
