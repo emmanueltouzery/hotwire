@@ -70,6 +70,8 @@ pub enum InfobarOptions {
 
 #[derive(Msg, Debug)]
 pub enum Msg {
+    SearchClicked,
+    SearchTextChangedFromElsewhere,
     OpenFile,
     OpenRecentFile(usize),
     DisplayPreferences,
@@ -112,6 +114,7 @@ pub struct Model {
     relm: relm::Relm<Win>,
     bg_sender: mpsc::Sender<BgFunc>,
 
+    search_toggle_signal: Option<glib::SignalHandlerId>,
     window_subtitle: Option<String>,
     current_file: Option<(PathBuf, TSharkInputType)>,
     recent_files: Vec<PathBuf>,
@@ -178,6 +181,13 @@ impl Widget for Win {
             gdk::DragAction::COPY,
         );
         self.widgets.welcome_label.drag_dest_add_uri_targets();
+
+        self.model.search_toggle_signal = {
+            let r = self.model.relm.clone();
+            Some(self.widgets.search_toggle.connect_toggled(move |_| {
+                r.stream().emit(Msg::SearchClicked);
+            }))
+        };
 
         // the capture depends on pkexec for privilege escalation
         // which is linux-specific, and then fifos which are unix-specific.
@@ -359,6 +369,7 @@ impl Widget for Win {
                 .height_request(24)
                 .build(),
             prefs_win: None,
+            search_toggle_signal: None,
             infobar_label: gtk::LabelBuilder::new().build(),
             comm_targets_components: HashMap::new(),
             set_sidebar_height: false,
@@ -409,6 +420,32 @@ impl Widget for Win {
             Msg::OpenFile => {
                 self.open_file();
             }
+            Msg::SearchClicked => {
+                self.widgets
+                    .headerbar_revealer
+                    .set_reveal_child(self.widgets.search_toggle.is_active());
+            }
+            Msg::SearchTextChangedFromElsewhere => {
+                if !self.widgets.search_toggle.is_active() {
+                    // we want to block the signal of the search button toggle,
+                    // because when you click the search button we set the focus
+                    // and select the search text. if we did that when search
+                    // is triggered by someone typing, the first letter would
+                    // be lost when typing the second letter, due to the selection
+                    // so we block the search button toggle signal & handle things
+                    // by hand.
+                    self.widgets
+                        .search_toggle
+                        .block_signal(self.model.search_toggle_signal.as_ref().unwrap());
+                    self.widgets.search_toggle.set_active(true);
+                    self.widgets
+                        .search_toggle
+                        .unblock_signal(self.model.search_toggle_signal.as_ref().unwrap());
+                }
+                self.widgets
+                    .headerbar_revealer
+                    .set_reveal_child(self.widgets.search_toggle.is_active());
+            }
             Msg::CaptureToggled => {
                 if let Err(e) = self.handle_capture_toggled() {
                     Self::display_error_block(
@@ -443,6 +480,7 @@ impl Widget for Win {
                 self.handle_keypress(e);
             }
             Msg::SearchActiveChanged(is_active) => {
+                self.widgets.search_toggle.set_active(is_active);
                 if let Some(card) = self.model.selected_card.as_ref() {
                     messages_treeview::search_text_changed(
                         self.model.messages_treeview_state.as_ref().unwrap(),
@@ -1025,6 +1063,10 @@ impl Widget for Win {
                 // self.components
                 //     .headerbar_search
                 //     .emit(SearchViewMsg::FilterChanged(Some(k.to_string())));
+                self.model
+                    .relm
+                    .stream()
+                    .emit(Msg::SearchTextChangedFromElsewhere);
                 self.components.headerbar_search.emit(
                     HeaderbarSearchMsg::SearchTextChangedFromElsewhere((k.to_string(), e)),
                 );
@@ -1476,13 +1518,13 @@ impl Widget for Win {
                             }
                         },
                     },
-                    #[name="headerbar_search"]
-                    HeaderbarSearch(HashSet::new()) {
+                    #[name="search_toggle"]
+                    gtk::ToggleButton {
                         child: {
-                            pack_type: gtk::PackType::End,
+                            pack_type: gtk::PackType::End
                         },
-                        HbsMsgSearchActiveChanged(is_active) => Msg::SearchActiveChanged(is_active),
-                        HbsMsgSearchTextChanged(ref txt) => Msg::SearchTextChanged(txt.clone()),
+                        image: Some(&gtk::Image::from_icon_name(Some("edit-find-symbolic"), gtk::IconSize::Menu)),
+                        margin_start: 10,
                     },
                     #[name="save_capture_btn"]
                     gtk::Button {
@@ -1544,6 +1586,14 @@ impl Widget for Win {
                     },
                     orientation: gtk::Orientation::Vertical,
                     hexpand: true,
+                    #[name="headerbar_revealer"]
+                    gtk::Revealer {
+                        #[name="headerbar_search"]
+                        HeaderbarSearch(HashSet::new()) {
+                            HbsMsgSearchActiveChanged(is_active) => Msg::SearchActiveChanged(is_active),
+                            HbsMsgSearchTextChanged(ref txt) => Msg::SearchTextChanged(txt.clone()),
+                        },
+                    },
                     #[name="infobar"]
                     gtk::InfoBar {
                         response(_, r) => Msg::InfoBarEvent(r)
