@@ -7,6 +7,7 @@ use crate::icons;
 use crate::message_parser::{
     ClientServerInfo, MessageData, MessageInfo, MessageParser, StreamData, StreamGlobals,
 };
+use crate::search_expr;
 use crate::tshark_communication::{TSharkPacket, TSharkPacketBasicInfo, TcpSeqNumber, TcpStreamId};
 use crate::widgets::win;
 use crate::BgFunc;
@@ -247,8 +248,14 @@ impl MessageParser for Http2 {
         http_message_parser::Http.end_populate_treeview(tv, ls);
     }
 
-    fn matches_filter(&self, filter: &str, model: &gtk::TreeModel, iter: &gtk::TreeIter) -> bool {
-        http_message_parser::Http.matches_filter(filter, model, iter)
+    fn matches_filter(
+        &self,
+        filter: &search_expr::SearchOpExpr,
+        streams: &HashMap<TcpStreamId, StreamData>,
+        model: &gtk::TreeModel,
+        iter: &gtk::TreeIter,
+    ) -> bool {
+        http_message_parser::Http.matches_filter(filter, streams, model, iter)
     }
 }
 

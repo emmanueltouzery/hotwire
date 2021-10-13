@@ -3,9 +3,11 @@ use super::http_details_widget::HttpCommEntry;
 use crate::colors;
 use crate::http::tshark_http::HttpType;
 use crate::icons::Icon;
+use crate::message_parser;
 use crate::message_parser::{
     ClientServerInfo, MessageData, MessageInfo, MessageParser, StreamData, StreamGlobals,
 };
+use crate::search_expr;
 use crate::tshark_communication::{NetworkPort, TSharkPacket, TcpSeqNumber, TcpStreamId};
 use crate::widgets::win;
 use crate::BgFunc;
@@ -14,6 +16,7 @@ use flate2::read::GzDecoder;
 use gtk::prelude::*;
 use relm::ContainerWidget;
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::io::prelude::*;
 use std::net::IpAddr;
 use std::str;
@@ -282,8 +285,16 @@ impl MessageParser for Http {
                     .unwrap_or("Missing response info")
                     .to_value(),
             );
-            ls.set_value(&iter, 2, &session_id.as_u32().to_value());
-            ls.set_value(&iter, 3, &(start_idx + idx as i32).to_value());
+            ls.set_value(
+                &iter,
+                message_parser::TREE_STORE_STREAM_ID_COL_IDX,
+                &session_id.as_u32().to_value(),
+            );
+            ls.set_value(
+                &iter,
+                message_parser::TREE_STORE_MESSAGE_INDEX_COL_IDX,
+                &(start_idx + idx as i32).to_value(),
+            );
             if let Some(ref rq) = http.request {
                 ls.set_value(&iter, 4, &rq.timestamp.to_string().to_value());
                 ls.set_value(&iter, 5, &rq.timestamp.timestamp_nanos().to_value());
@@ -338,32 +349,39 @@ impl MessageParser for Http {
         tv.set_model(Some(&model_sort));
     }
 
-    fn matches_filter(&self, filter: &str, model: &gtk::TreeModel, iter: &gtk::TreeIter) -> bool {
-        let filter = &filter.to_lowercase();
-        model
-            .value(iter, 0) // req info
-            .get::<&str>()
-            .unwrap()
-            .to_lowercase()
-            .contains(filter)
-            || model
-                .value(iter, 1) // resp info
-                .get::<&str>()
-                .unwrap()
-                .to_lowercase()
-                .contains(filter)
-            || model
-                .value(iter, 8) // req content type
-                .get::<&str>()
-                .unwrap_or("")
-                .to_lowercase()
-                .contains(filter)
-            || model
-                .value(iter, 9) // resp content type
-                .get::<&str>()
-                .unwrap_or("")
-                .to_lowercase()
-                .contains(filter)
+    fn matches_filter(
+        &self,
+        filter: &search_expr::SearchOpExpr,
+        streams: &HashMap<TcpStreamId, StreamData>,
+        model: &gtk::TreeModel,
+        iter: &gtk::TreeIter,
+    ) -> bool {
+        true
+        // let filter = &filter.to_lowercase();
+        // model
+        //     .value(iter, 0) // req info
+        //     .get::<&str>()
+        //     .unwrap()
+        //     .to_lowercase()
+        //     .contains(filter)
+        //     || model
+        //         .value(iter, 1) // resp info
+        //         .get::<&str>()
+        //         .unwrap()
+        //         .to_lowercase()
+        //         .contains(filter)
+        //     || model
+        //         .value(iter, 8) // req content type
+        //         .get::<&str>()
+        //         .unwrap_or("")
+        //         .to_lowercase()
+        //         .contains(filter)
+        //     || model
+        //         .value(iter, 9) // resp content type
+        //         .get::<&str>()
+        //         .unwrap_or("")
+        //         .to_lowercase()
+        //         .contains(filter)
     }
 
     fn requests_details_overlay(&self) -> bool {

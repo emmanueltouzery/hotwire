@@ -4,9 +4,11 @@ use crate::http2::http2_message_parser::Http2StreamGlobals;
 use crate::icons::Icon;
 use crate::pgsql::postgres_message_parser::PostgresMessageData;
 use crate::pgsql::postgres_message_parser::PostgresStreamGlobals;
+use crate::search_expr;
 use crate::tshark_communication::{NetworkPort, TSharkPacket, TcpStreamId};
 use crate::widgets::win;
 use crate::BgFunc;
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::mpsc;
 
@@ -83,6 +85,9 @@ pub struct StreamData {
     pub summary_details: Option<String>,
 }
 
+pub const TREE_STORE_STREAM_ID_COL_IDX: u32 = 2;
+pub const TREE_STORE_MESSAGE_INDEX_COL_IDX: u32 = 3;
+
 /// A MessageParser allows hotwire to parse & display messages related to
 /// a certain protocol, for instance HTTP. The message parser deals with
 /// parsing packets as well as displaying them.
@@ -157,7 +162,13 @@ pub trait MessageParser {
     ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, MessageInfo)>;
 
     // other
-    fn matches_filter(&self, filter: &str, model: &gtk::TreeModel, iter: &gtk::TreeIter) -> bool;
+    fn matches_filter(
+        &self,
+        filter: &search_expr::SearchOpExpr,
+        streams: &HashMap<TcpStreamId, StreamData>,
+        model: &gtk::TreeModel,
+        iter: &gtk::TreeIter,
+    ) -> bool;
 }
 
 #[derive(Debug)]

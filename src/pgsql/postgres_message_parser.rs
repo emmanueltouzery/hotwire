@@ -2,10 +2,12 @@ use super::postgres_details_widget;
 use super::postgres_details_widget::PostgresCommEntry;
 use crate::colors;
 use crate::icons::Icon;
+use crate::message_parser;
 use crate::message_parser::{
     ClientServerInfo, MessageData, MessageInfo, MessageParser, StreamData, StreamGlobals,
 };
 use crate::pgsql::tshark_pgsql::{PostgresColType, PostgresWireMessage};
+use crate::search_expr;
 use crate::tshark_communication::{TSharkPacket, TcpStreamId};
 use crate::widgets::win;
 use crate::BgFunc;
@@ -399,8 +401,14 @@ impl MessageParser for Postgres {
                         1,
                         &format!("{} rows", postgres.resultset_row_count).to_value(),
                     ),
-                    (2, &session_id.as_u32().to_value()),
-                    (3, &(start_idx + idx as i32).to_value()),
+                    (
+                        message_parser::TREE_STORE_STREAM_ID_COL_IDX,
+                        &session_id.as_u32().to_value(),
+                    ),
+                    (
+                        message_parser::TREE_STORE_MESSAGE_INDEX_COL_IDX,
+                        &(start_idx + idx as i32).to_value(),
+                    ),
                     (4, &postgres.query_timestamp.to_string().to_value()),
                     (5, &postgres.query_timestamp.timestamp_nanos().to_value()),
                     (
@@ -437,7 +445,13 @@ impl MessageParser for Postgres {
         tv.set_model(Some(&model_sort));
     }
 
-    fn matches_filter(&self, filter: &str, model: &gtk::TreeModel, iter: &gtk::TreeIter) -> bool {
+    fn matches_filter(
+        &self,
+        filter: &search_expr::SearchOpExpr,
+        streams: &HashMap<TcpStreamId, StreamData>,
+        model: &gtk::TreeModel,
+        iter: &gtk::TreeIter,
+    ) -> bool {
         model
             .value(iter, 0)
             .get::<&str>()

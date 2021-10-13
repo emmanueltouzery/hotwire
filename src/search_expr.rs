@@ -11,14 +11,17 @@ use std::collections::HashSet;
 use std::fmt;
 
 #[derive(PartialEq, Eq)]
+pub struct SearchOpExpr {
+    filter_key: &'static str,
+    op: SearchOperator,
+    filter_val: String,
+}
+
+#[derive(PartialEq, Eq)]
 pub enum SearchExpr {
     And(Box<SearchExpr>, Box<SearchExpr>),
     Or(Box<SearchExpr>, Box<SearchExpr>),
-    SearchOpExpr {
-        filter_key: &'static str,
-        op: SearchOperator,
-        filter_val: String,
-    },
+    SearchOpExpr(SearchOpExpr),
 }
 
 fn print_parent(f: &mut fmt::Formatter<'_>, depth: i32, title: &str) -> Result<(), fmt::Error> {
@@ -41,11 +44,11 @@ fn print_node(f: &mut fmt::Formatter<'_>, depth: i32, node: &SearchExpr) -> Resu
             print_node(f, depth + 1, lhs)?;
             print_node(f, depth + 1, rhs)?;
         }
-        SearchExpr::SearchOpExpr {
+        SearchExpr::SearchOpExpr(SearchOpExpr {
             filter_key,
             op,
             filter_val,
-        } => {
+        }) => {
             print_parent(f, depth, &format!("{:?}", op))?;
             print_parent(f, depth + 1, filter_key)?;
             print_parent(f, depth + 1, filter_val)?;
@@ -175,11 +178,11 @@ fn parse_search_expr<'a>(
         let (input, filter_val) = parse_filter_val(input)?;
         Ok((
             input,
-            SearchExpr::SearchOpExpr {
+            SearchExpr::SearchOpExpr(SearchOpExpr {
                 filter_key,
                 op,
                 filter_val,
-            },
+            }),
         ))
     }
 }

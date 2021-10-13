@@ -19,6 +19,7 @@ use crate::message_parser::StreamData;
 use crate::packets_read;
 use crate::packets_read::{InputStep, ParseInputStep, TSharkInputType};
 use crate::pgsql::postgres_message_parser::Postgres;
+use crate::search_expr;
 use crate::tshark_communication;
 use crate::tshark_communication::{NetworkPort, TSharkPacket, TcpStreamId};
 use crate::widgets::comm_target_card::CommTargetCardKey;
@@ -260,11 +261,12 @@ impl Widget for Win {
         self.streams
             .headerbar_search
             .emit(HeaderbarSearchMsg::SearchFilterKeysChanged(
-                ["grid.cells", "detail.contents"]
-                    .iter()
-                    .cloned()
-                    .collect::<HashSet<&'static str>>(),
+                Self::search_known_filter_keys(),
             ));
+    }
+
+    fn search_known_filter_keys() -> HashSet<&'static str> {
+        ["grid.cells", "detail.contents"].iter().cloned().collect()
     }
 
     fn is_display_capture_btn() -> bool {
@@ -484,11 +486,16 @@ impl Widget for Win {
                 if let Some(card) = self.model.selected_card.as_ref() {
                     messages_treeview::search_text_changed(
                         self.model.messages_treeview_state.as_ref().unwrap(),
+                        &self.model.streams,
                         card.protocol_index,
                         if is_active {
-                            &self.model.search_text
+                            search_expr::parse_search(&Self::search_known_filter_keys())(
+                                &self.model.search_text,
+                            )
+                            .ok()
+                            .map(|(rest, parsed)| parsed)
                         } else {
-                            ""
+                            None
                         },
                     );
                 }
@@ -498,8 +505,11 @@ impl Widget for Win {
                 if let Some(card) = self.model.selected_card.as_ref() {
                     messages_treeview::search_text_changed(
                         self.model.messages_treeview_state.as_ref().unwrap(),
+                        &self.model.streams,
                         card.protocol_index,
-                        &txt,
+                        search_expr::parse_search(&Self::search_known_filter_keys())(&txt)
+                            .ok()
+                            .map(|(rest, parsed)| parsed),
                     );
                 }
             }
@@ -575,6 +585,7 @@ impl Widget for Win {
                 );
             }
             Msg::DisplayDetails(stream_id, idx) => {
+                //
                 if let Some((stream_client_server, msg_data)) = self
                     .model
                     .streams

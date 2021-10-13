@@ -1,7 +1,9 @@
 use super::win;
+use crate::message_parser;
 use crate::message_parser::{
     ClientServerInfo, MessageData, MessageInfo, MessageParser, StreamData,
 };
+use crate::search_expr;
 use crate::tshark_communication::TcpStreamId;
 use crate::widgets::comm_target_card::{CommTargetCardData, CommTargetCardKey};
 use crate::win::{RefreshOngoing, RefreshRemoteIpsAndStreams};
@@ -178,8 +180,11 @@ fn row_selected(
     rstream: &relm::StreamHandle<win::Msg>,
 ) {
     let iter = store.iter(path).unwrap();
-    let stream_id = store.value(&iter, 2);
-    let idx = store.value(&iter, 3);
+    let stream_id = store.value(&iter, message_parser::TREE_STORE_STREAM_ID_COL_IDX as i32);
+    let idx = store.value(
+        &iter,
+        message_parser::TREE_STORE_MESSAGE_INDEX_COL_IDX as i32,
+    );
     rstream.emit(win::Msg::DisplayDetails(
         TcpStreamId(stream_id.get::<u32>().unwrap()),
         idx.get::<u32>().unwrap(),
@@ -340,15 +345,64 @@ fn get_model_sort(
     (tv, model_sort)
 }
 
-pub fn search_text_changed(tv_state: &MessagesTreeviewState, protocol_index: usize, txt: &str) {
+pub fn search_text_changed(
+    tv_state: &MessagesTreeviewState,
+    streams: &HashMap<TcpStreamId, StreamData>,
+    protocol_index: usize,
+    filter: Option<search_expr::SearchExpr>,
+) {
     let (tv, model_sort) = get_model_sort(tv_state, protocol_index);
     let parsers = win::get_message_parsers();
+    // compute all the row indexes to show right here. then in the callback only check the row id,
+    // because i can't share the streams with the set_visible_func callback (which needs 'static lifetime)
+    let mut shown = HashSet::new();
+    let m = model_sort.model();
+    let store = m.clone().dynamic_cast::<gtk::ListStore>().unwrap();
+    let mp = parsers.get(protocol_index).unwrap();
+    let mut cur_iter_o = m.iter_first();
+    if let Some(cur_iter) = cur_iter_o {
+        if let Some(f) = filter.as_ref() {
+            loop {
+                if mp.matches_filter(f, streams, &m, &cur_iter) {
+                    let stream_id = store
+                        .value(
+                            &cur_iter,
+                            message_parser::TREE_STORE_STREAM_ID_COL_IDX as i32,
+                        )
+                        .get::<u32>()
+                        .unwrap();
+                    let idx = store
+                        .value(
+                            &cur_iter,
+                            message_parser::TREE_STORE_MESSAGE_INDEX_COL_IDX as i32,
+                        )
+                        .get::<u32>()
+                        .unwrap();
+                    shown.insert((stream_id, idx));
+                }
+                if !m.iter_next(&cur_iter) {
+                    break;
+                }
+            }
+        }
+    }
     let new_model_filter = gtk::TreeModelFilter::new(&model_sort, None);
-    let txt_string = txt.to_string();
-    new_model_filter.set_visible_func(move |model, iter| {
-        let mp = parsers.get(protocol_index).unwrap();
-        mp.matches_filter(&txt_string, model, iter)
-    });
+    if filter.is_none() {
+        new_model_filter.set_visible_func(move |model, iter| {
+            let stream_id = model
+                .value(&iter, message_parser::TREE_STORE_STREAM_ID_COL_IDX as i32)
+                .get::<u32>()
+                .unwrap();
+            let idx = model
+                .value(
+                    &iter,
+                    message_parser::TREE_STORE_MESSAGE_INDEX_COL_IDX as i32,
+                )
+                .get::<u32>()
+                .unwrap();
+            shown.contains(&(stream_id, idx))
+        });
+    }
     tv.set_model(Some(&new_model_filter));
 }
 
