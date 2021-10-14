@@ -345,6 +345,28 @@ fn get_model_sort(
     (tv, model_sort)
 }
 
+fn matches_filter(
+    mp: &Box<dyn MessageParser>,
+    f: &search_expr::SearchExpr,
+    streams: &HashMap<TcpStreamId, StreamData>,
+    model: &gtk::TreeModel,
+    iter: &gtk::TreeIter,
+) -> bool {
+    match f {
+        search_expr::SearchExpr::And(a, b) => {
+            matches_filter(mp, a, streams, model, iter)
+                && matches_filter(mp, b, streams, model, iter)
+        }
+        search_expr::SearchExpr::Or(a, b) => {
+            matches_filter(mp, a, streams, model, iter)
+                || matches_filter(mp, b, streams, model, iter)
+        }
+        search_expr::SearchExpr::SearchOpExpr(expr) => {
+            mp.matches_filter(expr, streams, model, iter)
+        }
+    }
+}
+
 pub fn search_text_changed(
     tv_state: &MessagesTreeviewState,
     streams: &HashMap<TcpStreamId, StreamData>,
@@ -363,7 +385,7 @@ pub fn search_text_changed(
     if let Some(cur_iter) = cur_iter_o {
         if let Some(f) = filter.as_ref() {
             loop {
-                if mp.matches_filter(f, streams, &m, &cur_iter) {
+                if matches_filter(&mp, f, streams, &m, &cur_iter) {
                     let stream_id = store
                         .value(
                             &cur_iter,
@@ -386,8 +408,9 @@ pub fn search_text_changed(
             }
         }
     }
+    dbg!(&shown);
     let new_model_filter = gtk::TreeModelFilter::new(&model_sort, None);
-    if filter.is_none() {
+    if filter.is_some() {
         new_model_filter.set_visible_func(move |model, iter| {
             let stream_id = model
                 .value(&iter, message_parser::TREE_STORE_STREAM_ID_COL_IDX as i32)

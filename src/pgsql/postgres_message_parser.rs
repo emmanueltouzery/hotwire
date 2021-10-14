@@ -452,12 +452,15 @@ impl MessageParser for Postgres {
         model: &gtk::TreeModel,
         iter: &gtk::TreeIter,
     ) -> bool {
-        model
-            .value(iter, 0)
-            .get::<&str>()
-            .unwrap()
-            .to_lowercase()
-            .contains(&filter.to_lowercase())
+        match filter.filter_key {
+            "grid.cells" => model
+                .value(iter, 0)
+                .get::<&str>()
+                .unwrap()
+                .to_lowercase()
+                .contains(&filter.filter_val.to_lowercase()),
+            _ => panic!(),
+        }
     }
 
     fn requests_details_overlay(&self) -> bool {

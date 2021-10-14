@@ -356,32 +356,36 @@ impl MessageParser for Http {
         model: &gtk::TreeModel,
         iter: &gtk::TreeIter,
     ) -> bool {
-        true
-        // let filter = &filter.to_lowercase();
-        // model
-        //     .value(iter, 0) // req info
-        //     .get::<&str>()
-        //     .unwrap()
-        //     .to_lowercase()
-        //     .contains(filter)
-        //     || model
-        //         .value(iter, 1) // resp info
-        //         .get::<&str>()
-        //         .unwrap()
-        //         .to_lowercase()
-        //         .contains(filter)
-        //     || model
-        //         .value(iter, 8) // req content type
-        //         .get::<&str>()
-        //         .unwrap_or("")
-        //         .to_lowercase()
-        //         .contains(filter)
-        //     || model
-        //         .value(iter, 9) // resp content type
-        //         .get::<&str>()
-        //         .unwrap_or("")
-        //         .to_lowercase()
-        //         .contains(filter)
+        let filter_val = &filter.filter_val.to_lowercase();
+        match filter.filter_key {
+            "grid.cells" => {
+                model
+                    .value(iter, 0) // req info
+                    .get::<&str>()
+                    .unwrap()
+                    .to_lowercase()
+                    .contains(filter_val)
+                    || model
+                        .value(iter, 1) // resp info
+                        .get::<&str>()
+                        .unwrap()
+                        .to_lowercase()
+                        .contains(filter_val)
+                    || model
+                        .value(iter, 8) // req content type
+                        .get::<&str>()
+                        .unwrap_or("")
+                        .to_lowercase()
+                        .contains(filter_val)
+                    || model
+                        .value(iter, 9) // resp content type
+                        .get::<&str>()
+                        .unwrap_or("")
+                        .to_lowercase()
+                        .contains(filter_val)
+            }
+            _ => panic!(),
+        }
     }
 
     fn requests_details_overlay(&self) -> bool {

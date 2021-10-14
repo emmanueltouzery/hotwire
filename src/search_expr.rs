@@ -12,9 +12,9 @@ use std::fmt;
 
 #[derive(PartialEq, Eq)]
 pub struct SearchOpExpr {
-    filter_key: &'static str,
-    op: SearchOperator,
-    filter_val: String,
+    pub filter_key: &'static str,
+    pub op: SearchOperator,
+    pub filter_val: String,
 }
 
 #[derive(PartialEq, Eq)]
