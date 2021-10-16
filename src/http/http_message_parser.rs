@@ -20,7 +20,10 @@ use std::collections::HashMap;
 use std::io::prelude::*;
 use std::net::IpAddr;
 use std::str;
+use std::str::FromStr;
 use std::sync::mpsc;
+use strum::VariantNames;
+use strum_macros::{EnumString, EnumVariantNames};
 
 pub struct Http;
 
@@ -43,6 +46,12 @@ pub struct HttpStreamGlobals {
     // if we didn't get the hostname, we use this in finish_stream() to populate
     // the summary details.
     server_info: Option<String>,
+}
+
+#[derive(EnumString, EnumVariantNames)]
+pub enum HttpFilterKeys {
+    #[strum(serialize = "http.url_content_type")]
+    UrlContentType,
 }
 
 impl MessageParser for Http {
@@ -349,6 +358,10 @@ impl MessageParser for Http {
         tv.set_model(Some(&model_sort));
     }
 
+    fn supported_filter_keys(&self) -> &'static [&'static str] {
+        HttpFilterKeys::VARIANTS
+    }
+
     fn matches_filter(
         &self,
         filter: &search_expr::SearchOpExpr,
@@ -357,34 +370,37 @@ impl MessageParser for Http {
         iter: &gtk::TreeIter,
     ) -> bool {
         let filter_val = &filter.filter_val.to_lowercase();
-        match filter.filter_key {
-            "grid.cells" => {
-                model
-                    .value(iter, 0) // req info
-                    .get::<&str>()
-                    .unwrap()
-                    .to_lowercase()
-                    .contains(filter_val)
-                    || model
-                        .value(iter, 1) // resp info
+        if let Some(filter_key) = HttpFilterKeys::from_str(filter.filter_key).ok() {
+            match filter_key {
+                HttpFilterKeys::UrlContentType => {
+                    model
+                        .value(iter, 0) // req info
                         .get::<&str>()
                         .unwrap()
                         .to_lowercase()
                         .contains(filter_val)
-                    || model
-                        .value(iter, 8) // req content type
-                        .get::<&str>()
-                        .unwrap_or("")
-                        .to_lowercase()
-                        .contains(filter_val)
-                    || model
-                        .value(iter, 9) // resp content type
-                        .get::<&str>()
-                        .unwrap_or("")
-                        .to_lowercase()
-                        .contains(filter_val)
+                        || model
+                            .value(iter, 1) // resp info
+                            .get::<&str>()
+                            .unwrap()
+                            .to_lowercase()
+                            .contains(filter_val)
+                        || model
+                            .value(iter, 8) // req content type
+                            .get::<&str>()
+                            .unwrap_or("")
+                            .to_lowercase()
+                            .contains(filter_val)
+                        || model
+                            .value(iter, 9) // resp content type
+                            .get::<&str>()
+                            .unwrap_or("")
+                            .to_lowercase()
+                            .contains(filter_val)
+                }
             }
-            _ => panic!(),
+        } else {
+            true
         }
     }
 

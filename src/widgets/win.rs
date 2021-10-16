@@ -266,7 +266,11 @@ impl Widget for Win {
     }
 
     fn search_known_filter_keys() -> HashSet<&'static str> {
-        ["grid.cells", "detail.contents"].iter().cloned().collect()
+        get_message_parsers()
+            .into_iter()
+            .flat_map(|p| p.supported_filter_keys())
+            .map(|p| *p)
+            .collect()
     }
 
     fn is_display_capture_btn() -> bool {

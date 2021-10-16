@@ -161,7 +161,8 @@ pub trait MessageParser {
         win_msg_sender: relm::StreamHandle<win::Msg>,
     ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, MessageInfo)>;
 
-    // other
+    // search
+    fn supported_filter_keys(&self) -> &'static [&'static str];
     fn matches_filter(
         &self,
         filter: &search_expr::SearchOpExpr,

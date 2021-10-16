@@ -39,8 +39,9 @@ impl Widget for SearchOptions {
         self.widgets.and_or_combo.append_text("and");
         self.widgets.and_or_combo.append_text("or");
         self.widgets.and_or_combo.set_active(Some(0));
-        self.widgets.filter_key_combo.append_text("grid.cells");
-        self.widgets.filter_key_combo.append_text("detail.contents");
+        for k in self.model.filter_keys.iter() {
+            self.widgets.filter_key_combo.append_text(k);
+        }
         self.widgets.filter_key_combo.set_active(Some(0));
         self.widgets.search_op_combo.append_text("contains");
         self.widgets.search_op_combo.set_active(Some(0));
@@ -57,6 +58,10 @@ impl Widget for SearchOptions {
         match event {
             Msg::FilterKeysUpdated(keys) => {
                 self.model.filter_keys = keys;
+                self.widgets.filter_key_combo.remove_all();
+                for k in self.model.filter_keys.iter() {
+                    self.widgets.filter_key_combo.append_text(k);
+                }
             }
             Msg::DisableOptions => {
                 self.widgets.root_grid.set_sensitive(false);

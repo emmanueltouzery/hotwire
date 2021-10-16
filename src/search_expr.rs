@@ -6,6 +6,7 @@ use nom::combinator::*;
 use nom::error::*;
 use nom::multi::*;
 use nom::sequence::*;
+use nom::AsChar;
 use nom::Err;
 use std::collections::HashSet;
 use std::fmt;
@@ -213,7 +214,7 @@ fn parse_filter_key(
 fn parse_filter_key_basic(input: &str) -> nom::IResult<&str, ()> {
     let (input, _) = alpha1(input)?;
     let (input, _) = char('.')(input)?;
-    let (input, _) = alpha1(input)?;
+    let (input, _) = many1(satisfy(|c| c.is_alpha() || c == '_'))(input)?;
     Ok((input, ()))
 }
 
@@ -279,22 +280,22 @@ mod tests {
                 "",
                 (SearchExpr::Or(
                     Box::new(SearchExpr::And(
-                        Box::new(SearchExpr::SearchOpExpr {
+                        Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                             filter_key: "grid.cells",
                             op: SearchOperator::Contains,
                             filter_val: "test".to_string(),
-                        }),
-                        Box::new(SearchExpr::SearchOpExpr {
+                        })),
+                        Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                             filter_key: "detail.contents",
                             op: SearchOperator::Contains,
                             filter_val: "details val".to_string(),
-                        }),
+                        })),
                     )),
-                    Box::new(SearchExpr::SearchOpExpr {
+                    Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                         filter_key: "detail.contents",
                         op: SearchOperator::Contains,
                         filter_val: "val2".to_string(),
-                    }),
+                    })),
                 ))
             ),
             parse_search(
@@ -313,22 +314,22 @@ mod tests {
             Ok((
                 "",
                 (SearchExpr::And(
-                    Box::new(SearchExpr::SearchOpExpr {
+                    Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                         filter_key: "grid.cells",
                         op: SearchOperator::Contains,
                         filter_val: "test".to_string(),
-                    }),
+                    })),
                     Box::new(SearchExpr::Or(
-                        Box::new(SearchExpr::SearchOpExpr {
+                        Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                             filter_key: "detail.contents",
                             op: SearchOperator::Contains,
                             filter_val: "details val".to_string(),
-                        }),
-                        Box::new(SearchExpr::SearchOpExpr {
+                        })),
+                        Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                             filter_key: "detail.contents",
                             op: SearchOperator::Contains,
                             filter_val: "val2".to_string(),
-                        }),
+                        })),
                     ))
                 ))
             )),
@@ -350,22 +351,22 @@ mod tests {
                 "",
                 (SearchExpr::Or(
                     Box::new(SearchExpr::And(
-                        Box::new(SearchExpr::SearchOpExpr {
+                        Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                             filter_key: "grid.cells",
                             op: SearchOperator::Contains,
                             filter_val: "test".to_string(),
-                        }),
-                        Box::new(SearchExpr::SearchOpExpr {
+                        })),
+                        Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                             filter_key: "detail.contents",
                             op: SearchOperator::Contains,
                             filter_val: "details val".to_string(),
-                        }),
+                        })),
                     )),
-                    Box::new(SearchExpr::SearchOpExpr {
+                    Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                         filter_key: "detail.contents",
                         op: SearchOperator::Contains,
                         filter_val: "val2".to_string(),
-                    }),
+                    })),
                 ))
             ),
             parse_search(
@@ -385,28 +386,28 @@ mod tests {
                 "",
                 (SearchExpr::Or(Box::new(SearchExpr::And(
                     Box::new(SearchExpr::And(
-                        Box::new(SearchExpr::SearchOpExpr {
+                        Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                             filter_key: "grid.cells",
                             op: SearchOperator::Contains,
                             filter_val: "test".to_string(),
-                        }),
-                        Box::new(SearchExpr::SearchOpExpr {
+                        })),
+                        Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                             filter_key: "detail.contents",
                             op: SearchOperator::Contains,
                             filter_val: "details val".to_string(),
-                        }),
+                        })),
                     )),
-                    Box::new(SearchExpr::SearchOpExpr {
+                    Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                         filter_key: "detail.contents",
                         op: SearchOperator::Contains,
                         filter_val: "val2".to_string(),
-                    }),
+                    })),
                 )),
-                 Box::new(SearchExpr::SearchOpExpr {
+                 Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                      filter_key: "grid.cells",
                      op: SearchOperator::Contains,
                      filter_val: "val3".to_string(),
-                 })
+                 }))
             ))),
             parse_search(
                 &["grid.cells", "detail.contents", "other"]

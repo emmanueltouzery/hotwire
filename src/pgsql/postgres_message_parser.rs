@@ -20,6 +20,8 @@ use std::iter;
 use std::str;
 use std::str::FromStr;
 use std::sync::mpsc;
+use strum::VariantNames;
+use strum_macros::{EnumString, EnumVariantNames};
 
 #[cfg(test)]
 use crate::tshark_communication::{parse_stream, parse_test_xml};
@@ -27,6 +29,12 @@ use crate::tshark_communication::{parse_stream, parse_test_xml};
 use chrono::NaiveDate;
 
 pub struct Postgres;
+
+#[derive(EnumString, EnumVariantNames)]
+enum PostgresFilterKeys {
+    #[strum(serialize = "pg.query")]
+    QueryString,
+}
 
 impl MessageParser for Postgres {
     fn is_my_message(&self, msg: &TSharkPacket) -> bool {
@@ -445,6 +453,10 @@ impl MessageParser for Postgres {
         tv.set_model(Some(&model_sort));
     }
 
+    fn supported_filter_keys(&self) -> &'static [&'static str] {
+        PostgresFilterKeys::VARIANTS
+    }
+
     fn matches_filter(
         &self,
         filter: &search_expr::SearchOpExpr,
@@ -452,14 +464,17 @@ impl MessageParser for Postgres {
         model: &gtk::TreeModel,
         iter: &gtk::TreeIter,
     ) -> bool {
-        match filter.filter_key {
-            "grid.cells" => model
-                .value(iter, 0)
-                .get::<&str>()
-                .unwrap()
-                .to_lowercase()
-                .contains(&filter.filter_val.to_lowercase()),
-            _ => panic!(),
+        if let Some(filter_key) = PostgresFilterKeys::from_str(filter.filter_key).ok() {
+            match filter_key {
+                PostgresFilterKeys::QueryString => model
+                    .value(iter, 0)
+                    .get::<&str>()
+                    .unwrap()
+                    .to_lowercase()
+                    .contains(&filter.filter_val.to_lowercase()),
+            }
+        } else {
+            true
         }
     }
 

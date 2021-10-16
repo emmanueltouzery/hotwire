@@ -15,6 +15,7 @@ use chrono::NaiveDateTime;
 use std::collections::HashMap;
 use std::str;
 use std::sync::mpsc;
+use strum::VariantNames;
 
 #[cfg(test)]
 use crate::tshark_communication::{parse_stream, parse_test_xml};
@@ -246,6 +247,10 @@ impl MessageParser for Http2 {
 
     fn end_populate_treeview(&self, tv: &gtk::TreeView, ls: &gtk::ListStore) {
         http_message_parser::Http.end_populate_treeview(tv, ls);
+    }
+
+    fn supported_filter_keys(&self) -> &'static [&'static str] {
+        http_message_parser::HttpFilterKeys::VARIANTS
     }
 
     fn matches_filter(

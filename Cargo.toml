@@ -41,6 +41,9 @@ serde_derive = "1.0.126"
 toml = "0.5.8"
 # filetime = "0.2.14"
 nom = "7.0.0"
+strum = "0.22"
+strum_macros = "0.22"
+
 
 [dependencies.gtk]
 version = "0.14.1"

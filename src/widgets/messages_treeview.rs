@@ -408,7 +408,6 @@ pub fn search_text_changed(
             }
         }
     }
-    dbg!(&shown);
     let new_model_filter = gtk::TreeModelFilter::new(&model_sort, None);
     if filter.is_some() {
         new_model_filter.set_visible_func(move |model, iter| {

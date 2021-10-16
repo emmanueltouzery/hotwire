@@ -34,7 +34,7 @@ impl Widget for HeaderbarSearch {
     fn init_view(&mut self) {
         let relm = self.model.relm.clone();
 
-        let so = relm::init::<SearchOptions>(HashSet::new())
+        let so = relm::init::<SearchOptions>(self.model.known_filter_keys.clone())
             .expect("Error initializing the search options");
         relm::connect!(so@SearchOptionsMsg::Add(ref vals), self.model.relm, Msg::SearchAddVals(vals.clone()));
         self.model.search_options = Some(so);
