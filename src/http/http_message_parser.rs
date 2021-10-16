@@ -50,8 +50,14 @@ pub struct HttpStreamGlobals {
 
 #[derive(EnumString, EnumVariantNames)]
 pub enum HttpFilterKeys {
-    #[strum(serialize = "http.url_content_type")]
-    UrlContentType,
+    #[strum(serialize = "http.req_line")]
+    ReqLine,
+    #[strum(serialize = "http.resp_status")]
+    RespStatus,
+    #[strum(serialize = "http.req_content_type")]
+    ReqContentType,
+    #[strum(serialize = "http.resp_content_type")]
+    RespContentType,
 }
 
 impl MessageParser for Http {
@@ -372,31 +378,37 @@ impl MessageParser for Http {
         let filter_val = &filter.filter_val.to_lowercase();
         if let Some(filter_key) = HttpFilterKeys::from_str(filter.filter_key).ok() {
             match filter_key {
-                HttpFilterKeys::UrlContentType => {
+                HttpFilterKeys::ReqLine => {
                     model
                         .value(iter, 0) // req info
                         .get::<&str>()
                         .unwrap()
                         .to_lowercase()
                         .contains(filter_val)
-                        || model
-                            .value(iter, 1) // resp info
-                            .get::<&str>()
-                            .unwrap()
-                            .to_lowercase()
-                            .contains(filter_val)
-                        || model
-                            .value(iter, 8) // req content type
-                            .get::<&str>()
-                            .unwrap_or("")
-                            .to_lowercase()
-                            .contains(filter_val)
-                        || model
-                            .value(iter, 9) // resp content type
-                            .get::<&str>()
-                            .unwrap_or("")
-                            .to_lowercase()
-                            .contains(filter_val)
+                }
+                HttpFilterKeys::RespStatus => {
+                    model
+                        .value(iter, 1) // resp info
+                        .get::<&str>()
+                        .unwrap()
+                        .to_lowercase()
+                        .contains(filter_val)
+                }
+                HttpFilterKeys::ReqContentType => {
+                    model
+                        .value(iter, 8) // req content type
+                        .get::<&str>()
+                        .unwrap_or("")
+                        .to_lowercase()
+                        .contains(filter_val)
+                }
+                HttpFilterKeys::RespContentType => {
+                    model
+                        .value(iter, 9) // resp content type
+                        .get::<&str>()
+                        .unwrap_or("")
+                        .to_lowercase()
+                        .contains(filter_val)
                 }
             }
         } else {
