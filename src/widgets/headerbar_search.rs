@@ -21,6 +21,7 @@ pub enum Msg {
             String,
         ),
     ),
+    RequestOptionsClose,
 }
 
 pub struct Model {
@@ -37,6 +38,7 @@ impl Widget for HeaderbarSearch {
         let so = relm::init::<SearchOptions>(self.model.known_filter_keys.clone())
             .expect("Error initializing the search options");
         relm::connect!(so@SearchOptionsMsg::Add(ref vals), self.model.relm, Msg::SearchAddVals(vals.clone()));
+        relm::connect!(so@SearchOptionsMsg::AddAndCloseClick, self.model.relm, Msg::RequestOptionsClose);
         self.model.search_options = Some(so);
 
         let search_options_popover = gtk::PopoverBuilder::new()
@@ -103,6 +105,11 @@ impl Widget for HeaderbarSearch {
                     t.push_str(&val);
                 }
                 self.widgets.search_entry.set_text(&t);
+            }
+            Msg::RequestOptionsClose => {
+                if let Some(popover) = self.widgets.search_options_btn.popover() {
+                    popover.popdown();
+                }
             }
         }
     }
