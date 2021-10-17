@@ -58,6 +58,37 @@ pub enum HttpFilterKeys {
     ReqContentType,
     #[strum(serialize = "http.resp_content_type")]
     RespContentType,
+    #[strum(serialize = "http.req_header")]
+    ReqHeader,
+    #[strum(serialize = "http.resp_header")]
+    RespHeader,
+}
+
+fn get_http_message<'a, 'b>(
+    streams: &'a HashMap<TcpStreamId, StreamData>,
+    model: &'b gtk::TreeModel,
+    iter: &'b gtk::TreeIter,
+) -> Option<&'a HttpMessageData> {
+    let stream_id = TcpStreamId(
+        model
+            .value(iter, message_parser::TREE_STORE_STREAM_ID_COL_IDX as i32)
+            .get::<u32>()
+            .unwrap(),
+    );
+    let idx = model
+        .value(
+            &iter,
+            message_parser::TREE_STORE_MESSAGE_INDEX_COL_IDX as i32,
+        )
+        .get::<u32>()
+        .unwrap();
+    match streams
+        .get(&stream_id)
+        .and_then(|s| s.messages.get(idx as usize))
+    {
+        Some(MessageData::Http(http_msg)) => Some(http_msg),
+        _ => None,
+    }
 }
 
 impl MessageParser for Http {
@@ -409,6 +440,34 @@ impl MessageParser for Http {
                         .unwrap_or("")
                         .to_lowercase()
                         .contains(filter_val)
+                }
+                HttpFilterKeys::ReqHeader => {
+                    get_http_message(streams, model, iter).map_or(false, |http_msg| {
+                        http_msg
+                            .request
+                            .as_ref()
+                            .filter(|r| {
+                                r.headers.iter().any(|(k, v)| {
+                                    k.to_lowercase().contains(filter_val)
+                                        || v.to_lowercase().contains(filter_val)
+                                })
+                            })
+                            .is_some()
+                    })
+                }
+                HttpFilterKeys::RespHeader => {
+                    get_http_message(streams, model, iter).map_or(false, |http_msg| {
+                        http_msg
+                            .response
+                            .as_ref()
+                            .filter(|r| {
+                                r.headers.iter().any(|(k, v)| {
+                                    k.to_lowercase().contains(filter_val)
+                                        || v.to_lowercase().contains(filter_val)
+                                })
+                            })
+                            .is_some()
+                    })
                 }
             }
         } else {
