@@ -45,6 +45,12 @@ impl Widget for HeaderbarSearch {
         let search_options_popover = gtk::PopoverBuilder::new()
             .child(self.model.search_options.as_ref().unwrap().widget())
             .build();
+        self.model
+            .search_options
+            .as_ref()
+            .unwrap()
+            .stream()
+            .emit(SearchOptionsMsg::ParentSet(search_options_popover.clone()));
         self.widgets
             .search_options_btn
             .set_popover(Some(&search_options_popover));

@@ -12,6 +12,7 @@ pub enum CombineOperator {
 
 #[derive(Msg)]
 pub enum Msg {
+    ParentSet(gtk::Popover),
     FilterKeysUpdated(HashSet<&'static str>),
     AddClick,
     AddAndCloseClick,
@@ -58,6 +59,10 @@ impl Widget for SearchOptions {
 
     fn update(&mut self, event: Msg) {
         match event {
+            Msg::ParentSet(popover) => {
+                self.widgets.add_btn.set_can_default(true);
+                popover.set_default_widget(Some(&self.widgets.add_btn));
+            }
             Msg::FilterKeysUpdated(keys) => {
                 self.model.filter_keys = keys;
                 self.widgets.filter_key_combo.remove_all();
@@ -164,6 +169,7 @@ impl Widget for SearchOptions {
                      left_attach: 1,
                      top_attach: 1,
                  },
+                 activates_default: true,
              },
              gtk::ButtonBox {
                  cell: {
@@ -172,8 +178,11 @@ impl Widget for SearchOptions {
                      width: 2,
                  },
                  layout_style: gtk::ButtonBoxStyle::Expand,
+                 #[name="add_btn"]
                  gtk::Button {
                      label: "Add",
+                     can_default: true,
+                     has_default: true,
                      clicked => Msg::AddClick,
                  },
                  gtk::Button {
