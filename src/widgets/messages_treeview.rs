@@ -4,6 +4,7 @@ use crate::message_parser::{
     ClientServerInfo, MessageData, MessageInfo, MessageParser, StreamData,
 };
 use crate::search_expr;
+use crate::search_expr::OperatorNegation;
 use crate::tshark_communication::TcpStreamId;
 use crate::widgets::comm_target_card::{CommTargetCardData, CommTargetCardKey};
 use crate::win::{RefreshOngoing, RefreshRemoteIpsAndStreams};
@@ -360,6 +361,11 @@ fn matches_filter(
         search_expr::SearchExpr::Or(a, b) => {
             matches_filter(mp, a, streams, model, iter)
                 || matches_filter(mp, b, streams, model, iter)
+        }
+        search_expr::SearchExpr::SearchOpExpr(expr)
+            if expr.op_negation == OperatorNegation::Negated =>
+        {
+            !mp.matches_filter(expr, streams, model, iter)
         }
         search_expr::SearchExpr::SearchOpExpr(expr) => {
             mp.matches_filter(expr, streams, model, iter)

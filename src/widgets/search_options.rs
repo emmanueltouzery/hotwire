@@ -1,4 +1,4 @@
-use crate::search_expr::SearchOperator;
+use crate::search_expr::{OperatorNegation, SearchOperator};
 use gtk::prelude::*;
 use relm::Widget;
 use relm_derive::{widget, Msg};
@@ -20,6 +20,7 @@ pub enum Msg {
             Option<CombineOperator>,
             &'static str,
             SearchOperator,
+            OperatorNegation,
             String,
         ),
     ),
@@ -44,6 +45,7 @@ impl Widget for SearchOptions {
         }
         self.widgets.filter_key_combo.set_active(Some(0));
         self.widgets.search_op_combo.append_text("contains");
+        self.widgets.search_op_combo.append_text("doesntContain");
         self.widgets.search_op_combo.set_active(Some(0));
     }
 
@@ -104,14 +106,15 @@ impl Widget for SearchOptions {
             .as_ref()
             .and_then(|fk| self.model.filter_keys.get(fk.as_str()))
             .unwrap();
-        let search_op = match self
+        let (search_op, op_negation) = match self
             .widgets
             .search_op_combo
             .active_text()
             .as_ref()
             .map(|k| k.as_str())
         {
-            Some("contains") => SearchOperator::Contains,
+            Some("contains") => (SearchOperator::Contains, OperatorNegation::NotNegated),
+            Some("doesntContain") => (SearchOperator::Contains, OperatorNegation::Negated),
             x => panic!("unhandled search_op: {:?}", x),
         };
         let search_txt = self.widgets.search_entry.text().to_string();
@@ -119,6 +122,7 @@ impl Widget for SearchOptions {
             combine_operator,
             filter_key,
             search_op,
+            op_negation,
             search_txt,
         )));
     }

@@ -18,6 +18,7 @@ pub enum Msg {
             Option<search_options::CombineOperator>,
             &'static str,
             search_expr::SearchOperator,
+            search_expr::OperatorNegation,
             String,
         ),
     ),
@@ -80,7 +81,7 @@ impl Widget for HeaderbarSearch {
                 self.widgets.search_entry.set_text(&txt);
                 self.widgets.search_entry.set_position(1);
             }
-            Msg::SearchAddVals((combine_op, filter_key, search_op, val)) => {
+            Msg::SearchAddVals((combine_op, filter_key, search_op, op_negation, val)) => {
                 let mut t = self.widgets.search_entry.text().to_string();
                 match combine_op {
                     Some(search_options::CombineOperator::And) => {
@@ -92,9 +93,18 @@ impl Widget for HeaderbarSearch {
                     None => {}
                 }
                 t.push_str(filter_key);
-                match search_op {
-                    search_expr::SearchOperator::Contains => {
+                match (search_op, op_negation) {
+                    (
+                        search_expr::SearchOperator::Contains,
+                        search_expr::OperatorNegation::NotNegated,
+                    ) => {
                         t.push_str(" contains ");
+                    }
+                    (
+                        search_expr::SearchOperator::Contains,
+                        search_expr::OperatorNegation::Negated,
+                    ) => {
+                        t.push_str(" doesntContain ");
                     }
                 }
                 if val.contains(' ') {

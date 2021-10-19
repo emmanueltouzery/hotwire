@@ -15,7 +15,14 @@ use std::fmt;
 pub struct SearchOpExpr {
     pub filter_key: &'static str,
     pub op: SearchOperator,
+    pub op_negation: OperatorNegation,
     pub filter_val: String,
+}
+
+#[derive(PartialEq, Eq, Debug, Copy, Clone)]
+pub enum OperatorNegation {
+    Negated,
+    NotNegated,
 }
 
 #[derive(PartialEq, Eq)]
@@ -48,9 +55,10 @@ fn print_node(f: &mut fmt::Formatter<'_>, depth: i32, node: &SearchExpr) -> Resu
         SearchExpr::SearchOpExpr(SearchOpExpr {
             filter_key,
             op,
+            op_negation,
             filter_val,
         }) => {
-            print_parent(f, depth, &format!("{:?}", op))?;
+            print_parent(f, depth, &format!("{:?} {:?}", op, op_negation))?;
             print_parent(f, depth + 1, filter_key)?;
             print_parent(f, depth + 1, filter_val)?;
         }
@@ -174,7 +182,7 @@ fn parse_search_expr<'a>(
     move |input: &str| {
         let (input, filter_key) = parse_filter_key(known_filter_keys.clone())(input)?;
         let (input, _) = space1(input)?;
-        let (input, op) = parse_filter_op(input)?;
+        let (input, (op, op_negation)) = parse_filter_op(input)?;
         let (input, _) = space1(input)?;
         let (input, filter_val) = parse_filter_val(input)?;
         Ok((
@@ -182,6 +190,7 @@ fn parse_search_expr<'a>(
             SearchExpr::SearchOpExpr(SearchOpExpr {
                 filter_key,
                 op,
+                op_negation,
                 filter_val,
             }),
         ))
@@ -192,9 +201,16 @@ fn parse_filter_val(input: &str) -> nom::IResult<&str, String> {
     alt((parse_quoted_string, parse_word))(input)
 }
 
-fn parse_filter_op(input: &str) -> nom::IResult<&str, SearchOperator> {
-    let (input, _t) = tag("contains")(input)?;
-    Ok((input, SearchOperator::Contains))
+fn parse_filter_op(input: &str) -> nom::IResult<&str, (SearchOperator, OperatorNegation)> {
+    let (input, t) = alt((tag("doesntContain"), tag("contains")))(input)?;
+    match t {
+        "contains" => Ok((
+            input,
+            (SearchOperator::Contains, OperatorNegation::NotNegated),
+        )),
+        "doesntContain" => Ok((input, (SearchOperator::Contains, OperatorNegation::Negated))),
+        _ => panic!("unhandled: {}", t),
+    }
 }
 
 fn parse_filter_key(
@@ -283,17 +299,20 @@ mod tests {
                         Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                             filter_key: "grid.cells",
                             op: SearchOperator::Contains,
+                            op_negation: OperatorNegation::NotNegated,
                             filter_val: "test".to_string(),
                         })),
                         Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                             filter_key: "detail.contents",
                             op: SearchOperator::Contains,
+                            op_negation: OperatorNegation::NotNegated,
                             filter_val: "details val".to_string(),
                         })),
                     )),
                     Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                         filter_key: "detail.contents",
                         op: SearchOperator::Contains,
+                            op_negation: OperatorNegation::NotNegated,
                         filter_val: "val2".to_string(),
                     })),
                 ))
@@ -317,17 +336,20 @@ mod tests {
                     Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                         filter_key: "grid.cells",
                         op: SearchOperator::Contains,
+                            op_negation: OperatorNegation::NotNegated,
                         filter_val: "test".to_string(),
                     })),
                     Box::new(SearchExpr::Or(
                         Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                             filter_key: "detail.contents",
                             op: SearchOperator::Contains,
+                            op_negation: OperatorNegation::NotNegated,
                             filter_val: "details val".to_string(),
                         })),
                         Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                             filter_key: "detail.contents",
                             op: SearchOperator::Contains,
+                            op_negation: OperatorNegation::Negated,
                             filter_val: "val2".to_string(),
                         })),
                     ))
@@ -339,7 +361,7 @@ mod tests {
                     .cloned()
                     .collect()
             )(
-                "grid.cells contains test and (detail.contents contains \"details val\" or detail.contents contains val2)"
+                "grid.cells contains test and (detail.contents contains \"details val\" or detail.contents doesntContain val2)"
             )
         );
     }
@@ -354,17 +376,20 @@ mod tests {
                         Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                             filter_key: "grid.cells",
                             op: SearchOperator::Contains,
+                            op_negation: OperatorNegation::NotNegated,
                             filter_val: "test".to_string(),
                         })),
                         Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                             filter_key: "detail.contents",
                             op: SearchOperator::Contains,
+                            op_negation: OperatorNegation::NotNegated,
                             filter_val: "details val".to_string(),
                         })),
                     )),
                     Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                         filter_key: "detail.contents",
                         op: SearchOperator::Contains,
+                            op_negation: OperatorNegation::NotNegated,
                         filter_val: "val2".to_string(),
                     })),
                 ))
@@ -389,23 +414,27 @@ mod tests {
                         Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                             filter_key: "grid.cells",
                             op: SearchOperator::Contains,
+                            op_negation: OperatorNegation::NotNegated,
                             filter_val: "test".to_string(),
                         })),
                         Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                             filter_key: "detail.contents",
                             op: SearchOperator::Contains,
+                            op_negation: OperatorNegation::NotNegated,
                             filter_val: "details val".to_string(),
                         })),
                     )),
                     Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                         filter_key: "detail.contents",
                         op: SearchOperator::Contains,
+                        op_negation: OperatorNegation::NotNegated,
                         filter_val: "val2".to_string(),
                     })),
                 )),
                  Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                      filter_key: "grid.cells",
                      op: SearchOperator::Contains,
+                     op_negation: OperatorNegation::NotNegated,
                      filter_val: "val3".to_string(),
                  }))
             ))),
