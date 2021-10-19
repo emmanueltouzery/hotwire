@@ -14,6 +14,7 @@ pub enum CombineOperator {
 pub enum Msg {
     ParentSet(gtk::Popover),
     FilterKeysUpdated(HashSet<&'static str>),
+    SearchEntryKeyPress(gdk::EventKey),
     AddClick,
     AddAndCloseClick,
     Add(
@@ -60,14 +61,22 @@ impl Widget for SearchOptions {
     fn update(&mut self, event: Msg) {
         match event {
             Msg::ParentSet(popover) => {
-                self.widgets.add_btn.set_can_default(true);
-                popover.set_default_widget(Some(&self.widgets.add_btn));
+                self.widgets.add_and_close_btn.set_can_default(true);
+                popover.set_default_widget(Some(&self.widgets.add_and_close_btn));
             }
             Msg::FilterKeysUpdated(keys) => {
                 self.model.filter_keys = keys;
                 self.widgets.filter_key_combo.remove_all();
                 for k in self.model.filter_keys.iter() {
                     self.widgets.filter_key_combo.append_text(k);
+                }
+            }
+            Msg::SearchEntryKeyPress(e) => {
+                if e.state().contains(gdk::ModifierType::CONTROL_MASK)
+                    && (e.keyval() == gdk::keys::constants::Return
+                        || e.keyval() == gdk::keys::constants::KP_Enter)
+                {
+                    self.model.relm.stream().emit(Msg::AddClick);
                 }
             }
             Msg::DisableOptions => {
@@ -169,6 +178,7 @@ impl Widget for SearchOptions {
                      left_attach: 1,
                      top_attach: 1,
                  },
+                 key_press_event(_, event) => (Msg::SearchEntryKeyPress(event.clone()), Inhibit(false)),
                  activates_default: true,
              },
              gtk::ButtonBox {
@@ -178,15 +188,15 @@ impl Widget for SearchOptions {
                      width: 2,
                  },
                  layout_style: gtk::ButtonBoxStyle::Expand,
-                 #[name="add_btn"]
                  gtk::Button {
                      label: "Add",
-                     can_default: true,
-                     has_default: true,
                      clicked => Msg::AddClick,
                  },
+                 #[name="add_and_close_btn"]
                  gtk::Button {
                      label: "Add and close",
+                     can_default: true,
+                     has_default: true,
                      clicked => Msg::AddAndCloseClick,
                  },
              },
