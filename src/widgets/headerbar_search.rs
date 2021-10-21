@@ -10,9 +10,11 @@ use std::collections::HashSet;
 #[derive(Msg)]
 pub enum Msg {
     SearchActiveChanged(bool),
-    SearchTextChanged(String),
+    SearchTextChanged(String), // TODO i should emit the parsed expr already, otherwise we parse twice
     SearchTextChangedFromElsewhere((String, gdk::EventKey)),
     SearchFilterKeysChanged(HashSet<&'static str>),
+    DisplayNoSearchError,
+    DisplayWithSearchErrors,
     SearchAddVals(
         (
             Option<search_options::CombineOperator>,
@@ -54,7 +56,7 @@ impl Widget for HeaderbarSearch {
         self.widgets
             .search_options_btn
             .set_popover(Some(&search_options_popover));
-        self.update_search_options_status();
+        self.update_search_status();
     }
 
     fn model(relm: &relm::Relm<Self>, known_filter_keys: HashSet<&'static str>) -> Model {
@@ -80,12 +82,26 @@ impl Widget for HeaderbarSearch {
                 }
             }
             Msg::SearchTextChanged(_) => {
-                self.update_search_options_status();
+                self.update_search_status();
             }
             Msg::SearchTextChangedFromElsewhere((txt, _evt)) => {
                 self.widgets.search_entry.grab_focus_without_selecting();
                 self.widgets.search_entry.set_text(&txt);
                 self.widgets.search_entry.set_position(1);
+            }
+            Msg::DisplayNoSearchError => {
+                self.widgets.search_entry.set_secondary_icon_name(None);
+                self.widgets
+                    .search_entry
+                    .set_secondary_icon_tooltip_text(None);
+            }
+            Msg::DisplayWithSearchErrors => {
+                self.widgets
+                    .search_entry
+                    .set_secondary_icon_name(Some("computer-fail-symbolic"));
+                self.widgets
+                    .search_entry
+                    .set_secondary_icon_tooltip_text(Some("Invalid search expression"));
             }
             Msg::SearchAddVals((combine_op, filter_key, search_op, op_negation, val)) => {
                 let mut t = self.widgets.search_entry.text().to_string();
@@ -130,19 +146,25 @@ impl Widget for HeaderbarSearch {
         }
     }
 
-    fn update_search_options_status(&mut self) {
+    fn update_search_status(&mut self) {
         if let Some(opt) = self.model.search_options.as_ref() {
             let text = self.widgets.search_entry.text().to_string();
             if text.is_empty() {
+                self.model.relm.stream().emit(Msg::DisplayNoSearchError);
                 opt.stream()
                     .emit(search_options::Msg::EnableOptionsWithoutAndOr);
             } else {
                 let parsed_expr = search_expr::parse_search(&self.model.known_filter_keys)(&text);
                 match parsed_expr {
-                    Ok(("", _)) => opt
-                        .stream()
-                        .emit(search_options::Msg::EnableOptionsWithAndOr),
-                    _ => opt.stream().emit(search_options::Msg::DisableOptions),
+                    Ok(("", _)) => {
+                        self.model.relm.stream().emit(Msg::DisplayNoSearchError);
+                        opt.stream()
+                            .emit(search_options::Msg::EnableOptionsWithAndOr);
+                    }
+                    _ => {
+                        self.model.relm.stream().emit(Msg::DisplayWithSearchErrors);
+                        opt.stream().emit(search_options::Msg::DisableOptions);
+                    }
                 }
             }
         }
