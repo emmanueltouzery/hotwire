@@ -90,18 +90,20 @@ impl Widget for HeaderbarSearch {
                 self.widgets.search_entry.set_position(1);
             }
             Msg::DisplayNoSearchError => {
-                self.widgets.search_entry.set_secondary_icon_name(None);
                 self.widgets
                     .search_entry
-                    .set_secondary_icon_tooltip_text(None);
+                    .set_primary_icon_name(Some("edit-find-symbolic"));
+                self.widgets
+                    .search_entry
+                    .set_primary_icon_tooltip_text(None);
             }
             Msg::DisplayWithSearchErrors => {
                 self.widgets
                     .search_entry
-                    .set_secondary_icon_name(Some("computer-fail-symbolic"));
+                    .set_primary_icon_name(Some("computer-fail-symbolic"));
                 self.widgets
                     .search_entry
-                    .set_secondary_icon_tooltip_text(Some("Invalid search expression"));
+                    .set_primary_icon_tooltip_text(Some("Invalid search expression"));
             }
             Msg::SearchAddVals((combine_op, filter_key, search_op, op_negation, val)) => {
                 let mut t = self.widgets.search_entry.text().to_string();
@@ -178,6 +180,7 @@ impl Widget for HeaderbarSearch {
                 #[name="search_entry"]
                 gtk::SearchEntry {
                     hexpand: true,
+                    secondary_icon_name: Some("edit-clear-symbolic"),
                     changed(entry) => Msg::SearchTextChanged(entry.text().to_string()),
                 },
                 #[name="search_options_btn"]
