@@ -324,26 +324,37 @@ fn setup_selection_signals(
     }
 }
 
-fn get_model_sort(
+/// the model may in the end by held by a TreeModelSort or a
+/// TreeModelFilter. The hierarchy can be either:
+/// 1. TreeModelSort / TreeModelFilter / ListStore
+/// 2. TreeModelSort / ListStore
+/// If the TreeModelSort is not at the toplevel, the user can't
+/// sort by clicking on column headers in the GUI.
+fn get_store_holding_model(
     tv_state: &MessagesTreeviewState,
     protocol_index: usize,
-) -> (&gtk::TreeView, gtk::TreeModelSort) {
+) -> (&gtk::TreeView, gtk::TreeModel) {
     let (ref tv, ref _signals) = tv_state.message_treeviews.get(protocol_index).unwrap();
     let model_sort = tv
         .model()
         .unwrap()
         .dynamic_cast::<gtk::TreeModelSort>()
-        .unwrap_or_else(|_| {
-            tv.model()
-                .unwrap()
-                .dynamic_cast::<gtk::TreeModelFilter>()
-                .unwrap()
-                .model()
-                .unwrap()
-                .dynamic_cast::<gtk::TreeModelSort>()
-                .unwrap()
-        });
-    (tv, model_sort)
+        .unwrap();
+
+    // does the ModelSort contain directly the ListStore?
+    let store_holding_model = if model_sort.model().dynamic_cast::<gtk::ListStore>().is_ok() {
+        // YES => we want to return the ModelSort
+        model_sort.model()
+    } else {
+        // NO => it must be a ModelFilter, and the ListStore's in there, return that
+        model_sort
+            .model()
+            .dynamic_cast::<gtk::TreeModelFilter>()
+            .unwrap()
+            .model()
+            .unwrap()
+    };
+    (tv, store_holding_model)
 }
 
 fn matches_filter(
@@ -379,13 +390,23 @@ pub fn search_text_changed(
     protocol_index: usize,
     filter: Option<search_expr::SearchExpr>,
 ) {
-    let (tv, model_sort) = get_model_sort(tv_state, protocol_index);
+    let (tv, m) = get_store_holding_model(tv_state, protocol_index);
     let parsers = win::get_message_parsers();
     // compute all the row indexes to show right here. then in the callback only check the row id,
     // because i can't share the streams with the set_visible_func callback (which needs 'static lifetime)
     let mut shown = HashSet::new();
-    let m = model_sort.model();
-    let store = m.clone().dynamic_cast::<gtk::ListStore>().unwrap();
+    let store = m
+        .clone()
+        .dynamic_cast::<gtk::ListStore>()
+        .unwrap_or_else(|_| {
+            m.clone()
+                .dynamic_cast::<gtk::TreeModelFilter>()
+                .unwrap()
+                .model()
+                .unwrap()
+                .dynamic_cast::<gtk::ListStore>()
+                .unwrap()
+        });
     let mp = parsers.get(protocol_index).unwrap();
     let mut cur_iter_o = m.iter_first();
     if let Some(cur_iter) = cur_iter_o {
@@ -414,7 +435,7 @@ pub fn search_text_changed(
             }
         }
     }
-    let new_model_filter = gtk::TreeModelFilter::new(&model_sort, None);
+    let new_model_filter = gtk::TreeModelFilter::new(&store, None);
     if filter.is_some() {
         new_model_filter.set_visible_func(move |model, iter| {
             let stream_id = model
@@ -431,7 +452,7 @@ pub fn search_text_changed(
             shown.contains(&(stream_id, idx))
         });
     }
-    tv.set_model(Some(&new_model_filter));
+    tv.set_model(Some(&gtk::TreeModelSort::new(&new_model_filter)));
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]

@@ -427,9 +427,11 @@ impl Widget for Win {
                 self.open_file();
             }
             Msg::SearchClicked => {
-                self.widgets
-                    .headerbar_revealer
-                    .set_reveal_child(self.widgets.search_toggle.is_active());
+                let is_active = self.widgets.search_toggle.is_active();
+                self.widgets.headerbar_revealer.set_reveal_child(is_active);
+                self.components
+                    .headerbar_search
+                    .emit(HeaderbarSearchMsg::SearchActiveChanged(is_active));
             }
             Msg::SearchTextChangedFromElsewhere => {
                 if !self.widgets.search_toggle.is_active() {
