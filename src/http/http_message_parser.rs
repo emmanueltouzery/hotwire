@@ -73,26 +73,7 @@ fn get_http_message<'a, 'b>(
     model: &'b gtk::TreeModel,
     iter: &'b gtk::TreeIter,
 ) -> Option<&'a HttpMessageData> {
-    let stream_id = TcpStreamId(
-        model
-            .value(iter, message_parser::TREE_STORE_STREAM_ID_COL_IDX as i32)
-            .get::<u32>()
-            .unwrap(),
-    );
-    let idx = model
-        .value(
-            &iter,
-            message_parser::TREE_STORE_MESSAGE_INDEX_COL_IDX as i32,
-        )
-        .get::<u32>()
-        .unwrap();
-    match streams
-        .get(&stream_id)
-        .and_then(|s| s.messages.get(idx as usize))
-    {
-        Some(MessageData::Http(http_msg)) => Some(http_msg),
-        _ => None,
-    }
+    message_parser::get_message(streams, model, iter).and_then(|m| m.as_http())
 }
 
 impl MessageParser for Http {

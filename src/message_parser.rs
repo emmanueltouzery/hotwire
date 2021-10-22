@@ -8,6 +8,7 @@ use crate::search_expr;
 use crate::tshark_communication::{NetworkPort, TSharkPacket, TcpStreamId};
 use crate::widgets::win;
 use crate::BgFunc;
+use gtk::prelude::*;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::mpsc;
@@ -177,4 +178,24 @@ pub struct MessageInfo {
     pub stream_id: TcpStreamId,
     pub client_ip: IpAddr,
     pub message_data: MessageData,
+}
+
+pub fn get_message<'a, 'b>(
+    streams: &'a HashMap<TcpStreamId, StreamData>,
+    model: &'b gtk::TreeModel,
+    iter: &'b gtk::TreeIter,
+) -> Option<&'a MessageData> {
+    let stream_id = TcpStreamId(
+        model
+            .value(iter, TREE_STORE_STREAM_ID_COL_IDX as i32)
+            .get::<u32>()
+            .unwrap(),
+    );
+    let idx = model
+        .value(&iter, TREE_STORE_MESSAGE_INDEX_COL_IDX as i32)
+        .get::<u32>()
+        .unwrap();
+    streams
+        .get(&stream_id)
+        .and_then(|s| s.messages.get(idx as usize))
 }

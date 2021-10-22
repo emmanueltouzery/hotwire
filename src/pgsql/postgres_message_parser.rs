@@ -34,6 +34,16 @@ pub struct Postgres;
 enum PostgresFilterKeys {
     #[strum(serialize = "pg.query")]
     QueryString,
+    #[strum(serialize = "pg.resultset")]
+    ResultSet,
+}
+
+fn get_pg_message<'a, 'b>(
+    streams: &'a HashMap<TcpStreamId, StreamData>,
+    model: &'b gtk::TreeModel,
+    iter: &'b gtk::TreeIter,
+) -> Option<&'a PostgresMessageData> {
+    message_parser::get_message(streams, model, iter).and_then(|m| m.as_postgres())
 }
 
 impl MessageParser for Postgres {
@@ -472,6 +482,16 @@ impl MessageParser for Postgres {
                     .unwrap()
                     .to_lowercase()
                     .contains(&filter.filter_val.to_lowercase()),
+                PostgresFilterKeys::ResultSet => {
+                    let fv = filter.filter_val.to_lowercase();
+                    get_pg_message(streams, model, iter).map_or(false, |pg_msg| {
+                        pg_msg.resultset_string_cols.iter().any(|v| {
+                            v.iter().any(|c| {
+                                c.as_ref().map_or(false, |v| v.to_lowercase().contains(&fv))
+                            })
+                        })
+                    })
+                }
             }
         } else {
             true
