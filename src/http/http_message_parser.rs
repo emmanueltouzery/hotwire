@@ -62,6 +62,10 @@ pub enum HttpFilterKeys {
     ReqHeader,
     #[strum(serialize = "http.resp_header")]
     RespHeader,
+    #[strum(serialize = "http.req_body")]
+    ReqBody,
+    #[strum(serialize = "http.resp_body")]
+    RespBody,
 }
 
 fn get_http_message<'a, 'b>(
@@ -465,6 +469,32 @@ impl MessageParser for Http {
                                     k.to_lowercase().contains(filter_val)
                                         || v.to_lowercase().contains(filter_val)
                                 })
+                            })
+                            .is_some()
+                    })
+                }
+                HttpFilterKeys::ReqBody => {
+                    get_http_message(streams, model, iter).map_or(false, |http_msg| {
+                        http_msg
+                            .request
+                            .as_ref()
+                            .filter(|r| {
+                                r.body_as_str()
+                                    .filter(|b| b.to_lowercase().contains(filter_val))
+                                    .is_some()
+                            })
+                            .is_some()
+                    })
+                }
+                HttpFilterKeys::RespBody => {
+                    get_http_message(streams, model, iter).map_or(false, |http_msg| {
+                        http_msg
+                            .response
+                            .as_ref()
+                            .filter(|r| {
+                                r.body_as_str()
+                                    .filter(|b| b.to_lowercase().contains(filter_val))
+                                    .is_some()
                             })
                             .is_some()
                     })
