@@ -97,25 +97,31 @@ fn add_message_parser_grid_and_pane(
         let tv = tv.clone();
         tv.selection().connect_changed(move |selection| {
             if let Some((model, iter)) = selection.selected() {
-                let (modelsort, path) = if model.is::<gtk::TreeModelFilter>() {
-                    let modelfilter = model.dynamic_cast::<gtk::TreeModelFilter>().unwrap();
-                    let model = modelfilter.model().unwrap();
-                    (
-                        model.dynamic_cast::<gtk::TreeModelSort>().unwrap(),
-                        modelfilter
+                let stree = model.dynamic_cast::<gtk::TreeModelSort>().unwrap();
+                let smodel = stree.model();
+                match smodel.clone().dynamic_cast::<gtk::TreeModelFilter>() {
+                    Ok(modelfilter) => {
+                        let model = modelfilter.model().unwrap();
+                        let store = model.dynamic_cast::<gtk::ListStore>().unwrap();
+                        let path = stree
                             .path(&iter)
-                            .and_then(|p| modelfilter.convert_path_to_child_path(&p)),
-                    )
-                } else {
-                    let smodel = model.dynamic_cast::<gtk::TreeModelSort>().unwrap();
-                    let path = smodel.path(&iter);
-                    (smodel, path)
+                            .and_then(|p| stree.convert_path_to_child_path(&p));
+                        if let Some(childpath) =
+                            path.and_then(|p| modelfilter.convert_path_to_child_path(&p))
+                        {
+                            row_selected(&store, &childpath, &rstream);
+                        }
+                    }
+                    _ => {
+                        let path = stree.path(&iter);
+                        let store = smodel.dynamic_cast::<gtk::ListStore>().unwrap();
+                        if let Some(childpath) =
+                            path.and_then(|p| stree.convert_path_to_child_path(&p))
+                        {
+                            row_selected(&store, &childpath, &rstream);
+                        }
+                    }
                 };
-                let model = modelsort.model().dynamic_cast::<gtk::ListStore>().unwrap();
-                if let Some(childpath) = path.and_then(|p| modelsort.convert_path_to_child_path(&p))
-                {
-                    row_selected(&model, &childpath, &rstream);
-                }
             }
         })
     };
