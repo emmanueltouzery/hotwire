@@ -3,7 +3,7 @@ use super::comm_target_card::{CommTargetCard, CommTargetCardData};
 use super::headerbar_search::HeaderbarSearch;
 use super::headerbar_search::Msg as HeaderbarSearchMsg;
 use super::headerbar_search::Msg::SearchActiveChanged as HbsMsgSearchActiveChanged;
-use super::headerbar_search::Msg::SearchTextChanged as HbsMsgSearchTextChanged;
+use super::headerbar_search::Msg::SearchExprChanged as HbsMsgSearchExprChanged;
 use super::ips_and_streams_treeview;
 use super::messages_treeview;
 use super::preferences::Preferences;
@@ -85,7 +85,7 @@ pub enum Msg {
 
     KeyPress(gdk::EventKey),
     SearchActiveChanged(bool),
-    SearchTextChanged(String),
+    SearchExprChanged(Option<Result<(String, search_expr::SearchExpr), String>>),
 
     LoadedData(ParseInputStep),
     OpenFileFirstPacketDisplayed,
@@ -133,7 +133,7 @@ pub struct Model {
     comm_target_cards: Vec<CommTargetCardData>,
     selected_card: Option<CommTargetCardData>,
 
-    search_text: String,
+    search_expr: Option<Result<(String, search_expr::SearchExpr), String>>,
 
     messages_treeview_state: Option<messages_treeview::MessagesTreeviewState>,
     ips_and_streams_treeview_state: Option<ips_and_streams_treeview::IpsAndStreamsTreeviewState>,
@@ -392,7 +392,7 @@ impl Widget for Win {
             current_file,
             capture_toggle_signal: None,
             window_subtitle: None,
-            search_text: "".to_string(),
+            search_expr: None,
             capture_malformed_packets: 0,
             tcpdump_child: None,
             tshark_child: None,
@@ -495,27 +495,27 @@ impl Widget for Win {
                         &self.model.streams,
                         card.protocol_index,
                         if is_active {
-                            search_expr::parse_search(&Self::search_known_filter_keys())(
-                                &self.model.search_text,
-                            )
-                            .ok()
-                            .map(|(rest, parsed)| parsed)
+                            self.model
+                                .search_expr
+                                .as_ref()
+                                .and_then(|r| r.as_ref().ok())
+                                .map(|(rest, parsed)| parsed)
                         } else {
                             None
                         },
                     );
                 }
             }
-            Msg::SearchTextChanged(txt) => {
-                self.model.search_text = txt.clone();
+            Msg::SearchExprChanged(expr) => {
+                self.model.search_expr = expr.clone();
                 if let Some(card) = self.model.selected_card.as_ref() {
                     messages_treeview::search_text_changed(
                         self.model.messages_treeview_state.as_ref().unwrap(),
                         &self.model.streams,
                         card.protocol_index,
-                        search_expr::parse_search(&Self::search_known_filter_keys())(&txt)
-                            .ok()
-                            .map(|(rest, parsed)| parsed),
+                        expr.and_then(|r| r.ok())
+                            .map(|(rest, parsed)| parsed)
+                            .as_ref(),
                     );
                 }
             }
@@ -1608,7 +1608,7 @@ impl Widget for Win {
                         #[name="headerbar_search"]
                         HeaderbarSearch(HashSet::new()) {
                             HbsMsgSearchActiveChanged(is_active) => Msg::SearchActiveChanged(is_active),
-                            HbsMsgSearchTextChanged(ref txt) => Msg::SearchTextChanged(txt.clone()),
+                            HbsMsgSearchExprChanged(ref m_expr) => Msg::SearchExprChanged(m_expr.clone()),
                         },
                     },
                     #[name="infobar"]

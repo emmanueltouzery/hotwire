@@ -11,7 +11,7 @@ use nom::Err;
 use std::collections::HashSet;
 use std::fmt;
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone)]
 pub struct SearchOpExpr {
     pub filter_key: &'static str,
     pub op: SearchOperator,
@@ -25,7 +25,7 @@ pub enum OperatorNegation {
     NotNegated,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone)]
 pub enum SearchExpr {
     And(Box<SearchExpr>, Box<SearchExpr>),
     Or(Box<SearchExpr>, Box<SearchExpr>),

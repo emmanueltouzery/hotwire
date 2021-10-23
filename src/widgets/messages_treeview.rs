@@ -394,7 +394,7 @@ pub fn search_text_changed(
     tv_state: &MessagesTreeviewState,
     streams: &HashMap<TcpStreamId, StreamData>,
     protocol_index: usize,
-    filter: Option<search_expr::SearchExpr>,
+    filter: Option<&search_expr::SearchExpr>,
 ) {
     let (tv, m) = get_store_holding_model(tv_state, protocol_index);
     let parsers = win::get_message_parsers();
@@ -416,7 +416,7 @@ pub fn search_text_changed(
     let mp = parsers.get(protocol_index).unwrap();
     let mut cur_iter_o = m.iter_first();
     if let Some(cur_iter) = cur_iter_o {
-        if let Some(f) = filter.as_ref() {
+        if let Some(f) = filter {
             loop {
                 if matches_filter(&mp, f, streams, &m, &cur_iter) {
                     let stream_id = store

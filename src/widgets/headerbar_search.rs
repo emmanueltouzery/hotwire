@@ -2,6 +2,7 @@ use super::search_options;
 use super::search_options::Msg as SearchOptionsMsg;
 use super::search_options::SearchOptions;
 use crate::search_expr;
+use crate::search_expr::SearchExpr;
 use gtk::prelude::*;
 use relm::{Component, Widget};
 use relm_derive::{widget, Msg};
@@ -10,7 +11,8 @@ use std::collections::HashSet;
 #[derive(Msg)]
 pub enum Msg {
     SearchActiveChanged(bool),
-    SearchTextChanged(String), // TODO i should emit the parsed expr already, otherwise we parse twice
+    SearchTextChanged(String),
+    SearchExprChanged(Option<Result<(String, search_expr::SearchExpr), String>>),
     SearchTextChangedFromElsewhere((String, gdk::EventKey)),
     SearchFilterKeysChanged(HashSet<&'static str>),
     DisplayNoSearchError,
@@ -56,7 +58,7 @@ impl Widget for HeaderbarSearch {
         self.widgets
             .search_options_btn
             .set_popover(Some(&search_options_popover));
-        self.update_search_status();
+        self.update_search_status(None);
     }
 
     fn model(relm: &relm::Relm<Self>, known_filter_keys: HashSet<&'static str>) -> Model {
@@ -81,8 +83,23 @@ impl Widget for HeaderbarSearch {
                     self.widgets.search_entry.grab_focus();
                 }
             }
-            Msg::SearchTextChanged(_) => {
-                self.update_search_status();
+            Msg::SearchTextChanged(text) => {
+                let maybe_expr = if text.is_empty() {
+                    None
+                } else {
+                    Some(
+                        search_expr::parse_search(&self.model.known_filter_keys)(&text)
+                            .map(|(rest, expr)| (rest.to_string(), expr))
+                            .map_err(|e| e.to_string()),
+                    )
+                };
+                self.model
+                    .relm
+                    .stream()
+                    .emit(Msg::SearchExprChanged(maybe_expr));
+            }
+            Msg::SearchExprChanged(expr) => {
+                self.update_search_status(expr);
             }
             Msg::SearchTextChangedFromElsewhere((txt, _evt)) => {
                 self.widgets.search_entry.grab_focus_without_selecting();
@@ -148,25 +165,22 @@ impl Widget for HeaderbarSearch {
         }
     }
 
-    fn update_search_status(&mut self) {
+    fn update_search_status(&mut self, maybe_expr: Option<Result<(String, SearchExpr), String>>) {
         if let Some(opt) = self.model.search_options.as_ref() {
-            let text = self.widgets.search_entry.text().to_string();
-            if text.is_empty() {
-                self.model.relm.stream().emit(Msg::DisplayNoSearchError);
-                opt.stream()
-                    .emit(search_options::Msg::EnableOptionsWithoutAndOr);
-            } else {
-                let parsed_expr = search_expr::parse_search(&self.model.known_filter_keys)(&text);
-                match parsed_expr {
-                    Ok(("", _)) => {
-                        self.model.relm.stream().emit(Msg::DisplayNoSearchError);
-                        opt.stream()
-                            .emit(search_options::Msg::EnableOptionsWithAndOr);
-                    }
-                    _ => {
-                        self.model.relm.stream().emit(Msg::DisplayWithSearchErrors);
-                        opt.stream().emit(search_options::Msg::DisableOptions);
-                    }
+            match maybe_expr {
+                None => {
+                    self.model.relm.stream().emit(Msg::DisplayNoSearchError);
+                    opt.stream()
+                        .emit(search_options::Msg::EnableOptionsWithoutAndOr);
+                }
+                Some(Ok((rest, _))) if rest.is_empty() => {
+                    self.model.relm.stream().emit(Msg::DisplayNoSearchError);
+                    opt.stream()
+                        .emit(search_options::Msg::EnableOptionsWithAndOr);
+                }
+                _ => {
+                    self.model.relm.stream().emit(Msg::DisplayWithSearchErrors);
+                    opt.stream().emit(search_options::Msg::DisableOptions);
                 }
             }
         }
