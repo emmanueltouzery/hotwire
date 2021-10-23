@@ -458,7 +458,17 @@ pub fn search_text_changed(
             shown.contains(&(stream_id, idx))
         });
     }
-    tv.set_model(Some(&gtk::TreeModelSort::new(&new_model_filter)));
+    let previous_sort = tv
+        .model()
+        .unwrap()
+        .dynamic_cast::<gtk::TreeModelSort>()
+        .unwrap()
+        .sort_column_id();
+    let new_sort = gtk::TreeModelSort::new(&new_model_filter);
+    if let Some((col, typ)) = previous_sort {
+        new_sort.set_sort_column_id(col, typ);
+    }
+    tv.set_model(Some(&new_sort));
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]
