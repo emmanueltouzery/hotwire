@@ -195,6 +195,7 @@ impl Widget for HeaderbarSearch {
                 gtk::SearchEntry {
                     hexpand: true,
                     secondary_icon_name: Some("edit-clear-symbolic"),
+                    placeholder_text: Some("Enter a filter expression. Help yourself with the 'Add filter criteria' button to get started."),
                     changed(entry) => Msg::SearchTextChanged(entry.text().to_string()),
                 },
                 #[name="search_options_btn"]
