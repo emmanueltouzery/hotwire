@@ -13,7 +13,6 @@ pub enum Msg {
     SearchActiveChanged(bool),
     SearchTextChanged(String),
     SearchExprChanged(Option<Result<(String, search_expr::SearchExpr), String>>),
-    SearchTextChangedFromElsewhere((String, gdk::EventKey)),
     SearchFilterKeysChanged(HashSet<&'static str>),
     DisplayNoSearchError,
     DisplayWithSearchErrors,
@@ -100,11 +99,6 @@ impl Widget for HeaderbarSearch {
             }
             Msg::SearchExprChanged(expr) => {
                 self.update_search_status(expr);
-            }
-            Msg::SearchTextChangedFromElsewhere((txt, _evt)) => {
-                self.widgets.search_entry.grab_focus_without_selecting();
-                self.widgets.search_entry.set_text(&txt);
-                self.widgets.search_entry.set_position(1);
             }
             Msg::DisplayNoSearchError => {
                 self.widgets

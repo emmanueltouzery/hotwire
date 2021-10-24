@@ -72,7 +72,6 @@ pub enum InfobarOptions {
 #[derive(Msg, Debug)]
 pub enum Msg {
     SearchClicked,
-    SearchTextChangedFromElsewhere,
     OpenFile,
     OpenRecentFile(usize),
     DisplayPreferences,
@@ -414,31 +413,12 @@ impl Widget for Win {
             }
             Msg::SearchClicked => {
                 let is_active = self.widgets.search_toggle.is_active();
-                self.widgets.headerbar_revealer.set_reveal_child(is_active);
+                self.widgets
+                    .headerbar_search_revealer
+                    .set_reveal_child(is_active);
                 self.components
                     .headerbar_search
                     .emit(HeaderbarSearchMsg::SearchActiveChanged(is_active));
-            }
-            Msg::SearchTextChangedFromElsewhere => {
-                if !self.widgets.search_toggle.is_active() {
-                    // we want to block the signal of the search button toggle,
-                    // because when you click the search button we set the focus
-                    // and select the search text. if we did that when search
-                    // is triggered by someone typing, the first letter would
-                    // be lost when typing the second letter, due to the selection
-                    // so we block the search button toggle signal & handle things
-                    // by hand.
-                    self.widgets
-                        .search_toggle
-                        .block_signal(self.model.search_toggle_signal.as_ref().unwrap());
-                    self.widgets.search_toggle.set_active(true);
-                    self.widgets
-                        .search_toggle
-                        .unblock_signal(self.model.search_toggle_signal.as_ref().unwrap());
-                }
-                self.widgets
-                    .headerbar_revealer
-                    .set_reveal_child(self.widgets.search_toggle.is_active());
             }
             Msg::CaptureToggled => {
                 if let Err(e) = self.handle_capture_toggled() {
@@ -1048,57 +1028,16 @@ impl Widget for Win {
                 .headerbar_search
                 .emit(HeaderbarSearchMsg::SearchActiveChanged(false));
         }
-        if let Some(k) = e.keyval().to_unicode() {
-            if Self::is_plaintext_key(&e) {
-                // we don't want to trigger the global search if the
-                // note search text entry is focused.
-                if self
-                    .widgets
-                    .window
-                    .focus()
-                    // is an entry focused?
-                    .and_then(|w| w.downcast::<gtk::Entry>().ok())
-                    // is it visible? (because when global search is off,
-                    // the global search entry can be focused but invisible)
-                    .filter(|w| w.get_visible())
-                    .is_some()
-                {
-                    // the focused widget is a visible entry, and
-                    // we're not in search mode => don't grab this
-                    // key event, this is likely a note search
-                    return;
+        if !(e.state() & gdk::ModifierType::CONTROL_MASK).is_empty() {
+            match e.keyval().to_unicode() {
+                Some('s') => {
+                    self.model.relm.stream().emit(Msg::SearchActiveChanged(
+                        !self.widgets.headerbar_search_revealer.is_child_revealed(),
+                    ));
                 }
-
-                // self.model
-                //     .relm
-                //     .stream()
-                //     .emit(Msg::SearchActiveChanged(true));
-                // self.components
-                //     .headerbar_search
-                //     .emit(SearchViewMsg::FilterChanged(Some(k.to_string())));
-                self.model
-                    .relm
-                    .stream()
-                    .emit(Msg::SearchTextChangedFromElsewhere);
-                self.components.headerbar_search.emit(
-                    HeaderbarSearchMsg::SearchTextChangedFromElsewhere((k.to_string(), e)),
-                );
+                _ => {}
             }
         }
-    }
-
-    fn is_plaintext_key(e: &gdk::EventKey) -> bool {
-        // return false if control and others were pressed
-        // (then the state won't be empty)
-        // could be ctrl-c on notes for instance
-        // whitelist MOD2 (num lock) and LOCK (shift or caps lock)
-        let mut state = e.state();
-        state.remove(gdk::ModifierType::MOD2_MASK);
-        state.remove(gdk::ModifierType::LOCK_MASK);
-        state.is_empty()
-            && e.keyval() != gdk::keys::constants::Return
-            && e.keyval() != gdk::keys::constants::KP_Enter
-            && e.keyval() != gdk::keys::constants::Escape
     }
 
     fn display_preferences(&mut self) {
@@ -1599,7 +1538,7 @@ impl Widget for Win {
                     },
                     orientation: gtk::Orientation::Vertical,
                     hexpand: true,
-                    #[name="headerbar_revealer"]
+                    #[name="headerbar_search_revealer"]
                     gtk::Revealer {
                         #[name="headerbar_search"]
                         HeaderbarSearch(HashSet::new()) {
