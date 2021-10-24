@@ -257,20 +257,6 @@ impl Widget for Win {
         if let Some(p) = path {
             self.gui_load_file(p);
         }
-
-        self.streams
-            .headerbar_search
-            .emit(HeaderbarSearchMsg::SearchFilterKeysChanged(
-                Self::search_known_filter_keys(),
-            ));
-    }
-
-    fn search_known_filter_keys() -> HashSet<&'static str> {
-        get_message_parsers()
-            .into_iter()
-            .flat_map(|p| p.supported_filter_keys())
-            .map(|p| *p)
-            .collect()
     }
 
     fn is_display_capture_btn() -> bool {
@@ -662,6 +648,16 @@ impl Widget for Win {
         self.model.selected_card = maybe_idx
             .and_then(|idx| self.model.comm_target_cards.get(idx as usize))
             .cloned();
+        if let Some(card) = self.model.selected_card.as_ref() {
+            let parsers = get_message_parsers();
+            let mp = parsers.get(card.protocol_index).unwrap();
+
+            self.streams
+                .headerbar_search
+                .emit(HeaderbarSearchMsg::SearchFilterKeysChanged(
+                    mp.supported_filter_keys().iter().cloned().collect(),
+                ));
+        }
         let mut ips_treeview_state = self.model.ips_and_streams_treeview_state.as_mut().unwrap();
         ips_and_streams_treeview::init_remote_ips_streams_tree(&mut ips_treeview_state);
         let refresh_streams_tree = messages_treeview::refresh_remote_servers(
