@@ -45,6 +45,7 @@ use std::process::Command;
 use std::sync::mpsc;
 
 const CSS_DATA: &[u8] = include_bytes!("../../resources/style.css");
+const SHORTCUTS_UI: &str = include_str!("shortcuts.ui");
 
 const WELCOME_STACK_NAME: &str = "welcome";
 const LOADING_STACK_NAME: &str = "loading";
@@ -76,6 +77,7 @@ pub enum Msg {
     OpenRecentFile(usize),
     DisplayPreferences,
     DisplayAbout,
+    DisplayShortcuts,
     CaptureToggled,
     SaveCapture,
     ChildProcessDied,
@@ -175,6 +177,8 @@ impl Widget for Win {
         }
         self.widgets.infobar.set_visible(false);
 
+        self.left_align_menu_entries();
+
         self.widgets.welcome_label.drag_dest_set(
             gtk::DestDefaults::ALL,
             &[],
@@ -255,6 +259,20 @@ impl Widget for Win {
         let path = self.model.current_file.as_ref().map(|(p, _t)| p).cloned();
         if let Some(p) = path {
             self.gui_load_file(p);
+        }
+    }
+
+    fn left_align_menu_entries(&self) {
+        for menu_item in self.widgets.menu_box.children() {
+            if let Some(label) = menu_item
+                .dynamic_cast::<gtk::ModelButton>()
+                .unwrap()
+                .child()
+                .and_then(|c| c.dynamic_cast::<gtk::Label>().ok())
+            {
+                label.set_xalign(0.0);
+                label.set_hexpand(true);
+            }
         }
     }
 
@@ -398,6 +416,7 @@ impl Widget for Win {
             Msg::DisplayAbout => {
                 self.display_about();
             }
+            Msg::DisplayShortcuts => self.display_shortcuts(),
             Msg::DragDataReceived(_context, sel_data) => {
                 if let Some(uri) = sel_data
                     .uris()
@@ -1088,6 +1107,15 @@ impl Widget for Win {
         dlg.close();
     }
 
+    fn display_shortcuts(&self) {
+        let win = gtk::Builder::from_string(SHORTCUTS_UI)
+            .object::<gtk::Window>("shortcuts")
+            .unwrap();
+        win.set_title("Keyboard Shortcuts");
+        win.set_transient_for(Some(&self.widgets.window));
+        win.show();
+    }
+
     fn handle_capture_toggled(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         // TODO don't call from the GUI thread
         let is_active = self.widgets.capture_btn.is_active();
@@ -1450,6 +1478,7 @@ impl Widget for Win {
                         popover: view! {
                             gtk::Popover {
                                 visible: false,
+                                #[name="menu_box"]
                                 gtk::Box {
                                     orientation: gtk::Orientation::Vertical,
                                     margin_top: 10,
@@ -1460,6 +1489,11 @@ impl Widget for Win {
                                         label: "Preferences",
                                         hexpand: true,
                                         clicked => Msg::DisplayPreferences,
+                                    },
+                                    gtk::ModelButton {
+                                        label: "Keyboard Shortcuts",
+                                        hexpand: true,
+                                        clicked => Msg::DisplayShortcuts,
                                     },
                                     gtk::ModelButton {
                                         label: "About Hotwire",
