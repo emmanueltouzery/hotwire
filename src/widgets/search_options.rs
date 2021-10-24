@@ -70,6 +70,7 @@ impl Widget for SearchOptions {
                 for k in self.model.filter_keys.iter() {
                     self.widgets.filter_key_combo.append_text(k);
                 }
+                self.widgets.filter_key_combo.set_active(Some(0));
             }
             Msg::SearchEntryKeyPress(e) => {
                 if e.state().contains(gdk::ModifierType::CONTROL_MASK)
