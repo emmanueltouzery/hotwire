@@ -202,6 +202,7 @@ fn parse_filter_val(input: &str) -> nom::IResult<&str, String> {
 }
 
 fn parse_filter_op(input: &str) -> nom::IResult<&str, (SearchOperator, OperatorNegation)> {
+    // TODO duplicated with headerbar_search::update_search_completion
     let (input, t) = alt((tag("doesntContain"), tag("contains")))(input)?;
     match t {
         "contains" => Ok((

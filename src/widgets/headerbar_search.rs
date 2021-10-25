@@ -3,10 +3,15 @@ use super::search_options::Msg as SearchOptionsMsg;
 use super::search_options::SearchOptions;
 use crate::search_expr;
 use crate::search_expr::SearchExpr;
+use gtk::prelude::EntryCompletionExtManual;
 use gtk::prelude::*;
 use relm::{Component, Widget};
 use relm_derive::{widget, Msg};
 use std::collections::{BTreeMap, BTreeSet};
+
+const ITEM_TYPE_FILTER_KEY: u32 = 0;
+const ITEM_TYPE_SEARCH_OPERATOR: u32 = 1;
+const ITEM_TYPE_FILTER_COMBINATOR: u32 = 2;
 
 #[derive(Msg)]
 pub enum Msg {
@@ -29,6 +34,7 @@ pub enum Msg {
         ),
     ),
     RequestOptionsClose,
+    SearchCompletionAction(String),
 }
 
 pub struct Model {
@@ -40,12 +46,23 @@ pub struct Model {
     known_filter_keys: BTreeSet<&'static str>,
     current_card_idx: Option<usize>,
     search_text_by_card: BTreeMap<usize, String>,
+    search_completion: gtk::EntryCompletion,
 }
 
 #[widget]
 impl Widget for HeaderbarSearch {
     fn init_view(&mut self) {
         let relm = self.model.relm.clone();
+
+        let completion = &self.model.search_completion;
+        let r = relm.clone();
+        completion.connect_match_selected(move |compl, model, iter| {
+            let chosen_completion = model.value(iter, 0).get::<String>().unwrap();
+            r.stream()
+                .emit(Msg::SearchCompletionAction(chosen_completion));
+            gtk::Inhibit(true)
+        });
+        self.widgets.search_entry.set_completion(Some(completion));
 
         let so = relm::init::<SearchOptions>(self.model.known_filter_keys.clone())
             .expect("Error initializing the search options");
@@ -70,12 +87,28 @@ impl Widget for HeaderbarSearch {
     }
 
     fn model(relm: &relm::Relm<Self>, known_filter_keys: BTreeSet<&'static str>) -> Model {
+        let cell_area = gtk::CellAreaBoxBuilder::new().build();
+        let text_cell_type = gtk::CellRendererTextBuilder::new()
+            // from the gnome color palette https://developer.gnome.org/hig/reference/palette.html?highlight=color
+            .background("#f8e45c")
+            .style(pango::Style::Italic)
+            .build();
+        let text_cell_main = gtk::CellRendererTextBuilder::new().build();
+        CellAreaBoxExt::pack_start(&cell_area, &text_cell_type, false, true, true);
+        CellAreaBoxExt::pack_start(&cell_area, &text_cell_main, true, true, true);
+        let search_completion = gtk::EntryCompletionBuilder::new()
+            .cell_area(&cell_area)
+            .text_column(0)
+            .build();
+        search_completion.add_attribute(&text_cell_type, "text", 2);
+        search_completion.add_attribute(&text_cell_main, "text", 0);
         Model {
             relm: relm.clone(),
             search_options: None,
             known_filter_keys,
             current_card_idx: None,
             search_text_by_card: BTreeMap::new(),
+            search_completion,
         }
     }
 
@@ -86,6 +119,7 @@ impl Widget for HeaderbarSearch {
                     so.stream()
                         .emit(search_options::Msg::FilterKeysUpdated(hash.clone()));
                 }
+                self.update_search_completion(&hash);
                 self.model.known_filter_keys = hash;
             }
             Msg::SearchActiveChanged(is_active) => {
@@ -121,6 +155,23 @@ impl Widget for HeaderbarSearch {
                     .relm
                     .stream()
                     .emit(Msg::SearchExprChanged(maybe_expr));
+            }
+            Msg::SearchCompletionAction(completion) => {
+                let txt = &self.widgets.search_entry.text().to_string()
+                    [0..(self.widgets.search_entry.cursor_position() as usize)];
+                if txt.contains(' ') {
+                    let base = txt
+                        .rsplitn(2, |c| c == ' ')
+                        .last()
+                        .unwrap_or("")
+                        .to_string();
+                    self.widgets
+                        .search_entry
+                        .set_text(&(base + " " + &completion + " "));
+                } else {
+                    self.widgets.search_entry.set_text(&(completion + " "));
+                }
+                self.widgets.search_entry.set_position(-1);
             }
             Msg::SearchExprChanged(expr) => {
                 self.update_search_status(expr);
@@ -190,6 +241,72 @@ impl Widget for HeaderbarSearch {
                 }
             }
         }
+    }
+
+    fn update_search_completion(&mut self, known_filter_keywords: &BTreeSet<&'static str>) {
+        let mut store = gtk::ListStore::new(&[
+            String::static_type(), // completion
+            u32::static_type(),    // item type
+            String::static_type(), // item type display
+        ]);
+        store.insert_with_values(
+            None,
+            &[
+                (0, &"and".to_value()),
+                (1, &ITEM_TYPE_SEARCH_OPERATOR.to_value()),
+                (2, &"Search operator".to_value()),
+            ],
+        );
+        store.insert_with_values(
+            None,
+            &[
+                (0, &"or".to_value()),
+                (1, &ITEM_TYPE_SEARCH_OPERATOR.to_value()),
+                (2, &"Search operator".to_value()),
+            ],
+        );
+        for keyword in known_filter_keywords {
+            store.insert_with_values(
+                None,
+                &[
+                    (0, &keyword.to_value()),
+                    (1, &ITEM_TYPE_FILTER_KEY.to_value()),
+                    (2, &"Filter key".to_value()),
+                ],
+            );
+        }
+        // TODO duplicated with search_expr::parse_filter_op
+        store.insert_with_values(
+            None,
+            &[
+                (0, &"contains".to_value()),
+                (1, &ITEM_TYPE_FILTER_COMBINATOR.to_value()),
+                (2, &"Filter combinator".to_value()),
+            ],
+        );
+        store.insert_with_values(
+            None,
+            &[
+                (0, &"doesntContain".to_value()),
+                (1, &ITEM_TYPE_FILTER_COMBINATOR.to_value()),
+                (2, &"Filter combinator".to_value()),
+            ],
+        );
+        self.model.search_completion.set_model(Some(&store));
+        self.model
+            .search_completion
+            .set_match_func(|compl, full_txt, iter| {
+                let e = compl.entry().unwrap();
+                let txt = &full_txt[..(e.cursor_position() as usize)];
+                let last_typed_word = txt.split(' ').last().unwrap_or(txt);
+                let possible_completion_txt = compl
+                    .model()
+                    .unwrap()
+                    .value(iter, 0)
+                    .get::<String>()
+                    .unwrap();
+                possible_completion_txt.starts_with(last_typed_word)
+            });
     }
 
     fn update_search_status(&mut self, maybe_expr: Option<Result<(String, SearchExpr), String>>) {
