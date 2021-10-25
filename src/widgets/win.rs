@@ -32,9 +32,7 @@ use itertools::Itertools;
 use relm::{Component, ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
 use std::cmp::Reverse;
-use std::collections::BTreeSet;
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::net::IpAddr;
 #[cfg(target_family = "unix")]
 use std::os::unix::fs::FileTypeExt;
@@ -1575,7 +1573,7 @@ impl Widget for Win {
                     #[name="headerbar_search_revealer"]
                     gtk::Revealer {
                         #[name="headerbar_search"]
-                        HeaderbarSearch(HashSet::new()) {
+                        HeaderbarSearch(BTreeSet::new()) {
                             HbsMsgSearchActiveChanged(is_active) => Msg::SearchActiveChanged(is_active),
                             HbsMsgSearchExprChanged(ref m_expr) => Msg::SearchExprChanged(m_expr.clone()),
                         },

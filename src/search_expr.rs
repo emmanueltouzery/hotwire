@@ -8,7 +8,7 @@ use nom::multi::*;
 use nom::sequence::*;
 use nom::AsChar;
 use nom::Err;
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 use std::fmt;
 
 #[derive(PartialEq, Eq, Clone)]
@@ -79,7 +79,7 @@ pub enum SearchOperator {
 }
 
 pub fn parse_search<'a>(
-    known_filter_keys: &'a HashSet<&'static str>,
+    known_filter_keys: &'a BTreeSet<&'static str>,
 ) -> impl 'a + Fn(&'a str) -> nom::IResult<&'a str, SearchExpr> {
     move |input: &'a str| {
         alt((
@@ -121,7 +121,7 @@ where
 }
 
 fn parse_search_and<'a>(
-    known_filter_keys: &'a HashSet<&'static str>,
+    known_filter_keys: &'a BTreeSet<&'static str>,
 ) -> impl 'a + FnMut(&'a str) -> nom::IResult<&'a str, SearchExpr> {
     move |input: &str| {
         let (input, se) = alt((
@@ -156,7 +156,7 @@ fn parse_search_and<'a>(
 }
 
 fn parse_search_or<'a>(
-    known_filter_keys: &'a HashSet<&'static str>,
+    known_filter_keys: &'a BTreeSet<&'static str>,
 ) -> impl 'a + Fn(&'a str) -> nom::IResult<&'a str, SearchExpr> {
     move |input: &str| {
         let (input, se) = alt((
@@ -177,7 +177,7 @@ fn parse_search_or<'a>(
 
 // TODO allow negation (not X contains Y)
 fn parse_search_expr<'a>(
-    known_filter_keys: &'a HashSet<&'static str>,
+    known_filter_keys: &'a BTreeSet<&'static str>,
 ) -> impl 'a + Fn(&str) -> nom::IResult<&str, SearchExpr> {
     move |input: &str| {
         let (input, filter_key) = parse_filter_key(known_filter_keys.clone())(input)?;
@@ -214,7 +214,7 @@ fn parse_filter_op(input: &str) -> nom::IResult<&str, (SearchOperator, OperatorN
 }
 
 fn parse_filter_key(
-    known_filter_keys: HashSet<&'static str>,
+    known_filter_keys: BTreeSet<&'static str>,
 ) -> impl Fn(&str) -> nom::IResult<&str, &'static str> {
     move |input: &str| {
         // let (input, filter_key) = recognize(parse_filter_key_basic)(input)?;

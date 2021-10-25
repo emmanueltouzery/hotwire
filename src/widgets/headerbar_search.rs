@@ -6,14 +6,14 @@ use crate::search_expr::SearchExpr;
 use gtk::prelude::*;
 use relm::{Component, Widget};
 use relm_derive::{widget, Msg};
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 #[derive(Msg)]
 pub enum Msg {
     SearchActiveChanged(bool),
     SearchTextChanged(String),
     SearchExprChanged(Option<Result<(String, search_expr::SearchExpr), String>>),
-    SearchFilterKeysChanged(HashSet<&'static str>),
+    SearchFilterKeysChanged(BTreeSet<&'static str>),
     DisplayNoSearchError,
     DisplayWithSearchErrors,
     SearchAddVals(
@@ -31,7 +31,10 @@ pub enum Msg {
 pub struct Model {
     relm: relm::Relm<HeaderbarSearch>,
     search_options: Option<Component<SearchOptions>>,
-    known_filter_keys: HashSet<&'static str>,
+    // store the filter keys in a BTreeSet so that they'll be sorted
+    // alphabetically when displaying in the GUI. An in a set because we
+    // need to test for 'contains' a couple of times
+    known_filter_keys: BTreeSet<&'static str>,
 }
 
 #[widget]
@@ -60,7 +63,7 @@ impl Widget for HeaderbarSearch {
         self.update_search_status(None);
     }
 
-    fn model(relm: &relm::Relm<Self>, known_filter_keys: HashSet<&'static str>) -> Model {
+    fn model(relm: &relm::Relm<Self>, known_filter_keys: BTreeSet<&'static str>) -> Model {
         Model {
             relm: relm.clone(),
             search_options: None,

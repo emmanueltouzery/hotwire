@@ -2,7 +2,7 @@ use crate::search_expr::{OperatorNegation, SearchOperator};
 use gtk::prelude::*;
 use relm::Widget;
 use relm_derive::{widget, Msg};
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 #[derive(Copy, Clone)]
 pub enum CombineOperator {
@@ -13,7 +13,7 @@ pub enum CombineOperator {
 #[derive(Msg)]
 pub enum Msg {
     ParentSet(gtk::Popover),
-    FilterKeysUpdated(HashSet<&'static str>),
+    FilterKeysUpdated(BTreeSet<&'static str>),
     SearchEntryKeyPress(gdk::EventKey),
     AddClick,
     AddAndCloseClick,
@@ -33,7 +33,7 @@ pub enum Msg {
 
 pub struct Model {
     relm: relm::Relm<SearchOptions>,
-    filter_keys: HashSet<&'static str>,
+    filter_keys: BTreeSet<&'static str>,
 }
 
 #[widget]
@@ -51,7 +51,7 @@ impl Widget for SearchOptions {
         self.widgets.search_op_combo.set_active(Some(0));
     }
 
-    fn model(relm: &relm::Relm<Self>, filter_keys: HashSet<&'static str>) -> Model {
+    fn model(relm: &relm::Relm<Self>, filter_keys: BTreeSet<&'static str>) -> Model {
         Model {
             relm: relm.clone(),
             filter_keys,
