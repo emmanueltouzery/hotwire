@@ -14,6 +14,7 @@ pub enum Msg {
     SearchTextChanged(String),
     SearchExprChanged(Option<Result<(String, search_expr::SearchExpr), String>>),
     SearchFilterKeysChanged(BTreeSet<&'static str>),
+    ClearSearchTextClick,
     DisplayNoSearchError,
     DisplayWithSearchErrors,
     OpenSearchAddPopover,
@@ -47,6 +48,7 @@ impl Widget for HeaderbarSearch {
             .expect("Error initializing the search options");
         relm::connect!(so@SearchOptionsMsg::Add(ref vals), self.model.relm, Msg::SearchAddVals(vals.clone()));
         relm::connect!(so@SearchOptionsMsg::AddAndCloseClick, self.model.relm, Msg::RequestOptionsClose);
+        relm::connect!(so@SearchOptionsMsg::ClearSearchTextClick, self.model.relm, Msg::ClearSearchTextClick);
         self.model.search_options = Some(so);
 
         let search_options_popover = gtk::PopoverBuilder::new()
@@ -154,6 +156,9 @@ impl Widget for HeaderbarSearch {
                     t.push_str(&val);
                 }
                 self.widgets.search_entry.set_text(&t);
+            }
+            Msg::ClearSearchTextClick => {
+                self.widgets.search_entry.set_text("");
             }
             Msg::RequestOptionsClose => {
                 if let Some(popover) = self.widgets.search_options_btn.popover() {

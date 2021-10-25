@@ -4,6 +4,9 @@ use relm::Widget;
 use relm_derive::{widget, Msg};
 use std::collections::BTreeSet;
 
+const INVALID_SEARCH_STACK_NAME: &str = "invalid-search";
+const VALID_SEARCH_STACK_NAME: &str = "valid-search";
+
 #[derive(Copy, Clone)]
 pub enum CombineOperator {
     And,
@@ -17,6 +20,7 @@ pub enum Msg {
     SearchEntryKeyPress(gdk::EventKey),
     AddClick,
     AddAndCloseClick,
+    ClearSearchTextClick,
     Add(
         (
             Option<CombineOperator>,
@@ -81,14 +85,20 @@ impl Widget for SearchOptions {
                 }
             }
             Msg::DisableOptions => {
-                self.widgets.root_grid.set_sensitive(false);
+                self.widgets
+                    .root_stack
+                    .set_visible_child_name(INVALID_SEARCH_STACK_NAME);
             }
             Msg::EnableOptionsWithAndOr => {
-                self.widgets.root_grid.set_sensitive(true);
+                self.widgets
+                    .root_stack
+                    .set_visible_child_name(VALID_SEARCH_STACK_NAME);
                 self.widgets.and_or_combo.set_sensitive(true);
             }
             Msg::EnableOptionsWithoutAndOr => {
-                self.widgets.root_grid.set_sensitive(true);
+                self.widgets
+                    .root_stack
+                    .set_visible_child_name(VALID_SEARCH_STACK_NAME);
                 self.widgets.and_or_combo.set_sensitive(false);
             }
             Msg::AddClick => {
@@ -99,6 +109,7 @@ impl Widget for SearchOptions {
             }
             // meant for my parent
             Msg::Add(_) => {}
+            Msg::ClearSearchTextClick => {}
         }
     }
 
@@ -143,64 +154,93 @@ impl Widget for SearchOptions {
     }
 
     view! {
-        #[name="root_grid"]
-         gtk::Grid {
-             orientation: gtk::Orientation::Vertical,
-             margin_top: 10,
-             margin_start: 10,
-             margin_end: 10,
-             margin_bottom: 10,
-             row_spacing: 5,
-             column_spacing: 10,
-             #[name="and_or_combo"]
-             gtk::ComboBoxText {
-                 cell: {
-                     left_attach: 0,
-                     top_attach: 0,
-                 },
-             },
-             #[name="filter_key_combo"]
-             gtk::ComboBoxText {
-                 cell: {
-                     left_attach: 1,
-                     top_attach: 0,
-                 },
-             },
-             #[name="search_op_combo"]
-             gtk::ComboBoxText {
-                 cell: {
-                     left_attach: 0,
-                     top_attach: 1,
-                 },
-             },
-             #[name="search_entry"]
-             gtk::SearchEntry {
-                 cell: {
-                     left_attach: 1,
-                     top_attach: 1,
-                 },
-                 key_press_event(_, event) => (Msg::SearchEntryKeyPress(event.clone()), Inhibit(false)),
-                 activates_default: true,
-             },
-             gtk::ButtonBox {
-                 cell: {
-                     left_attach: 0,
-                     top_attach: 2,
-                     width: 2,
-                 },
-                 layout_style: gtk::ButtonBoxStyle::Expand,
-                 gtk::Button {
-                     label: "Add",
-                     clicked => Msg::AddClick,
-                 },
-                 #[name="add_and_close_btn"]
-                 gtk::Button {
-                     label: "Add and close",
-                     can_default: true,
-                     has_default: true,
-                     clicked => Msg::AddAndCloseClick,
-                 },
-             },
-         },
+        #[name="root_stack"]
+        gtk::Stack {
+            gtk::Grid {
+                child: {
+                    name: Some(VALID_SEARCH_STACK_NAME)
+                },
+                orientation: gtk::Orientation::Vertical,
+                margin_top: 10,
+                margin_start: 10,
+                margin_end: 10,
+                margin_bottom: 10,
+                row_spacing: 5,
+                column_spacing: 10,
+                #[name="and_or_combo"]
+                gtk::ComboBoxText {
+                    cell: {
+                        left_attach: 0,
+                        top_attach: 0,
+                    },
+                },
+                #[name="filter_key_combo"]
+                gtk::ComboBoxText {
+                    cell: {
+                        left_attach: 1,
+                        top_attach: 0,
+                    },
+                },
+                #[name="search_op_combo"]
+                gtk::ComboBoxText {
+                    cell: {
+                        left_attach: 0,
+                        top_attach: 1,
+                    },
+                },
+                #[name="search_entry"]
+                gtk::SearchEntry {
+                    cell: {
+                        left_attach: 1,
+                        top_attach: 1,
+                    },
+                    key_press_event(_, event) => (Msg::SearchEntryKeyPress(event.clone()), Inhibit(false)),
+                    activates_default: true,
+                },
+                gtk::ButtonBox {
+                    cell: {
+                        left_attach: 0,
+                        top_attach: 2,
+                        width: 2,
+                    },
+                    layout_style: gtk::ButtonBoxStyle::Expand,
+                    gtk::Button {
+                        label: "Add",
+                        clicked => Msg::AddClick,
+                    },
+                    #[name="add_and_close_btn"]
+                    gtk::Button {
+                        label: "Add and close",
+                        can_default: true,
+                        has_default: true,
+                        clicked => Msg::AddAndCloseClick,
+                    },
+                },
+            },
+            gtk::Box {
+                orientation: gtk::Orientation::Vertical,
+                margin_top: 20,
+                margin_start: 10,
+                margin_end: 10,
+                margin_bottom: 10,
+                spacing: 10,
+                child: {
+                    name: Some(INVALID_SEARCH_STACK_NAME)
+                },
+                gtk::Label {
+                    text: "Failed to parse the search string. Please correct the search string.",
+                    max_width_chars: 30,
+                    line_wrap: true,
+                },
+                #[style_class="destructive-action"]
+                gtk::Button {
+                    child: {
+                        pack_type: gtk::PackType::End,
+                    },
+                    label: "Clear search text",
+                    clicked => Msg::ClearSearchTextClick,
+                }
+            }
+        },
     }
 }
