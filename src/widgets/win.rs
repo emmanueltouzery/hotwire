@@ -1046,11 +1046,18 @@ impl Widget for Win {
                 .emit(HeaderbarSearchMsg::SearchActiveChanged(false));
         }
         if !(e.state() & gdk::ModifierType::CONTROL_MASK).is_empty() {
+            let is_search_active = self.widgets.headerbar_search_revealer.is_child_revealed();
             match e.keyval().to_unicode() {
                 Some('s') => {
-                    self.model.relm.stream().emit(Msg::SearchActiveChanged(
-                        !self.widgets.headerbar_search_revealer.is_child_revealed(),
-                    ));
+                    self.model
+                        .relm
+                        .stream()
+                        .emit(Msg::SearchActiveChanged(!is_search_active));
+                }
+                Some('k') if is_search_active => {
+                    self.components
+                        .headerbar_search
+                        .emit(HeaderbarSearchMsg::OpenSearchAddPopover);
                 }
                 _ => {}
             }

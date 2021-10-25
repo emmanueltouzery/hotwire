@@ -16,6 +16,7 @@ pub enum Msg {
     SearchFilterKeysChanged(BTreeSet<&'static str>),
     DisplayNoSearchError,
     DisplayWithSearchErrors,
+    OpenSearchAddPopover,
     SearchAddVals(
         (
             Option<search_options::CombineOperator>,
@@ -157,6 +158,11 @@ impl Widget for HeaderbarSearch {
             Msg::RequestOptionsClose => {
                 if let Some(popover) = self.widgets.search_options_btn.popover() {
                     popover.popdown();
+                }
+            }
+            Msg::OpenSearchAddPopover => {
+                if let Some(popover) = self.widgets.search_options_btn.popover() {
+                    popover.popup();
                 }
             }
         }
