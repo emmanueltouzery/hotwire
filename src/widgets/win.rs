@@ -543,6 +543,11 @@ impl Widget for Win {
             }
             Msg::SelectCard(maybe_idx) => {
                 self.handle_select_card(maybe_idx);
+                if let Some(idx) = maybe_idx {
+                    self.components
+                        .headerbar_search
+                        .emit(HeaderbarSearchMsg::MainWinSelectCard(idx));
+                }
             }
             Msg::SelectRemoteIpStream(selection) => {
                 let (mut paths, _model) = selection.selected_rows();

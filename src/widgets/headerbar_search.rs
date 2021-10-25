@@ -6,11 +6,12 @@ use crate::search_expr::SearchExpr;
 use gtk::prelude::*;
 use relm::{Component, Widget};
 use relm_derive::{widget, Msg};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Msg)]
 pub enum Msg {
     SearchActiveChanged(bool),
+    MainWinSelectCard(usize),
     SearchTextChanged(String),
     SearchExprChanged(Option<Result<(String, search_expr::SearchExpr), String>>),
     SearchFilterKeysChanged(BTreeSet<&'static str>),
@@ -37,6 +38,8 @@ pub struct Model {
     // alphabetically when displaying in the GUI. An in a set because we
     // need to test for 'contains' a couple of times
     known_filter_keys: BTreeSet<&'static str>,
+    current_card_idx: Option<usize>,
+    search_text_by_card: BTreeMap<usize, String>,
 }
 
 #[widget]
@@ -71,6 +74,8 @@ impl Widget for HeaderbarSearch {
             relm: relm.clone(),
             search_options: None,
             known_filter_keys,
+            current_card_idx: None,
+            search_text_by_card: BTreeMap::new(),
         }
     }
 
@@ -87,6 +92,20 @@ impl Widget for HeaderbarSearch {
                 if is_active {
                     self.widgets.search_entry.grab_focus();
                 }
+            }
+            Msg::MainWinSelectCard(idx) => {
+                if let Some(cur_idx) = self.model.current_card_idx {
+                    // backup the current text
+                    self.model
+                        .search_text_by_card
+                        .insert(cur_idx, self.widgets.search_entry.text().to_string());
+                }
+                if let Some(txt) = self.model.search_text_by_card.get(&idx) {
+                    self.widgets.search_entry.set_text(txt);
+                } else {
+                    self.widgets.search_entry.set_text("");
+                }
+                self.model.current_card_idx = Some(idx);
             }
             Msg::SearchTextChanged(text) => {
                 let maybe_expr = if text.is_empty() {
