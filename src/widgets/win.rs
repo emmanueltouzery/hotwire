@@ -3,7 +3,7 @@ use super::comm_target_card::{CommTargetCard, CommTargetCardData};
 use super::headerbar_search::HeaderbarSearch;
 use super::headerbar_search::Msg as HeaderbarSearchMsg;
 use super::headerbar_search::Msg::SearchActiveChanged as HbsMsgSearchActiveChanged;
-use super::headerbar_search::Msg::SearchTextChanged as HbsMsgSearchTextChanged;
+use super::headerbar_search::Msg::SearchExprChanged as HbsMsgSearchExprChanged;
 use super::ips_and_streams_treeview;
 use super::messages_treeview;
 use super::preferences::Preferences;
@@ -19,6 +19,7 @@ use crate::message_parser::StreamData;
 use crate::packets_read;
 use crate::packets_read::{InputStep, ParseInputStep, TSharkInputType};
 use crate::pgsql::postgres_message_parser::Postgres;
+use crate::search_expr;
 use crate::tshark_communication;
 use crate::tshark_communication::{NetworkPort, TSharkPacket, TcpStreamId};
 use crate::widgets::comm_target_card::CommTargetCardKey;
@@ -31,9 +32,7 @@ use itertools::Itertools;
 use relm::{Component, ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
 use std::cmp::Reverse;
-use std::collections::BTreeSet;
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::net::IpAddr;
 #[cfg(target_family = "unix")]
 use std::os::unix::fs::FileTypeExt;
@@ -44,6 +43,7 @@ use std::process::Command;
 use std::sync::mpsc;
 
 const CSS_DATA: &[u8] = include_bytes!("../../resources/style.css");
+const SHORTCUTS_UI: &str = include_str!("shortcuts.ui");
 
 const WELCOME_STACK_NAME: &str = "welcome";
 const LOADING_STACK_NAME: &str = "loading";
@@ -70,10 +70,12 @@ pub enum InfobarOptions {
 
 #[derive(Msg, Debug)]
 pub enum Msg {
+    SearchClicked,
     OpenFile,
     OpenRecentFile(usize),
     DisplayPreferences,
     DisplayAbout,
+    DisplayShortcuts,
     CaptureToggled,
     SaveCapture,
     ChildProcessDied,
@@ -82,7 +84,7 @@ pub enum Msg {
 
     KeyPress(gdk::EventKey),
     SearchActiveChanged(bool),
-    SearchTextChanged(String),
+    SearchExprChanged(Option<Result<(String, search_expr::SearchExpr), String>>),
 
     LoadedData(ParseInputStep),
     OpenFileFirstPacketDisplayed,
@@ -112,6 +114,9 @@ pub struct Model {
     relm: relm::Relm<Win>,
     bg_sender: mpsc::Sender<BgFunc>,
 
+    recent_searches: Vec<String>,
+
+    search_toggle_signal: Option<glib::SignalHandlerId>,
     window_subtitle: Option<String>,
     current_file: Option<(PathBuf, TSharkInputType)>,
     recent_files: Vec<PathBuf>,
@@ -129,7 +134,7 @@ pub struct Model {
     comm_target_cards: Vec<CommTargetCardData>,
     selected_card: Option<CommTargetCardData>,
 
-    search_text: String,
+    search_expr: Option<Result<(String, search_expr::SearchExpr), String>>,
 
     messages_treeview_state: Option<messages_treeview::MessagesTreeviewState>,
     ips_and_streams_treeview_state: Option<ips_and_streams_treeview::IpsAndStreamsTreeviewState>,
@@ -172,12 +177,21 @@ impl Widget for Win {
         }
         self.widgets.infobar.set_visible(false);
 
+        self.left_align_menu_entries();
+
         self.widgets.welcome_label.drag_dest_set(
             gtk::DestDefaults::ALL,
             &[],
             gdk::DragAction::COPY,
         );
         self.widgets.welcome_label.drag_dest_add_uri_targets();
+
+        self.model.search_toggle_signal = {
+            let r = self.model.relm.clone();
+            Some(self.widgets.search_toggle.connect_toggled(move |_| {
+                r.stream().emit(Msg::SearchClicked);
+            }))
+        };
 
         // the capture depends on pkexec for privilege escalation
         // which is linux-specific, and then fifos which are unix-specific.
@@ -248,6 +262,20 @@ impl Widget for Win {
         }
     }
 
+    fn left_align_menu_entries(&self) {
+        for menu_item in self.widgets.menu_box.children() {
+            if let Some(label) = menu_item
+                .dynamic_cast::<gtk::ModelButton>()
+                .unwrap()
+                .child()
+                .and_then(|c| c.dynamic_cast::<gtk::Label>().ok())
+            {
+                label.set_xalign(0.0);
+                label.set_hexpand(true);
+            }
+        }
+    }
+
     fn is_display_capture_btn() -> bool {
         !cfg!(target_os = "windows")
     }
@@ -307,9 +335,13 @@ impl Widget for Win {
 
     fn model(
         relm: &relm::Relm<Self>,
-        params: (mpsc::Sender<BgFunc>, Option<(PathBuf, TSharkInputType)>),
+        params: (
+            mpsc::Sender<BgFunc>,
+            Option<(PathBuf, TSharkInputType)>,
+            Vec<String>,
+        ),
     ) -> Model {
-        let (bg_sender, current_file) = params;
+        let (bg_sender, current_file, recent_searches) = params;
         gtk::IconTheme::default()
             .unwrap()
             .add_resource_path("/icons");
@@ -345,11 +377,13 @@ impl Widget for Win {
         Model {
             relm: relm.clone(),
             bg_sender,
+            recent_searches,
             infobar_spinner: gtk::SpinnerBuilder::new()
                 .width_request(24)
                 .height_request(24)
                 .build(),
             prefs_win: None,
+            search_toggle_signal: None,
             infobar_label: gtk::LabelBuilder::new().build(),
             comm_targets_components: HashMap::new(),
             set_sidebar_height: false,
@@ -366,7 +400,7 @@ impl Widget for Win {
             current_file,
             capture_toggle_signal: None,
             window_subtitle: None,
-            search_text: "".to_string(),
+            search_expr: None,
             capture_malformed_packets: 0,
             tcpdump_child: None,
             tshark_child: None,
@@ -387,6 +421,7 @@ impl Widget for Win {
             Msg::DisplayAbout => {
                 self.display_about();
             }
+            Msg::DisplayShortcuts => self.display_shortcuts(),
             Msg::DragDataReceived(_context, sel_data) => {
                 if let Some(uri) = sel_data
                     .uris()
@@ -399,6 +434,15 @@ impl Widget for Win {
             }
             Msg::OpenFile => {
                 self.open_file();
+            }
+            Msg::SearchClicked => {
+                let is_active = self.widgets.search_toggle.is_active();
+                self.widgets
+                    .headerbar_search_revealer
+                    .set_reveal_child(is_active);
+                self.components
+                    .headerbar_search
+                    .emit(HeaderbarSearchMsg::SearchActiveChanged(is_active));
             }
             Msg::CaptureToggled => {
                 if let Err(e) = self.handle_capture_toggled() {
@@ -434,25 +478,34 @@ impl Widget for Win {
                 self.handle_keypress(e);
             }
             Msg::SearchActiveChanged(is_active) => {
+                self.widgets.search_toggle.set_active(is_active);
                 if let Some(card) = self.model.selected_card.as_ref() {
                     messages_treeview::search_text_changed(
                         self.model.messages_treeview_state.as_ref().unwrap(),
+                        &self.model.streams,
                         card.protocol_index,
                         if is_active {
-                            &self.model.search_text
+                            self.model
+                                .search_expr
+                                .as_ref()
+                                .and_then(|r| r.as_ref().ok())
+                                .map(|(_rest, parsed)| parsed)
                         } else {
-                            ""
+                            None
                         },
                     );
                 }
             }
-            Msg::SearchTextChanged(txt) => {
-                self.model.search_text = txt.clone();
+            Msg::SearchExprChanged(expr) => {
+                self.model.search_expr = expr.clone();
                 if let Some(card) = self.model.selected_card.as_ref() {
                     messages_treeview::search_text_changed(
                         self.model.messages_treeview_state.as_ref().unwrap(),
+                        &self.model.streams,
                         card.protocol_index,
-                        &txt,
+                        expr.and_then(|r| r.ok())
+                            .map(|(_rest, parsed)| parsed)
+                            .as_ref(),
                     );
                 }
             }
@@ -497,6 +550,11 @@ impl Widget for Win {
             }
             Msg::SelectCard(maybe_idx) => {
                 self.handle_select_card(maybe_idx);
+                if let Some(idx) = maybe_idx {
+                    self.components
+                        .headerbar_search
+                        .emit(HeaderbarSearchMsg::MainWinSelectCard(idx));
+                }
             }
             Msg::SelectRemoteIpStream(selection) => {
                 let (mut paths, _model) = selection.selected_rows();
@@ -528,6 +586,7 @@ impl Widget for Win {
                 );
             }
             Msg::DisplayDetails(stream_id, idx) => {
+                //
                 if let Some((stream_client_server, msg_data)) = self
                     .model
                     .streams
@@ -598,6 +657,16 @@ impl Widget for Win {
         self.model.selected_card = maybe_idx
             .and_then(|idx| self.model.comm_target_cards.get(idx as usize))
             .cloned();
+        if let Some(card) = self.model.selected_card.as_ref() {
+            let parsers = get_message_parsers();
+            let mp = parsers.get(card.protocol_index).unwrap();
+
+            self.streams
+                .headerbar_search
+                .emit(HeaderbarSearchMsg::SearchFilterKeysChanged(
+                    mp.supported_filter_keys().iter().cloned().collect(),
+                ));
+        }
         let mut ips_treeview_state = self.model.ips_and_streams_treeview_state.as_mut().unwrap();
         ips_and_streams_treeview::init_remote_ips_streams_tree(&mut ips_treeview_state);
         let refresh_streams_tree = messages_treeview::refresh_remote_servers(
@@ -988,53 +1057,23 @@ impl Widget for Win {
                 .headerbar_search
                 .emit(HeaderbarSearchMsg::SearchActiveChanged(false));
         }
-        if let Some(k) = e.keyval().to_unicode() {
-            if Self::is_plaintext_key(&e) {
-                // we don't want to trigger the global search if the
-                // note search text entry is focused.
-                if self
-                    .widgets
-                    .window
-                    .focus()
-                    // is an entry focused?
-                    .and_then(|w| w.downcast::<gtk::Entry>().ok())
-                    // is it visible? (because when global search is off,
-                    // the global search entry can be focused but invisible)
-                    .filter(|w| w.get_visible())
-                    .is_some()
-                {
-                    // the focused widget is a visible entry, and
-                    // we're not in search mode => don't grab this
-                    // key event, this is likely a note search
-                    return;
+        if !(e.state() & gdk::ModifierType::CONTROL_MASK).is_empty() {
+            let is_search_active = self.widgets.headerbar_search_revealer.is_child_revealed();
+            match e.keyval().to_unicode() {
+                Some('s') => {
+                    self.model
+                        .relm
+                        .stream()
+                        .emit(Msg::SearchActiveChanged(!is_search_active));
                 }
-
-                // self.model
-                //     .relm
-                //     .stream()
-                //     .emit(Msg::SearchActiveChanged(true));
-                // self.components
-                //     .headerbar_search
-                //     .emit(SearchViewMsg::FilterChanged(Some(k.to_string())));
-                self.components.headerbar_search.emit(
-                    HeaderbarSearchMsg::SearchTextChangedFromElsewhere((k.to_string(), e)),
-                );
+                Some('k') if is_search_active => {
+                    self.components
+                        .headerbar_search
+                        .emit(HeaderbarSearchMsg::OpenSearchAddPopover);
+                }
+                _ => {}
             }
         }
-    }
-
-    fn is_plaintext_key(e: &gdk::EventKey) -> bool {
-        // return false if control and others were pressed
-        // (then the state won't be empty)
-        // could be ctrl-c on notes for instance
-        // whitelist MOD2 (num lock) and LOCK (shift or caps lock)
-        let mut state = e.state();
-        state.remove(gdk::ModifierType::MOD2_MASK);
-        state.remove(gdk::ModifierType::LOCK_MASK);
-        state.is_empty()
-            && e.keyval() != gdk::keys::constants::Return
-            && e.keyval() != gdk::keys::constants::KP_Enter
-            && e.keyval() != gdk::keys::constants::Escape
     }
 
     fn display_preferences(&mut self) {
@@ -1083,6 +1122,15 @@ impl Widget for Win {
         dlg.set_license(Some(include_str!("../../LICENSE.md")));
         dlg.run();
         dlg.close();
+    }
+
+    fn display_shortcuts(&self) {
+        let win = gtk::Builder::from_string(SHORTCUTS_UI)
+            .object::<gtk::Window>("shortcuts")
+            .unwrap();
+        win.set_title("Keyboard Shortcuts");
+        win.set_transient_for(Some(&self.widgets.window));
+        win.show();
     }
 
     fn handle_capture_toggled(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -1447,6 +1495,7 @@ impl Widget for Win {
                         popover: view! {
                             gtk::Popover {
                                 visible: false,
+                                #[name="menu_box"]
                                 gtk::Box {
                                     orientation: gtk::Orientation::Vertical,
                                     margin_top: 10,
@@ -1459,6 +1508,11 @@ impl Widget for Win {
                                         clicked => Msg::DisplayPreferences,
                                     },
                                     gtk::ModelButton {
+                                        label: "Keyboard Shortcuts",
+                                        hexpand: true,
+                                        clicked => Msg::DisplayShortcuts,
+                                    },
+                                    gtk::ModelButton {
                                         label: "About Hotwire",
                                         hexpand: true,
                                         clicked => Msg::DisplayAbout,
@@ -1467,13 +1521,13 @@ impl Widget for Win {
                             }
                         },
                     },
-                    #[name="headerbar_search"]
-                    HeaderbarSearch {
+                    #[name="search_toggle"]
+                    gtk::ToggleButton {
                         child: {
-                            pack_type: gtk::PackType::End,
+                            pack_type: gtk::PackType::End
                         },
-                        HbsMsgSearchActiveChanged(is_active) => Msg::SearchActiveChanged(is_active),
-                        HbsMsgSearchTextChanged(ref txt) => Msg::SearchTextChanged(txt.clone()),
+                        image: Some(&gtk::Image::from_icon_name(Some("edit-find-symbolic"), gtk::IconSize::Menu)),
+                        margin_start: 10,
                     },
                     #[name="save_capture_btn"]
                     gtk::Button {
@@ -1535,6 +1589,14 @@ impl Widget for Win {
                     },
                     orientation: gtk::Orientation::Vertical,
                     hexpand: true,
+                    #[name="headerbar_search_revealer"]
+                    gtk::Revealer {
+                        #[name="headerbar_search"]
+                        HeaderbarSearch((self.model.bg_sender.clone(), self.model.recent_searches.clone())) {
+                            HbsMsgSearchActiveChanged(is_active) => Msg::SearchActiveChanged(is_active),
+                            HbsMsgSearchExprChanged(ref m_expr) => Msg::SearchExprChanged(m_expr.clone()),
+                        },
+                    },
                     #[name="infobar"]
                     gtk::InfoBar {
                         response(_, r) => Msg::InfoBarEvent(r)

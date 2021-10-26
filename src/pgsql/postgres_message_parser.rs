@@ -2,10 +2,12 @@ use super::postgres_details_widget;
 use super::postgres_details_widget::PostgresCommEntry;
 use crate::colors;
 use crate::icons::Icon;
+use crate::message_parser;
 use crate::message_parser::{
     ClientServerInfo, MessageData, MessageInfo, MessageParser, StreamData, StreamGlobals,
 };
 use crate::pgsql::tshark_pgsql::{PostgresColType, PostgresWireMessage};
+use crate::search_expr;
 use crate::tshark_communication::{TSharkPacket, TcpStreamId};
 use crate::widgets::win;
 use crate::BgFunc;
@@ -18,6 +20,8 @@ use std::iter;
 use std::str;
 use std::str::FromStr;
 use std::sync::mpsc;
+use strum::VariantNames;
+use strum_macros::{EnumString, EnumVariantNames};
 
 #[cfg(test)]
 use crate::tshark_communication::{parse_stream, parse_test_xml};
@@ -25,6 +29,22 @@ use crate::tshark_communication::{parse_stream, parse_test_xml};
 use chrono::NaiveDate;
 
 pub struct Postgres;
+
+#[derive(EnumString, EnumVariantNames)]
+enum PostgresFilterKeys {
+    #[strum(serialize = "pg.query")]
+    QueryString,
+    #[strum(serialize = "pg.resultset")]
+    ResultSet,
+}
+
+fn get_pg_message<'a, 'b>(
+    streams: &'a HashMap<TcpStreamId, StreamData>,
+    model: &'b gtk::TreeModel,
+    iter: &'b gtk::TreeIter,
+) -> Option<&'a PostgresMessageData> {
+    message_parser::get_message(streams, model, iter).and_then(|m| m.as_postgres())
+}
 
 impl MessageParser for Postgres {
     fn is_my_message(&self, msg: &TSharkPacket) -> bool {
@@ -399,8 +419,14 @@ impl MessageParser for Postgres {
                         1,
                         &format!("{} rows", postgres.resultset_row_count).to_value(),
                     ),
-                    (2, &session_id.as_u32().to_value()),
-                    (3, &(start_idx + idx as i32).to_value()),
+                    (
+                        message_parser::TREE_STORE_STREAM_ID_COL_IDX,
+                        &session_id.as_u32().to_value(),
+                    ),
+                    (
+                        message_parser::TREE_STORE_MESSAGE_INDEX_COL_IDX,
+                        &(start_idx + idx as i32).to_value(),
+                    ),
                     (4, &postgres.query_timestamp.to_string().to_value()),
                     (5, &postgres.query_timestamp.timestamp_nanos().to_value()),
                     (
@@ -437,13 +463,39 @@ impl MessageParser for Postgres {
         tv.set_model(Some(&model_sort));
     }
 
-    fn matches_filter(&self, filter: &str, model: &gtk::TreeModel, iter: &gtk::TreeIter) -> bool {
-        model
-            .value(iter, 0)
-            .get::<&str>()
-            .unwrap()
-            .to_lowercase()
-            .contains(&filter.to_lowercase())
+    fn supported_filter_keys(&self) -> &'static [&'static str] {
+        PostgresFilterKeys::VARIANTS
+    }
+
+    fn matches_filter(
+        &self,
+        filter: &search_expr::SearchOpExpr,
+        streams: &HashMap<TcpStreamId, StreamData>,
+        model: &gtk::TreeModel,
+        iter: &gtk::TreeIter,
+    ) -> bool {
+        if let Ok(filter_key) = PostgresFilterKeys::from_str(filter.filter_key) {
+            match filter_key {
+                PostgresFilterKeys::QueryString => model
+                    .value(iter, 0)
+                    .get::<&str>()
+                    .unwrap()
+                    .to_lowercase()
+                    .contains(&filter.filter_val.to_lowercase()),
+                PostgresFilterKeys::ResultSet => {
+                    let fv = filter.filter_val.to_lowercase();
+                    get_pg_message(streams, model, iter).map_or(false, |pg_msg| {
+                        pg_msg.resultset_string_cols.iter().any(|v| {
+                            v.iter().any(|c| {
+                                c.as_ref().map_or(false, |v| v.to_lowercase().contains(&fv))
+                            })
+                        })
+                    })
+                }
+            }
+        } else {
+            true
+        }
     }
 
     fn requests_details_overlay(&self) -> bool {

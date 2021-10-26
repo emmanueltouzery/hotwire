@@ -1,7 +1,10 @@
 use super::win;
+use crate::message_parser;
 use crate::message_parser::{
     ClientServerInfo, MessageData, MessageInfo, MessageParser, StreamData,
 };
+use crate::search_expr;
+use crate::search_expr::OperatorNegation;
 use crate::tshark_communication::TcpStreamId;
 use crate::widgets::comm_target_card::{CommTargetCardData, CommTargetCardKey};
 use crate::win::{RefreshOngoing, RefreshRemoteIpsAndStreams};
@@ -94,25 +97,31 @@ fn add_message_parser_grid_and_pane(
         let tv = tv.clone();
         tv.selection().connect_changed(move |selection| {
             if let Some((model, iter)) = selection.selected() {
-                let (modelsort, path) = if model.is::<gtk::TreeModelFilter>() {
-                    let modelfilter = model.dynamic_cast::<gtk::TreeModelFilter>().unwrap();
-                    let model = modelfilter.model().unwrap();
-                    (
-                        model.dynamic_cast::<gtk::TreeModelSort>().unwrap(),
-                        modelfilter
+                let stree = model.dynamic_cast::<gtk::TreeModelSort>().unwrap();
+                let smodel = stree.model();
+                match smodel.clone().dynamic_cast::<gtk::TreeModelFilter>() {
+                    Ok(modelfilter) => {
+                        let model = modelfilter.model().unwrap();
+                        let store = model.dynamic_cast::<gtk::ListStore>().unwrap();
+                        let path = stree
                             .path(&iter)
-                            .and_then(|p| modelfilter.convert_path_to_child_path(&p)),
-                    )
-                } else {
-                    let smodel = model.dynamic_cast::<gtk::TreeModelSort>().unwrap();
-                    let path = smodel.path(&iter);
-                    (smodel, path)
+                            .and_then(|p| stree.convert_path_to_child_path(&p));
+                        if let Some(childpath) =
+                            path.and_then(|p| modelfilter.convert_path_to_child_path(&p))
+                        {
+                            row_selected(&store, &childpath, &rstream);
+                        }
+                    }
+                    _ => {
+                        let path = stree.path(&iter);
+                        let store = smodel.dynamic_cast::<gtk::ListStore>().unwrap();
+                        if let Some(childpath) =
+                            path.and_then(|p| stree.convert_path_to_child_path(&p))
+                        {
+                            row_selected(&store, &childpath, &rstream);
+                        }
+                    }
                 };
-                let model = modelsort.model().dynamic_cast::<gtk::ListStore>().unwrap();
-                if let Some(childpath) = path.and_then(|p| modelsort.convert_path_to_child_path(&p))
-                {
-                    row_selected(&model, &childpath, &rstream);
-                }
             }
         })
     };
@@ -178,8 +187,11 @@ fn row_selected(
     rstream: &relm::StreamHandle<win::Msg>,
 ) {
     let iter = store.iter(path).unwrap();
-    let stream_id = store.value(&iter, 2);
-    let idx = store.value(&iter, 3);
+    let stream_id = store.value(&iter, message_parser::TREE_STORE_STREAM_ID_COL_IDX as i32);
+    let idx = store.value(
+        &iter,
+        message_parser::TREE_STORE_MESSAGE_INDEX_COL_IDX as i32,
+    );
     rstream.emit(win::Msg::DisplayDetails(
         TcpStreamId(stream_id.get::<u32>().unwrap()),
         idx.get::<u32>().unwrap(),
@@ -318,38 +330,145 @@ fn setup_selection_signals(
     }
 }
 
-fn get_model_sort(
+/// the model may in the end by held by a TreeModelSort or a
+/// TreeModelFilter. The hierarchy can be either:
+/// 1. TreeModelSort / TreeModelFilter / ListStore
+/// 2. TreeModelSort / ListStore
+/// If the TreeModelSort is not at the toplevel, the user can't
+/// sort by clicking on column headers in the GUI.
+fn get_store_holding_model(
     tv_state: &MessagesTreeviewState,
     protocol_index: usize,
-) -> (&gtk::TreeView, gtk::TreeModelSort) {
+) -> (&gtk::TreeView, gtk::TreeModel) {
     let (ref tv, ref _signals) = tv_state.message_treeviews.get(protocol_index).unwrap();
     let model_sort = tv
         .model()
         .unwrap()
         .dynamic_cast::<gtk::TreeModelSort>()
+        .unwrap();
+
+    // does the ModelSort contain directly the ListStore?
+    let store_holding_model = if model_sort.model().dynamic_cast::<gtk::ListStore>().is_ok() {
+        // YES => we want to return the ModelSort
+        model_sort.model()
+    } else {
+        // NO => it must be a ModelFilter, and the ListStore's in there, return that
+        model_sort
+            .model()
+            .dynamic_cast::<gtk::TreeModelFilter>()
+            .unwrap()
+            .model()
+            .unwrap()
+    };
+    (tv, store_holding_model)
+}
+
+fn matches_filter(
+    mp: &dyn MessageParser,
+    f: &search_expr::SearchExpr,
+    streams: &HashMap<TcpStreamId, StreamData>,
+    model: &gtk::TreeModel,
+    iter: &gtk::TreeIter,
+) -> bool {
+    match f {
+        search_expr::SearchExpr::And(a, b) => {
+            matches_filter(mp, a, streams, model, iter)
+                && matches_filter(mp, b, streams, model, iter)
+        }
+        search_expr::SearchExpr::Or(a, b) => {
+            matches_filter(mp, a, streams, model, iter)
+                || matches_filter(mp, b, streams, model, iter)
+        }
+        search_expr::SearchExpr::SearchOpExpr(expr)
+            if expr.op_negation == OperatorNegation::Negated =>
+        {
+            !mp.matches_filter(expr, streams, model, iter)
+        }
+        search_expr::SearchExpr::SearchOpExpr(expr) => {
+            mp.matches_filter(expr, streams, model, iter)
+        }
+    }
+}
+
+pub fn search_text_changed(
+    tv_state: &MessagesTreeviewState,
+    streams: &HashMap<TcpStreamId, StreamData>,
+    protocol_index: usize,
+    filter: Option<&search_expr::SearchExpr>,
+) {
+    let (tv, m) = get_store_holding_model(tv_state, protocol_index);
+    let parsers = win::get_message_parsers();
+    // compute all the row indexes to show right here. then in the callback only check the row id,
+    // because i can't share the streams with the set_visible_func callback (which needs 'static lifetime)
+    let mut shown = HashSet::new();
+    let store = m
+        .clone()
+        .dynamic_cast::<gtk::ListStore>()
         .unwrap_or_else(|_| {
-            tv.model()
-                .unwrap()
+            m.clone()
                 .dynamic_cast::<gtk::TreeModelFilter>()
                 .unwrap()
                 .model()
                 .unwrap()
-                .dynamic_cast::<gtk::TreeModelSort>()
+                .dynamic_cast::<gtk::ListStore>()
                 .unwrap()
         });
-    (tv, model_sort)
-}
-
-pub fn search_text_changed(tv_state: &MessagesTreeviewState, protocol_index: usize, txt: &str) {
-    let (tv, model_sort) = get_model_sort(tv_state, protocol_index);
-    let parsers = win::get_message_parsers();
-    let new_model_filter = gtk::TreeModelFilter::new(&model_sort, None);
-    let txt_string = txt.to_string();
-    new_model_filter.set_visible_func(move |model, iter| {
-        let mp = parsers.get(protocol_index).unwrap();
-        mp.matches_filter(&txt_string, model, iter)
-    });
-    tv.set_model(Some(&new_model_filter));
+    let mp = parsers.get(protocol_index).unwrap();
+    let cur_iter_o = m.iter_first();
+    if let Some(cur_iter) = cur_iter_o {
+        if let Some(f) = filter {
+            loop {
+                if matches_filter(mp.as_ref(), f, streams, &m, &cur_iter) {
+                    let stream_id = store
+                        .value(
+                            &cur_iter,
+                            message_parser::TREE_STORE_STREAM_ID_COL_IDX as i32,
+                        )
+                        .get::<u32>()
+                        .unwrap();
+                    let idx = store
+                        .value(
+                            &cur_iter,
+                            message_parser::TREE_STORE_MESSAGE_INDEX_COL_IDX as i32,
+                        )
+                        .get::<u32>()
+                        .unwrap();
+                    shown.insert((stream_id, idx));
+                }
+                if !m.iter_next(&cur_iter) {
+                    break;
+                }
+            }
+        }
+    }
+    let new_model_filter = gtk::TreeModelFilter::new(&store, None);
+    if filter.is_some() {
+        new_model_filter.set_visible_func(move |model, iter| {
+            let stream_id = model
+                .value(iter, message_parser::TREE_STORE_STREAM_ID_COL_IDX as i32)
+                .get::<u32>()
+                .unwrap();
+            let idx = model
+                .value(
+                    iter,
+                    message_parser::TREE_STORE_MESSAGE_INDEX_COL_IDX as i32,
+                )
+                .get::<u32>()
+                .unwrap();
+            shown.contains(&(stream_id, idx))
+        });
+    }
+    let previous_sort = tv
+        .model()
+        .unwrap()
+        .dynamic_cast::<gtk::TreeModelSort>()
+        .unwrap()
+        .sort_column_id();
+    let new_sort = gtk::TreeModelSort::new(&new_model_filter);
+    if let Some((col, typ)) = previous_sort {
+        new_sort.set_sort_column_id(col, typ);
+    }
+    tv.set_model(Some(&new_sort));
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]

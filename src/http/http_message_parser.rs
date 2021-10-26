@@ -3,9 +3,11 @@ use super::http_details_widget::HttpCommEntry;
 use crate::colors;
 use crate::http::tshark_http::HttpType;
 use crate::icons::Icon;
+use crate::message_parser;
 use crate::message_parser::{
     ClientServerInfo, MessageData, MessageInfo, MessageParser, StreamData, StreamGlobals,
 };
+use crate::search_expr;
 use crate::tshark_communication::{NetworkPort, TSharkPacket, TcpSeqNumber, TcpStreamId};
 use crate::widgets::win;
 use crate::BgFunc;
@@ -14,10 +16,14 @@ use flate2::read::GzDecoder;
 use gtk::prelude::*;
 use relm::ContainerWidget;
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::io::prelude::*;
 use std::net::IpAddr;
 use std::str;
+use std::str::FromStr;
 use std::sync::mpsc;
+use strum::VariantNames;
+use strum_macros::{EnumString, EnumVariantNames};
 
 pub struct Http;
 
@@ -40,6 +46,34 @@ pub struct HttpStreamGlobals {
     // if we didn't get the hostname, we use this in finish_stream() to populate
     // the summary details.
     server_info: Option<String>,
+}
+
+#[derive(EnumString, EnumVariantNames)]
+pub enum HttpFilterKeys {
+    #[strum(serialize = "http.req_line")]
+    ReqLine,
+    #[strum(serialize = "http.resp_status")]
+    RespStatus,
+    #[strum(serialize = "http.req_content_type")]
+    ReqContentType,
+    #[strum(serialize = "http.resp_content_type")]
+    RespContentType,
+    #[strum(serialize = "http.req_header")]
+    ReqHeader,
+    #[strum(serialize = "http.resp_header")]
+    RespHeader,
+    #[strum(serialize = "http.req_body")]
+    ReqBody,
+    #[strum(serialize = "http.resp_body")]
+    RespBody,
+}
+
+fn get_http_message<'a, 'b>(
+    streams: &'a HashMap<TcpStreamId, StreamData>,
+    model: &'b gtk::TreeModel,
+    iter: &'b gtk::TreeIter,
+) -> Option<&'a HttpMessageData> {
+    message_parser::get_message(streams, model, iter).and_then(|m| m.as_http())
 }
 
 impl MessageParser for Http {
@@ -282,8 +316,16 @@ impl MessageParser for Http {
                     .unwrap_or("Missing response info")
                     .to_value(),
             );
-            ls.set_value(&iter, 2, &session_id.as_u32().to_value());
-            ls.set_value(&iter, 3, &(start_idx + idx as i32).to_value());
+            ls.set_value(
+                &iter,
+                message_parser::TREE_STORE_STREAM_ID_COL_IDX,
+                &session_id.as_u32().to_value(),
+            );
+            ls.set_value(
+                &iter,
+                message_parser::TREE_STORE_MESSAGE_INDEX_COL_IDX,
+                &(start_idx + idx as i32).to_value(),
+            );
             if let Some(ref rq) = http.request {
                 ls.set_value(&iter, 4, &rq.timestamp.to_string().to_value());
                 ls.set_value(&iter, 5, &rq.timestamp.timestamp_nanos().to_value());
@@ -338,32 +380,110 @@ impl MessageParser for Http {
         tv.set_model(Some(&model_sort));
     }
 
-    fn matches_filter(&self, filter: &str, model: &gtk::TreeModel, iter: &gtk::TreeIter) -> bool {
-        let filter = &filter.to_lowercase();
-        model
-            .value(iter, 0) // req info
-            .get::<&str>()
-            .unwrap()
-            .to_lowercase()
-            .contains(filter)
-            || model
-                .value(iter, 1) // resp info
-                .get::<&str>()
-                .unwrap()
-                .to_lowercase()
-                .contains(filter)
-            || model
-                .value(iter, 8) // req content type
-                .get::<&str>()
-                .unwrap_or("")
-                .to_lowercase()
-                .contains(filter)
-            || model
-                .value(iter, 9) // resp content type
-                .get::<&str>()
-                .unwrap_or("")
-                .to_lowercase()
-                .contains(filter)
+    fn supported_filter_keys(&self) -> &'static [&'static str] {
+        HttpFilterKeys::VARIANTS
+    }
+
+    fn matches_filter(
+        &self,
+        filter: &search_expr::SearchOpExpr,
+        streams: &HashMap<TcpStreamId, StreamData>,
+        model: &gtk::TreeModel,
+        iter: &gtk::TreeIter,
+    ) -> bool {
+        let filter_val = &filter.filter_val.to_lowercase();
+        if let Ok(filter_key) = HttpFilterKeys::from_str(filter.filter_key) {
+            match filter_key {
+                HttpFilterKeys::ReqLine => {
+                    model
+                        .value(iter, 0) // req info
+                        .get::<&str>()
+                        .unwrap()
+                        .to_lowercase()
+                        .contains(filter_val)
+                }
+                HttpFilterKeys::RespStatus => {
+                    model
+                        .value(iter, 1) // resp info
+                        .get::<&str>()
+                        .unwrap()
+                        .to_lowercase()
+                        .contains(filter_val)
+                }
+                HttpFilterKeys::ReqContentType => {
+                    model
+                        .value(iter, 8) // req content type
+                        .get::<&str>()
+                        .unwrap_or("")
+                        .to_lowercase()
+                        .contains(filter_val)
+                }
+                HttpFilterKeys::RespContentType => {
+                    model
+                        .value(iter, 9) // resp content type
+                        .get::<&str>()
+                        .unwrap_or("")
+                        .to_lowercase()
+                        .contains(filter_val)
+                }
+                HttpFilterKeys::ReqHeader => {
+                    get_http_message(streams, model, iter).map_or(false, |http_msg| {
+                        http_msg
+                            .request
+                            .as_ref()
+                            .filter(|r| {
+                                r.headers.iter().any(|(k, v)| {
+                                    k.to_lowercase().contains(filter_val)
+                                        || v.to_lowercase().contains(filter_val)
+                                })
+                            })
+                            .is_some()
+                    })
+                }
+                HttpFilterKeys::RespHeader => {
+                    get_http_message(streams, model, iter).map_or(false, |http_msg| {
+                        http_msg
+                            .response
+                            .as_ref()
+                            .filter(|r| {
+                                r.headers.iter().any(|(k, v)| {
+                                    k.to_lowercase().contains(filter_val)
+                                        || v.to_lowercase().contains(filter_val)
+                                })
+                            })
+                            .is_some()
+                    })
+                }
+                HttpFilterKeys::ReqBody => {
+                    get_http_message(streams, model, iter).map_or(false, |http_msg| {
+                        http_msg
+                            .request
+                            .as_ref()
+                            .filter(|r| {
+                                r.body_as_str()
+                                    .filter(|b| b.to_lowercase().contains(filter_val))
+                                    .is_some()
+                            })
+                            .is_some()
+                    })
+                }
+                HttpFilterKeys::RespBody => {
+                    get_http_message(streams, model, iter).map_or(false, |http_msg| {
+                        http_msg
+                            .response
+                            .as_ref()
+                            .filter(|r| {
+                                r.body_as_str()
+                                    .filter(|b| b.to_lowercase().contains(filter_val))
+                                    .is_some()
+                            })
+                            .is_some()
+                    })
+                }
+            }
+        } else {
+            true
+        }
     }
 
     fn requests_details_overlay(&self) -> bool {

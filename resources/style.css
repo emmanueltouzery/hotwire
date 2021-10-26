@@ -59,3 +59,9 @@ row:selected .card_protocol_name {
 row:selected .card_stats {
   color: lightgray;
 }
+
+#popover_title {
+  color: gray;
+  font-weight: bold;
+  padding: 3px;
+}

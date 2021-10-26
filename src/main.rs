@@ -1,3 +1,4 @@
+use crate::widgets::headerbar_search;
 use relm::Widget;
 #[cfg(target_family = "unix")]
 use std::os::unix::fs::FileTypeExt;
@@ -10,6 +11,7 @@ pub mod config;
 pub mod icons;
 pub mod message_parser;
 pub mod packets_read;
+pub mod search_expr;
 #[macro_use]
 mod tshark_communication;
 mod widgets;
@@ -74,5 +76,13 @@ fn main() {
         )
     });
 
-    win::Win::run((tx, path)).unwrap();
+    let recent_searches = match headerbar_search::HeaderbarSearch::load_recent_list() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Error loading recent files: {}", e);
+            vec![]
+        }
+    };
+
+    win::Win::run((tx, path, recent_searches)).unwrap();
 }

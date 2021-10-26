@@ -7,6 +7,7 @@ use crate::icons;
 use crate::message_parser::{
     ClientServerInfo, MessageData, MessageInfo, MessageParser, StreamData, StreamGlobals,
 };
+use crate::search_expr;
 use crate::tshark_communication::{TSharkPacket, TSharkPacketBasicInfo, TcpSeqNumber, TcpStreamId};
 use crate::widgets::win;
 use crate::BgFunc;
@@ -14,6 +15,7 @@ use chrono::NaiveDateTime;
 use std::collections::HashMap;
 use std::str;
 use std::sync::mpsc;
+use strum::VariantNames;
 
 #[cfg(test)]
 use crate::tshark_communication::{parse_stream, parse_test_xml};
@@ -247,8 +249,18 @@ impl MessageParser for Http2 {
         http_message_parser::Http.end_populate_treeview(tv, ls);
     }
 
-    fn matches_filter(&self, filter: &str, model: &gtk::TreeModel, iter: &gtk::TreeIter) -> bool {
-        http_message_parser::Http.matches_filter(filter, model, iter)
+    fn supported_filter_keys(&self) -> &'static [&'static str] {
+        http_message_parser::HttpFilterKeys::VARIANTS
+    }
+
+    fn matches_filter(
+        &self,
+        filter: &search_expr::SearchOpExpr,
+        streams: &HashMap<TcpStreamId, StreamData>,
+        model: &gtk::TreeModel,
+        iter: &gtk::TreeIter,
+    ) -> bool {
+        http_message_parser::Http.matches_filter(filter, streams, model, iter)
     }
 }
 
