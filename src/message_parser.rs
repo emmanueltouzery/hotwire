@@ -192,7 +192,7 @@ pub fn get_message<'a, 'b>(
             .unwrap(),
     );
     let idx = model
-        .value(&iter, TREE_STORE_MESSAGE_INDEX_COL_IDX as i32)
+        .value(iter, TREE_STORE_MESSAGE_INDEX_COL_IDX as i32)
         .get::<u32>()
         .unwrap();
     streams

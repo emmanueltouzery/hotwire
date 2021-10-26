@@ -418,7 +418,7 @@ pub fn search_text_changed(
     if let Some(cur_iter) = cur_iter_o {
         if let Some(f) = filter {
             loop {
-                if matches_filter(&mp, f, streams, &m, &cur_iter) {
+                if matches_filter(mp, f, streams, &m, &cur_iter) {
                     let stream_id = store
                         .value(
                             &cur_iter,
@@ -445,12 +445,12 @@ pub fn search_text_changed(
     if filter.is_some() {
         new_model_filter.set_visible_func(move |model, iter| {
             let stream_id = model
-                .value(&iter, message_parser::TREE_STORE_STREAM_ID_COL_IDX as i32)
+                .value(iter, message_parser::TREE_STORE_STREAM_ID_COL_IDX as i32)
                 .get::<u32>()
                 .unwrap();
             let idx = model
                 .value(
-                    &iter,
+                    iter,
                     message_parser::TREE_STORE_MESSAGE_INDEX_COL_IDX as i32,
                 )
                 .get::<u32>()

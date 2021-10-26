@@ -305,8 +305,7 @@ impl Widget for HeaderbarSearch {
                     .set_text(&self.model.recent_searches[idx as usize]);
             }
             Msg::MaybeSaveRecentSearch(s) => {
-                if self.widgets.search_entry.text().to_string() == s
-                    && !self.model.recent_searches.contains(&s)
+                if self.widgets.search_entry.text() == s && !self.model.recent_searches.contains(&s)
                 {
                     // the search string is still the same after 60s, and it's not
                     // in the recent list => add it there.

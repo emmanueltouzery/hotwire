@@ -474,7 +474,7 @@ impl MessageParser for Postgres {
         model: &gtk::TreeModel,
         iter: &gtk::TreeIter,
     ) -> bool {
-        if let Some(filter_key) = PostgresFilterKeys::from_str(filter.filter_key).ok() {
+        if let Ok(filter_key) = PostgresFilterKeys::from_str(filter.filter_key) {
             match filter_key {
                 PostgresFilterKeys::QueryString => model
                     .value(iter, 0)

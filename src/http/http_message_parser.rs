@@ -392,7 +392,7 @@ impl MessageParser for Http {
         iter: &gtk::TreeIter,
     ) -> bool {
         let filter_val = &filter.filter_val.to_lowercase();
-        if let Some(filter_key) = HttpFilterKeys::from_str(filter.filter_key).ok() {
+        if let Ok(filter_key) = HttpFilterKeys::from_str(filter.filter_key) {
             match filter_key {
                 HttpFilterKeys::ReqLine => {
                     model
