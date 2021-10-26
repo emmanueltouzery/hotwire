@@ -3,11 +3,14 @@ use super::search_options::Msg as SearchOptionsMsg;
 use super::search_options::SearchOptions;
 use crate::search_expr;
 use crate::search_expr::SearchExpr;
+use crate::BgFunc;
 use gtk::prelude::EntryCompletionExtManual;
 use gtk::prelude::*;
 use relm::{Component, Widget};
 use relm_derive::{widget, Msg};
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::mpsc;
+use std::time::Duration;
 
 const ITEM_TYPE_FILTER_KEY: u32 = 0;
 const ITEM_TYPE_SEARCH_OPERATOR: u32 = 1;
@@ -35,10 +38,13 @@ pub enum Msg {
     ),
     RequestOptionsClose,
     SearchCompletionAction(String),
+    ActivateRecentSearch(i32),
+    MaybeSaveRecentSearch(String),
 }
 
 pub struct Model {
     relm: relm::Relm<HeaderbarSearch>,
+    bg_sender: mpsc::Sender<BgFunc>,
     search_options: Option<Component<SearchOptions>>,
     // store the filter keys in a BTreeSet so that they'll be sorted
     // alphabetically when displaying in the GUI. An in a set because we
@@ -47,6 +53,7 @@ pub struct Model {
     current_card_idx: Option<usize>,
     search_text_by_card: BTreeMap<usize, String>,
     search_completion: gtk::EntryCompletion,
+    recent_searches: Vec<String>,
 }
 
 #[widget]
@@ -84,9 +91,50 @@ impl Widget for HeaderbarSearch {
             .search_options_btn
             .set_popover(Some(&search_options_popover));
         self.update_search_status(None);
+
+        self.init_recent_searches();
     }
 
-    fn model(relm: &relm::Relm<Self>, known_filter_keys: BTreeSet<&'static str>) -> Model {
+    fn init_recent_searches(&mut self) {
+        let recent_searches_box = gtk::ListBoxBuilder::new()
+            .activate_on_single_click(true)
+            .build();
+        for entry in &self.model.recent_searches {
+            recent_searches_box.add(
+                &gtk::LabelBuilder::new()
+                    .label(entry)
+                    .margin(7)
+                    .width_request(200)
+                    .ellipsize(pango::EllipsizeMode::End)
+                    .halign(gtk::Align::Start)
+                    .xalign(0.0)
+                    .build(),
+            );
+        }
+        relm::connect!(
+            self.model.relm,
+            recent_searches_box,
+            connect_row_activated(_, row),
+            Msg::ActivateRecentSearch(row.index())
+        );
+        let popover_box = gtk::BoxBuilder::new()
+            .orientation(gtk::Orientation::Vertical)
+            .child(
+                &gtk::LabelBuilder::new()
+                    .label("No recent search: listing some examples of valid searches")
+                    .name("popover_title")
+                    .build(),
+            )
+            .build();
+        popover_box.add(&recent_searches_box);
+        popover_box.show_all();
+        let recent_searches_popover = gtk::PopoverBuilder::new().child(&popover_box).build();
+        self.widgets
+            .recent_searches_btn
+            .set_popover(Some(&recent_searches_popover));
+    }
+
+    fn model(relm: &relm::Relm<Self>, bg_sender: mpsc::Sender<BgFunc>) -> Model {
         let cell_area = gtk::CellAreaBoxBuilder::new().build();
         let text_cell_type = gtk::CellRendererTextBuilder::new()
             // from the gnome color palette https://developer.gnome.org/hig/reference/palette.html?highlight=color
@@ -102,13 +150,21 @@ impl Widget for HeaderbarSearch {
             .build();
         search_completion.add_attribute(&text_cell_type, "text", 2);
         search_completion.add_attribute(&text_cell_main, "text", 0);
+
+        let recent_searches = vec![
+            "http.req_line contains list".to_string(),
+            "http.req_content_type doesntContain json".to_string(),
+            "pg.resultset doesntContain \"value with spaces\"".to_string(),
+        ];
         Model {
             relm: relm.clone(),
+            bg_sender,
             search_options: None,
-            known_filter_keys,
+            known_filter_keys: BTreeSet::new(),
             current_card_idx: None,
             search_text_by_card: BTreeMap::new(),
             search_completion,
+            recent_searches,
         }
     }
 
@@ -151,6 +207,17 @@ impl Widget for HeaderbarSearch {
                             .map_err(|e| e.to_string()),
                     )
                 };
+                if !self.model.recent_searches.contains(&text) {
+                    match &maybe_expr {
+                        Some(Ok((x, _))) if x.is_empty() => {
+                            let s = self.model.relm.clone();
+                            glib::timeout_add_local_once(Duration::from_secs(60), move || {
+                                s.stream().emit(Msg::MaybeSaveRecentSearch(text.clone()));
+                            });
+                        }
+                        _ => {}
+                    }
+                }
                 self.model
                     .relm
                     .stream()
@@ -230,6 +297,21 @@ impl Widget for HeaderbarSearch {
             Msg::OpenSearchAddPopover => {
                 if let Some(popover) = self.widgets.search_options_btn.popover() {
                     popover.popup();
+                }
+            }
+            Msg::ActivateRecentSearch(idx) => {
+                self.widgets
+                    .search_entry
+                    .set_text(&self.model.recent_searches[idx as usize]);
+            }
+            Msg::MaybeSaveRecentSearch(s) => {
+                if self.widgets.search_entry.text().to_string() == s
+                    && !self.model.recent_searches.contains(&s)
+                {
+                    // the search string is still the same after 60s, and it's not
+                    // in the recent list => add it there.
+                    dbg!(s);
+                    self.model.bg_sender.send(BgFunc::new(move || {}));
                 }
             }
         }
@@ -350,6 +432,11 @@ impl Widget for HeaderbarSearch {
             #[style_class="linked"]
             #[name="search_box"]
             gtk::Box {
+                #[name="recent_searches_btn"]
+                gtk::MenuButton {
+                    image: Some(&gtk::Image::from_icon_name(Some("document-open-recent-symbolic"), gtk::IconSize::Menu)),
+                    always_show_image: true,
+                },
                 #[name="search_entry"]
                 gtk::SearchEntry {
                     hexpand: true,

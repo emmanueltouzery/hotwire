@@ -1585,7 +1585,7 @@ impl Widget for Win {
                     #[name="headerbar_search_revealer"]
                     gtk::Revealer {
                         #[name="headerbar_search"]
-                        HeaderbarSearch(BTreeSet::new()) {
+                        HeaderbarSearch(self.model.bg_sender.clone()) {
                             HbsMsgSearchActiveChanged(is_active) => Msg::SearchActiveChanged(is_active),
                             HbsMsgSearchExprChanged(ref m_expr) => Msg::SearchExprChanged(m_expr.clone()),
                         },
