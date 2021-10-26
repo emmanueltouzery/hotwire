@@ -157,20 +157,12 @@ impl Widget for HeaderbarSearch {
                     .emit(Msg::SearchExprChanged(maybe_expr));
             }
             Msg::SearchCompletionAction(completion) => {
-                let txt = &self.widgets.search_entry.text().to_string()
-                    [0..(self.widgets.search_entry.cursor_position() as usize)];
-                if txt.contains(' ') {
-                    let base = txt
-                        .rsplitn(2, |c| c == ' ')
-                        .last()
-                        .unwrap_or("")
-                        .to_string();
-                    self.widgets
-                        .search_entry
-                        .set_text(&(base + " " + &completion + " "));
-                } else {
-                    self.widgets.search_entry.set_text(&(completion + " "));
-                }
+                let updated_text = Self::search_completion_action(
+                    &self.widgets.search_entry.text().to_string(),
+                    self.widgets.search_entry.cursor_position() as usize,
+                    completion,
+                );
+                self.widgets.search_entry.set_text(&updated_text);
                 self.widgets.search_entry.set_position(-1);
             }
             Msg::SearchExprChanged(expr) => {
@@ -243,8 +235,31 @@ impl Widget for HeaderbarSearch {
         }
     }
 
+    fn search_completion_action(
+        entry_text_before: &str,
+        entry_pos: usize,
+        completion: String,
+    ) -> String {
+        let txt = &entry_text_before[0..entry_pos];
+        let rest = if entry_pos < entry_text_before.len() {
+            &entry_text_before[entry_pos..]
+        } else {
+            " "
+        };
+        if txt.contains(' ') {
+            let base = txt
+                .rsplitn(2, |c| c == ' ')
+                .last()
+                .unwrap_or("")
+                .to_string();
+            base + " " + &completion + rest
+        } else {
+            completion + rest
+        }
+    }
+
     fn update_search_completion(&mut self, known_filter_keywords: &BTreeSet<&'static str>) {
-        let mut store = gtk::ListStore::new(&[
+        let store = gtk::ListStore::new(&[
             String::static_type(), // completion
             u32::static_type(),    // item type
             String::static_type(), // item type display
@@ -351,5 +366,34 @@ impl Widget for HeaderbarSearch {
                 },
             },
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn completion_first_word() {
+        assert_eq!(
+            "http.text ",
+            HeaderbarSearch::search_completion_action("http.t", 6, "http.text".to_string())
+        );
+    }
+
+    #[test]
+    fn completion_at_end() {
+        assert_eq!(
+            "http.text contains ",
+            HeaderbarSearch::search_completion_action("http.text con", 13, "contains".to_string())
+        );
+    }
+
+    #[test]
+    fn completion_in_middle() {
+        assert_eq!(
+            "http.text contains",
+            HeaderbarSearch::search_completion_action("ht contains", 2, "http.text".to_string())
+        );
     }
 }
