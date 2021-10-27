@@ -47,13 +47,6 @@
                 <property name="title" translatable="yes">Leave search mode</property>
               </object>
             </child>
-          </object>
-        </child>
-        <child>
-          <object class="GtkShortcutsGroup">
-            <property name="visible">1</property>
-            <property name="title" translatable="yes">Search popover</property>
-            <property name="view">events</property>
             <child>
               <object class="GtkShortcutsShortcut">
                 <property name="direction">ltr</property>
@@ -68,6 +61,13 @@
                 <property name="title" translatable="yes">Open search popover</property>
               </object>
             </child>
+          </object>
+        </child>
+        <child>
+          <object class="GtkShortcutsGroup">
+            <property name="visible">1</property>
+            <property name="title" translatable="yes">Search popover</property>
+            <property name="view">events</property>
             <child>
               <object class="GtkShortcutsShortcut">
                 <property name="direction">ltr</property>
