@@ -36,6 +36,8 @@ enum PostgresFilterKeys {
     QueryString,
     #[strum(serialize = "pg.resultset")]
     ResultSet,
+    #[strum(serialize = "pg.query_param")]
+    QueryParamValue,
 }
 
 fn get_pg_message<'a, 'b>(
@@ -490,6 +492,15 @@ impl MessageParser for Postgres {
                                 c.as_ref().map_or(false, |v| v.to_lowercase().contains(&fv))
                             })
                         })
+                    })
+                }
+                PostgresFilterKeys::QueryParamValue => {
+                    let fv = filter.filter_val.to_lowercase();
+                    get_pg_message(streams, model, iter).map_or(false, |pg_msg| {
+                        pg_msg
+                            .parameter_values
+                            .iter()
+                            .any(|(_type, v)| v.to_lowercase().contains(&fv))
                     })
                 }
             }
