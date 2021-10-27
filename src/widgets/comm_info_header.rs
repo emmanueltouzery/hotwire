@@ -46,6 +46,7 @@ impl Widget for CommInfoHeader {
             gtk::Label {
                 label: &self.model.client_ip.to_string(),
                 xalign: 0.0,
+                selectable: true,
             },
             #[style_class="label"]
             gtk::Label {
@@ -55,6 +56,7 @@ impl Widget for CommInfoHeader {
             gtk::Label {
                 label: &CommInfoHeader::format_stream_id(self.model.stream_id),
                 xalign: 0.0,
+                selectable: true,
             },
         }
     }
