@@ -454,7 +454,11 @@ impl Widget for HeaderbarSearch {
             .search_completion
             .set_match_func(|compl, full_txt, iter| {
                 let e = compl.entry().unwrap();
-                let txt = &full_txt[..(e.cursor_position() as usize)];
+                let txt = if full_txt.len() > e.cursor_position() as usize {
+                    &full_txt[..(e.cursor_position() as usize)]
+                } else {
+                    full_txt
+                };
                 let last_typed_word = txt.split(' ').last().unwrap_or(txt);
                 let possible_completion_txt = compl
                     .model()
