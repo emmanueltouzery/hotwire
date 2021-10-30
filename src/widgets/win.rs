@@ -175,7 +175,6 @@ impl Widget for Win {
         if let Err(err) = self.load_style() {
             eprintln!("Error loading the CSS: {}", err);
         }
-        self.widgets.infobar.set_visible(false);
 
         self.left_align_menu_entries();
 
@@ -533,7 +532,7 @@ impl Widget for Win {
                 self.handle_infobar_show(&msg, options);
             }
             Msg::InfoBarShow(None, _) | Msg::InfoBarEvent(gtk::ResponseType::Close) => {
-                self.widgets.infobar.set_visible(false);
+                self.widgets.infobar.set_revealed(false);
             }
             Msg::InfoBarEvent(_) => {}
             Msg::LoadedData(Err(msg)) => {
@@ -641,7 +640,7 @@ impl Widget for Win {
             });
         }
         self.model.infobar_label.set_text(msg);
-        self.widgets.infobar.set_visible(true);
+        self.widgets.infobar.set_revealed(true);
     }
 
     fn handle_select_card(&mut self, maybe_idx: Option<usize>) {
@@ -1599,7 +1598,9 @@ impl Widget for Win {
                     },
                     #[name="infobar"]
                     gtk::InfoBar {
-                        response(_, r) => Msg::InfoBarEvent(r)
+                        response(_, r) => Msg::InfoBarEvent(r),
+                        visible: true,
+                        revealed: false,
                     },
                     gtk::Box {
                         vexpand: true,
