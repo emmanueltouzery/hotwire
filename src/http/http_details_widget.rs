@@ -1,6 +1,6 @@
 use super::http_body_widget;
 use super::http_body_widget::HttpBodyWidget;
-use super::http_message_parser::HttpMessageData;
+use super::http_message_parser::{HttpMessageData, HttpRequestResponseData};
 use crate::icons::Icon;
 use crate::message_parser::{MessageData, MessageInfo};
 use crate::tshark_communication::TcpStreamId;
@@ -12,6 +12,7 @@ use gtk::prelude::*;
 use itertools::Itertools;
 use relm::Widget;
 use relm_derive::{widget, Msg};
+use std::borrow::Cow;
 use std::net::IpAddr;
 use std::sync::mpsc;
 
@@ -19,6 +20,7 @@ use std::sync::mpsc;
 pub enum Msg {
     DisplayDetails(mpsc::Sender<BgFunc>, MessageInfo),
     RemoveFormatToggled,
+    CopyContentsClick,
 }
 
 pub struct Model {
@@ -28,11 +30,62 @@ pub struct Model {
     client_ip: IpAddr,
     data: HttpMessageData,
 
+    options_popover: gtk::Popover,
+    format_contents_btn: gtk::CheckButton,
+
     format_request_response: bool,
 }
 
 #[widget]
 impl Widget for HttpCommEntry {
+    fn init_options_overlay(
+        relm: &relm::Relm<Self>,
+        overlay: &gtk::Overlay,
+        format_contents_btn: &gtk::CheckButton,
+    ) -> gtk::Popover {
+        let popover_box = gtk::BoxBuilder::new()
+            .orientation(gtk::Orientation::Vertical)
+            .margin(10)
+            .spacing(10)
+            .build();
+
+        relm::connect!(
+            relm,
+            format_contents_btn,
+            connect_toggled(_),
+            Msg::RemoveFormatToggled
+        );
+        popover_box.add(format_contents_btn);
+        let copy_to_clipboard_lbl = gtk::ButtonBuilder::new().label("Copy to clipboard").build();
+        popover_box.add(&copy_to_clipboard_lbl);
+        popover_box.show_all();
+
+        relm::connect!(
+            relm,
+            copy_to_clipboard_lbl,
+            connect_clicked(_),
+            Msg::CopyContentsClick
+        );
+
+        let options_popover = gtk::PopoverBuilder::new().child(&popover_box).build();
+
+        let options_btn = gtk::MenuButtonBuilder::new()
+            .always_show_image(true)
+            .image(&gtk::Image::from_icon_name(
+                Some(Icon::COG.name()),
+                gtk::IconSize::Menu,
+            ))
+            .valign(gtk::Align::Start)
+            .halign(gtk::Align::End)
+            .margin_top(10)
+            .margin_end(10)
+            .build();
+        options_btn.set_popover(Some(&options_popover));
+        overlay.add_overlay(&options_btn);
+
+        options_popover
+    }
+
     fn model(
         relm: &relm::Relm<Self>,
         params: (
@@ -45,32 +98,20 @@ impl Widget for HttpCommEntry {
         ),
     ) -> Model {
         let (win_msg_sender, stream_id, client_ip, data, overlay, bg_sender) = params;
-
-        let disable_formatting_btn = gtk::ToggleButtonBuilder::new()
-            .label("Disable formatting")
-            .always_show_image(true)
-            .image(&gtk::Image::from_icon_name(
-                Some(Icon::REMOVE_FORMAT.name()),
-                gtk::IconSize::Menu,
-            ))
-            .valign(gtk::Align::Start)
-            .halign(gtk::Align::End)
-            .margin_top(10)
-            .margin_end(10)
+        let format_contents_btn = gtk::CheckButtonBuilder::new()
+            .active(true)
+            .label("Format contents")
             .build();
-        overlay.add_overlay(&disable_formatting_btn);
-        relm::connect!(
-            relm,
-            disable_formatting_btn,
-            connect_clicked(_),
-            Msg::RemoveFormatToggled
-        );
+        let options_popover = Self::init_options_overlay(relm, &overlay, &format_contents_btn);
+
         Model {
             win_msg_sender,
             bg_sender,
             data,
             stream_id,
             client_ip,
+            format_contents_btn,
+            options_popover,
             format_request_response: true,
         }
     }
@@ -111,7 +152,7 @@ impl Widget for HttpCommEntry {
                     });
             }
             Msg::RemoveFormatToggled => {
-                self.model.format_request_response = !self.model.format_request_response;
+                self.model.format_request_response = self.model.format_contents_btn.is_active();
                 self.streams
                     .request_body
                     .emit(http_body_widget::Msg::FormatCodeChanged(
@@ -122,6 +163,46 @@ impl Widget for HttpCommEntry {
                     .emit(http_body_widget::Msg::FormatCodeChanged(
                         self.model.format_request_response,
                     ));
+            }
+            Msg::CopyContentsClick => {
+                if let Some(clip) =
+                    gtk::Clipboard::default(&self.widgets.comm_info_header.display())
+                {
+                    let format_reqresp = |r: &HttpRequestResponseData| {
+                        format!(
+                            "{}\n{}\n\n{}",
+                            r.first_line,
+                            r.headers
+                                .iter()
+                                .map(|(k, v)| format!("{}: {}", k, v))
+                                .join("\n"),
+                            r.body_as_str().unwrap_or(Cow::Borrowed(""))
+                        )
+                    };
+                    let clip_contents = format!(
+                        "{}\n-------\n{}",
+                        self.model
+                            .data
+                            .request
+                            .as_ref()
+                            .map(format_reqresp)
+                            .as_deref()
+                            .unwrap_or(""),
+                        self.model
+                            .data
+                            .response
+                            .as_ref()
+                            .map(format_reqresp)
+                            .as_deref()
+                            .unwrap_or("")
+                    );
+                    clip.set_text(&clip_contents);
+                    self.model.win_msg_sender.emit(win::Msg::InfoBarShow(
+                        Some("Copied to the clipboard".to_string()),
+                        win::InfobarOptions::TimeLimitedWithCloseButton,
+                    ))
+                }
+                self.model.options_popover.popdown();
             }
             _ => {}
         }

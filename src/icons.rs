@@ -7,6 +7,7 @@ impl Icon {
     }
 
     pub const HTTP: Icon = Icon("http");
+    pub const COG: Icon = Icon("cog");
     pub const DATABASE: Icon = Icon("database");
     pub const LOCK: Icon = Icon("lock");
     pub const INSERT: Icon = Icon("insert");
@@ -23,7 +24,6 @@ impl Icon {
     pub const LOGIN: Icon = Icon("login");
     pub const COPY: Icon = Icon("copy");
     pub const BOOKMARK: Icon = Icon("bookmark");
-    pub const REMOVE_FORMAT: Icon = Icon("remove-format");
     pub const OTHER: Icon = Icon("other");
     pub const ANGLE_DOUBLE_DOWN: Icon = Icon("angle-double-down");
     pub const SESSION: Icon = Icon("session");

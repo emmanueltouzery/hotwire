@@ -15,11 +15,11 @@
     <file alias="create-symbolic.svg">fontawesome-5.13.0/svgs/solid/folder-plus.svg</file>
     <file alias="alter-symbolic.svg">fontawesome-5.13.0/svgs/solid/wrench.svg</file>
     <file alias="plsql-symbolic.svg">fontawesome-5.13.0/svgs/solid/cogs.svg</file>
+    <file alias="cog-symbolic.svg">fontawesome-5.13.0/svgs/solid/cog.svg</file>
     <file alias="login-symbolic.svg">fontawesome-5.13.0/svgs/solid/user-circle.svg</file>
     <file alias="copy-symbolic.svg">fontawesome-5.13.0/svgs/solid/truck-loading.svg</file>
     <file alias="other-symbolic.svg">fontawesome-5.13.0/svgs/solid/question-circle.svg</file>
     <file alias="bookmark-symbolic.svg">fontawesome-5.13.0/svgs/solid/bookmark.svg</file>
-    <file alias="remove-format-symbolic.svg">fontawesome-5.13.0/svgs/solid/remove-format.svg</file>
     <file alias="angle-double-down-symbolic.svg">fontawesome-5.13.0/svgs/solid/angle-double-down.svg</file>
     <file alias="session-symbolic.svg">fontawesome-5.13.0/svgs/solid/exchange-alt.svg</file>
     <file alias="remote-host-symbolic.svg">fontawesome-5.13.0/svgs/solid/network-wired.svg</file>
