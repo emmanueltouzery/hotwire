@@ -30,6 +30,16 @@ https://hughsie.github.io/oars/index.html
 -->
   <content_rating type="oars-1.0" />
   <releases>
+    <release version="0.2.0" date="2021-10-30">
+      <description>
+        <p>Upgrade dependencies, especially gtk and relm</p>
+        <p>Considerably improved search, mini language with and/or conditions and brackets that can filter on several subparts of messages</p>
+        <p>Communication info header: ability to select client IP and stream ID</p>
+        <p>New "keyboard shortcuts" dialog</p>
+        <p>HTTP: ability to copy communication to the clipboard</p>
+        <p>Animate the infobar when showing or hiding it</p>
+      </description>
+    </release>
     <release version="0.1.0" date="2021-07-03">
       <description>
         <p>Initial release</p>
