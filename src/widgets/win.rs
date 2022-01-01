@@ -8,14 +8,15 @@ use super::ips_and_streams_treeview;
 use super::messages_treeview;
 use super::preferences::Preferences;
 use super::recent_file_item::RecentFileItem;
+use crate::any_message_parser;
 use crate::config;
 use crate::config::Config;
 use crate::http::http_message_parser::Http;
 use crate::http2::http2_message_parser::Http2;
 use crate::icons::Icon;
-use crate::message_parser::ClientServerInfo;
 use crate::message_parser::MessageParser;
 use crate::message_parser::StreamData;
+use crate::message_parser::{AnyStreamGlobals, ClientServerInfo};
 use crate::packets_read;
 use crate::packets_read::{InputStep, ParseInputStep, TSharkInputType};
 use crate::pgsql::postgres_message_parser::Postgres;
@@ -51,8 +52,12 @@ const NORMAL_STACK_NAME: &str = "normal";
 
 const PCAP_MIME_TYPE: &str = "application/vnd.tcpdump.pcap";
 
-pub fn get_message_parsers() -> Vec<Box<dyn MessageParser>> {
-    vec![Box::new(Http), Box::new(Postgres), Box::new(Http2)]
+pub fn get_message_parsers() -> Vec<Box<dyn MessageParser<StreamGlobalsType = AnyStreamGlobals>>> {
+    vec![
+        Box::new(any_message_parser::wrap_message_parser(Http)),
+        Box::new(any_message_parser::wrap_message_parser(Postgres)),
+        Box::new(any_message_parser::wrap_message_parser(Http2)),
+    ]
 }
 
 pub fn is_flatpak() -> bool {
@@ -130,7 +135,7 @@ pub struct Model {
 
     sidebar_selection_change_signal_id: Option<glib::SignalHandlerId>,
 
-    streams: HashMap<TcpStreamId, StreamData>,
+    streams: HashMap<TcpStreamId, StreamData<AnyStreamGlobals>>,
     comm_target_cards: Vec<CommTargetCardData>,
     selected_card: Option<CommTargetCardData>,
 
@@ -597,7 +602,7 @@ impl Widget for Win {
                         &self.model.bg_sender,
                         stream_id,
                         stream_client_server,
-                        msg_data,
+                        &msg_data,
                     );
                 } else {
                     println!(
@@ -812,7 +817,7 @@ impl Widget for Win {
                     parser_index,
                     stream_globals: parser.initial_globals(),
                     client_server: None,
-                    messages: vec![],
+                    messages: parser.empty_messages_data(),
                     summary_details: None,
                 };
                 match parser.add_to_stream(stream_data, p) {
@@ -989,7 +994,7 @@ impl Widget for Win {
     fn add_update_comm_target_data(
         &mut self,
         protocol_index: usize,
-        parser: &dyn MessageParser,
+        parser: &dyn MessageParser<StreamGlobalsType = AnyStreamGlobals>,
         client_server_info: ClientServerInfo,
         summary_details: Option<&str>,
         session_change_type: SessionChangeType,

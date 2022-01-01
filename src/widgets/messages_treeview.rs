@@ -1,5 +1,5 @@
 use super::win;
-use crate::message_parser;
+use crate::message_parser::{self, AnyStreamGlobals, MessagesData};
 use crate::message_parser::{
     ClientServerInfo, MessageData, MessageInfo, MessageParser, StreamData,
 };
@@ -80,7 +80,7 @@ fn add_message_parser_grid_and_pane(
     comm_remote_servers_stack: &gtk::Stack,
     relm: &relm::Relm<win::Win>,
     bg_sender: &mpsc::Sender<BgFunc>,
-    message_parser: &dyn MessageParser,
+    message_parser: &dyn MessageParser<StreamGlobalsType = AnyStreamGlobals>,
     mp_idx: usize,
 ) -> (
     (gtk::TreeView, TreeViewSignals),
@@ -201,7 +201,7 @@ fn row_selected(
 pub fn refresh_remote_servers(
     tv_state: &mut MessagesTreeviewState,
     selected_card: Option<&CommTargetCardData>,
-    streams: &HashMap<TcpStreamId, StreamData>,
+    streams: &HashMap<TcpStreamId, StreamData<AnyStreamGlobals>>,
     remote_ips_streams_treeview: &gtk::TreeView,
     sidebar_selection_change_signal_id: Option<&glib::SignalHandlerId>,
     constrain_remote_ips: &[IpAddr],
@@ -253,8 +253,8 @@ pub fn refresh_remote_servers(
         for tcp_sessions in by_remote_ip.values() {
             for (session_id, session) in tcp_sessions {
                 let mut idx = 0;
-                for chunk in session.messages.chunks(100) {
-                    mp.populate_treeview(&ls, **session_id, chunk, idx);
+                while idx < session.messages.len() {
+                    mp.populate_treeview(&ls, **session_id, &session.messages, idx, 100);
                     idx += 100;
                     // https://developer.gnome.org/gtk3/stable/gtk3-General.html#gtk-events-pending
                     // I've had this loop last almost 3 seconds!!
@@ -363,10 +363,19 @@ fn get_store_holding_model(
     (tv, store_holding_model)
 }
 
+fn get_messages_by_stream(
+    streams: &HashMap<TcpStreamId, StreamData<AnyStreamGlobals>>,
+) -> HashMap<TcpStreamId, &MessagesData> {
+    streams
+        .iter()
+        .map(|(tcp, sd)| (*tcp, &sd.messages))
+        .collect()
+}
+
 fn matches_filter(
-    mp: &dyn MessageParser,
+    mp: &dyn MessageParser<StreamGlobalsType = AnyStreamGlobals>,
     f: &search_expr::SearchExpr,
-    streams: &HashMap<TcpStreamId, StreamData>,
+    streams: &HashMap<TcpStreamId, StreamData<AnyStreamGlobals>>,
     model: &gtk::TreeModel,
     iter: &gtk::TreeIter,
 ) -> bool {
@@ -382,17 +391,19 @@ fn matches_filter(
         search_expr::SearchExpr::SearchOpExpr(expr)
             if expr.op_negation == OperatorNegation::Negated =>
         {
-            !mp.matches_filter(expr, streams, model, iter)
+            let msg_by_stream = get_messages_by_stream(streams);
+            !mp.matches_filter(expr, &msg_by_stream, model, iter)
         }
         search_expr::SearchExpr::SearchOpExpr(expr) => {
-            mp.matches_filter(expr, streams, model, iter)
+            let msg_by_stream = get_messages_by_stream(streams);
+            mp.matches_filter(expr, &msg_by_stream, model, iter)
         }
     }
 }
 
 pub fn search_text_changed(
     tv_state: &MessagesTreeviewState,
-    streams: &HashMap<TcpStreamId, StreamData>,
+    streams: &HashMap<TcpStreamId, StreamData<AnyStreamGlobals>>,
     protocol_index: usize,
     filter: Option<&search_expr::SearchExpr>,
 ) {
@@ -483,7 +494,7 @@ pub fn refresh_grids_new_messages(
     selected_card: Option<CommTargetCardData>,
     stream_id: TcpStreamId,
     message_count_before: usize,
-    stream_data: &StreamData,
+    stream_data: &StreamData<AnyStreamGlobals>,
     follow_packets: FollowPackets,
 ) {
     let parsers = win::get_message_parsers();
@@ -519,8 +530,9 @@ pub fn refresh_grids_new_messages(
             parser.populate_treeview(
                 &ls,
                 stream_id,
-                &stream_data.messages[stream_data.messages.len() - added_messages..],
-                (stream_data.messages.len() - added_messages) as i32,
+                &stream_data.messages,
+                stream_data.messages.len() - added_messages,
+                added_messages,
             );
 
             packets_added_trigger_events(
@@ -536,7 +548,7 @@ pub fn refresh_grids_new_messages(
 
 fn packets_added_trigger_events(
     tv_state: &MessagesTreeviewState,
-    stream_data: &StreamData,
+    stream_data: &StreamData<AnyStreamGlobals>,
     rstream: &relm::StreamHandle<win::Msg>,
     added_messages: usize,
     follow_packets: FollowPackets,

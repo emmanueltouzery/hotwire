@@ -5,7 +5,7 @@ use crate::http::tshark_http::HttpType;
 use crate::icons::Icon;
 use crate::message_parser;
 use crate::message_parser::{
-    ClientServerInfo, MessageData, MessageInfo, MessageParser, StreamData, StreamGlobals,
+    AnyStreamGlobals, ClientServerInfo, MessageInfo, MessageParser, MessagesData, StreamData,
 };
 use crate::search_expr;
 use crate::tshark_communication::{NetworkPort, TSharkPacket, TcpSeqNumber, TcpStreamId};
@@ -69,14 +69,118 @@ pub enum HttpFilterKeys {
 }
 
 fn get_http_message<'a, 'b>(
-    streams: &'a HashMap<TcpStreamId, StreamData>,
+    messages_by_stream: &'a HashMap<TcpStreamId, &MessagesData>,
     model: &'b gtk::TreeModel,
     iter: &'b gtk::TreeIter,
 ) -> Option<&'a HttpMessageData> {
-    message_parser::get_message(streams, model, iter).and_then(|m| m.as_http())
+    message_parser::get_message(&messages_by_stream, model, iter)
+        .and_then(|(idx, m)| m.as_http().and_then(|m| m.get(idx)))
+}
+
+pub fn http_matches_filter(
+    filter: &search_expr::SearchOpExpr,
+    messages_by_stream: &HashMap<TcpStreamId, &MessagesData>,
+    model: &gtk::TreeModel,
+    iter: &gtk::TreeIter,
+) -> bool {
+    let filter_val = &filter.filter_val.to_lowercase();
+    if let Ok(filter_key) = HttpFilterKeys::from_str(filter.filter_key) {
+        match filter_key {
+            HttpFilterKeys::ReqLine => {
+                model
+                    .value(iter, 0) // req info
+                    .get::<&str>()
+                    .unwrap()
+                    .to_lowercase()
+                    .contains(filter_val)
+            }
+            HttpFilterKeys::RespStatus => {
+                model
+                    .value(iter, 1) // resp info
+                    .get::<&str>()
+                    .unwrap()
+                    .to_lowercase()
+                    .contains(filter_val)
+            }
+            HttpFilterKeys::ReqContentType => {
+                model
+                    .value(iter, 8) // req content type
+                    .get::<&str>()
+                    .unwrap_or("")
+                    .to_lowercase()
+                    .contains(filter_val)
+            }
+            HttpFilterKeys::RespContentType => {
+                model
+                    .value(iter, 9) // resp content type
+                    .get::<&str>()
+                    .unwrap_or("")
+                    .to_lowercase()
+                    .contains(filter_val)
+            }
+            HttpFilterKeys::ReqHeader => {
+                get_http_message(messages_by_stream, model, iter).map_or(false, |http_msg| {
+                    http_msg
+                        .request
+                        .as_ref()
+                        .filter(|r| {
+                            r.headers.iter().any(|(k, v)| {
+                                k.to_lowercase().contains(filter_val)
+                                    || v.to_lowercase().contains(filter_val)
+                            })
+                        })
+                        .is_some()
+                })
+            }
+            HttpFilterKeys::RespHeader => {
+                get_http_message(messages_by_stream, model, iter).map_or(false, |http_msg| {
+                    http_msg
+                        .response
+                        .as_ref()
+                        .filter(|r| {
+                            r.headers.iter().any(|(k, v)| {
+                                k.to_lowercase().contains(filter_val)
+                                    || v.to_lowercase().contains(filter_val)
+                            })
+                        })
+                        .is_some()
+                })
+            }
+            HttpFilterKeys::ReqBody => {
+                get_http_message(messages_by_stream, model, iter).map_or(false, |http_msg| {
+                    http_msg
+                        .request
+                        .as_ref()
+                        .filter(|r| {
+                            r.body_as_str()
+                                .filter(|b| b.to_lowercase().contains(filter_val))
+                                .is_some()
+                        })
+                        .is_some()
+                })
+            }
+            HttpFilterKeys::RespBody => {
+                get_http_message(messages_by_stream, model, iter).map_or(false, |http_msg| {
+                    http_msg
+                        .response
+                        .as_ref()
+                        .filter(|r| {
+                            r.body_as_str()
+                                .filter(|b| b.to_lowercase().contains(filter_val))
+                                .is_some()
+                        })
+                        .is_some()
+                })
+            }
+        }
+    } else {
+        true
+    }
 }
 
 impl MessageParser for Http {
+    type StreamGlobalsType = HttpStreamGlobals;
+
     fn is_my_message(&self, msg: &TSharkPacket) -> bool {
         msg.http.is_some()
     }
@@ -93,17 +197,29 @@ impl MessageParser for Http {
         "HTTP"
     }
 
-    fn initial_globals(&self) -> StreamGlobals {
-        StreamGlobals::Http(HttpStreamGlobals::default())
+    fn initial_globals(&self) -> HttpStreamGlobals {
+        HttpStreamGlobals::default()
+    }
+
+    fn empty_messages_data(&self) -> MessagesData {
+        MessagesData::Http(vec![])
+    }
+
+    fn to_any_stream_globals(&self, g: Self::StreamGlobalsType) -> AnyStreamGlobals {
+        AnyStreamGlobals::Http(g)
+    }
+
+    fn extract_stream_globals(&self, g: AnyStreamGlobals) -> Option<Self::StreamGlobalsType> {
+        g.extract_http()
     }
 
     fn add_to_stream(
         &self,
-        mut stream: StreamData,
+        mut stream: StreamData<Self::StreamGlobalsType>,
         new_packet: TSharkPacket,
-    ) -> Result<StreamData, String> {
-        let mut globals = stream.stream_globals.extract_http().unwrap();
-        let mut messages = stream.messages;
+    ) -> Result<StreamData<Self::StreamGlobalsType>, String> {
+        let mut globals = stream.stream_globals;
+        let mut messages = stream.messages.get_http().unwrap();
         let rr = parse_request_response(
             new_packet,
             stream.client_server.as_ref().map(|cs| cs.server_ip),
@@ -167,58 +283,42 @@ impl MessageParser for Http {
                         server_port: srv_port,
                     });
                 }
-                messages.push(MessageData::Http(HttpMessageData {
+                messages.push(HttpMessageData {
                     http_stream_id: 0,
                     request: globals.cur_request.take(),
                     response: Some(r),
-                }));
+                });
             }
             ReqRespInfo {
                 req_resp: RequestOrResponseOrOther::Other,
                 ..
             } => {}
         };
-        stream.stream_globals = StreamGlobals::Http(globals);
-        stream.messages = messages;
+        stream.stream_globals = globals;
+        stream.messages = MessagesData::Http(messages);
         Ok(stream)
     }
 
-    fn finish_stream(&self, mut stream: StreamData) -> Result<StreamData, String> {
-        let globals = stream.stream_globals.extract_http().unwrap();
-        let mut messages = stream.messages;
+    fn finish_stream(
+        &self,
+        mut stream: StreamData<Self::StreamGlobalsType>,
+    ) -> Result<StreamData<Self::StreamGlobalsType>, String> {
+        let globals = stream.stream_globals;
+        let mut messages = stream.messages.get_http().unwrap();
         if let Some(req) = globals.cur_request {
-            messages.push(MessageData::Http(HttpMessageData {
+            messages.push(HttpMessageData {
                 http_stream_id: 0,
                 request: Some(req),
                 response: None,
-            }));
+            });
         }
         if stream.summary_details.is_none() && globals.server_info.is_some() {
             // don't have summary details, let's use server info as "fallback"
             stream.summary_details = globals.server_info;
         }
-        stream.stream_globals = StreamGlobals::Http(HttpStreamGlobals::default());
-        stream.messages = messages;
+        stream.stream_globals = HttpStreamGlobals::default();
+        stream.messages = MessagesData::Http(messages);
         Ok(stream)
-    }
-
-    fn get_empty_liststore(&self) -> gtk::ListStore {
-        gtk::ListStore::new(&[
-            // TODO add: body size...
-            String::static_type(), // request first line
-            String::static_type(), // response first line
-            u32::static_type(),    // stream_id
-            u32::static_type(),    // index of the comm in the model vector
-            String::static_type(), // request start timestamp (string)
-            i64::static_type(),    // request start timestamp (integer, for sorting)
-            i32::static_type(),    // request duration (nanos, for sorting)
-            String::static_type(), // request duration display
-            String::static_type(), // request content type
-            String::static_type(), // response content type
-            u32::static_type(),    // tcp sequence number
-            String::static_type(), // stream color
-            String::static_type(), // http response color
-        ])
     }
 
     fn prepare_treeview(&self, tv: &gtk::TreeView) {
@@ -286,16 +386,42 @@ impl MessageParser for Http {
         tv.append_column(&response_ct_col);
     }
 
+    fn get_empty_liststore(&self) -> gtk::ListStore {
+        gtk::ListStore::new(&[
+            // TODO add: body size...
+            String::static_type(), // request first line
+            String::static_type(), // response first line
+            u32::static_type(),    // stream_id
+            u32::static_type(),    // index of the comm in the model vector
+            String::static_type(), // request start timestamp (string)
+            i64::static_type(),    // request start timestamp (integer, for sorting)
+            i32::static_type(),    // request duration (nanos, for sorting)
+            String::static_type(), // request duration display
+            String::static_type(), // request content type
+            String::static_type(), // response content type
+            u32::static_type(),    // tcp sequence number
+            String::static_type(), // stream color
+            String::static_type(), // http response color
+        ])
+    }
+
     fn populate_treeview(
         &self,
         ls: &gtk::ListStore,
         session_id: TcpStreamId,
-        messages: &[MessageData],
-        start_idx: i32,
+        messages: &MessagesData,
+        start_idx: usize,
+        item_count: usize,
     ) {
-        for (idx, message) in messages.iter().enumerate() {
+        for (idx, http) in messages
+            .as_http()
+            .unwrap()
+            .iter()
+            .skip(start_idx)
+            .take(item_count)
+            .enumerate()
+        {
             let iter = ls.append();
-            let http = message.as_http().unwrap();
             ls.set_value(
                 &iter,
                 0,
@@ -324,7 +450,7 @@ impl MessageParser for Http {
             ls.set_value(
                 &iter,
                 message_parser::TREE_STORE_MESSAGE_INDEX_COL_IDX,
-                &(start_idx + idx as i32).to_value(),
+                &((start_idx + idx) as i32).to_value(),
             );
             if let Some(ref rq) = http.request {
                 ls.set_value(&iter, 4, &rq.timestamp.to_string().to_value());
@@ -380,112 +506,6 @@ impl MessageParser for Http {
         tv.set_model(Some(&model_sort));
     }
 
-    fn supported_filter_keys(&self) -> &'static [&'static str] {
-        HttpFilterKeys::VARIANTS
-    }
-
-    fn matches_filter(
-        &self,
-        filter: &search_expr::SearchOpExpr,
-        streams: &HashMap<TcpStreamId, StreamData>,
-        model: &gtk::TreeModel,
-        iter: &gtk::TreeIter,
-    ) -> bool {
-        let filter_val = &filter.filter_val.to_lowercase();
-        if let Ok(filter_key) = HttpFilterKeys::from_str(filter.filter_key) {
-            match filter_key {
-                HttpFilterKeys::ReqLine => {
-                    model
-                        .value(iter, 0) // req info
-                        .get::<&str>()
-                        .unwrap()
-                        .to_lowercase()
-                        .contains(filter_val)
-                }
-                HttpFilterKeys::RespStatus => {
-                    model
-                        .value(iter, 1) // resp info
-                        .get::<&str>()
-                        .unwrap()
-                        .to_lowercase()
-                        .contains(filter_val)
-                }
-                HttpFilterKeys::ReqContentType => {
-                    model
-                        .value(iter, 8) // req content type
-                        .get::<&str>()
-                        .unwrap_or("")
-                        .to_lowercase()
-                        .contains(filter_val)
-                }
-                HttpFilterKeys::RespContentType => {
-                    model
-                        .value(iter, 9) // resp content type
-                        .get::<&str>()
-                        .unwrap_or("")
-                        .to_lowercase()
-                        .contains(filter_val)
-                }
-                HttpFilterKeys::ReqHeader => {
-                    get_http_message(streams, model, iter).map_or(false, |http_msg| {
-                        http_msg
-                            .request
-                            .as_ref()
-                            .filter(|r| {
-                                r.headers.iter().any(|(k, v)| {
-                                    k.to_lowercase().contains(filter_val)
-                                        || v.to_lowercase().contains(filter_val)
-                                })
-                            })
-                            .is_some()
-                    })
-                }
-                HttpFilterKeys::RespHeader => {
-                    get_http_message(streams, model, iter).map_or(false, |http_msg| {
-                        http_msg
-                            .response
-                            .as_ref()
-                            .filter(|r| {
-                                r.headers.iter().any(|(k, v)| {
-                                    k.to_lowercase().contains(filter_val)
-                                        || v.to_lowercase().contains(filter_val)
-                                })
-                            })
-                            .is_some()
-                    })
-                }
-                HttpFilterKeys::ReqBody => {
-                    get_http_message(streams, model, iter).map_or(false, |http_msg| {
-                        http_msg
-                            .request
-                            .as_ref()
-                            .filter(|r| {
-                                r.body_as_str()
-                                    .filter(|b| b.to_lowercase().contains(filter_val))
-                                    .is_some()
-                            })
-                            .is_some()
-                    })
-                }
-                HttpFilterKeys::RespBody => {
-                    get_http_message(streams, model, iter).map_or(false, |http_msg| {
-                        http_msg
-                            .response
-                            .as_ref()
-                            .filter(|r| {
-                                r.body_as_str()
-                                    .filter(|b| b.to_lowercase().contains(filter_val))
-                                    .is_some()
-                            })
-                            .is_some()
-                    })
-                }
-            }
-        } else {
-            true
-        }
-    }
-
     fn requests_details_overlay(&self) -> bool {
         true
     }
@@ -517,6 +537,20 @@ impl MessageParser for Http {
                     message_info,
                 ))
         })
+    }
+
+    fn supported_filter_keys(&self) -> &'static [&'static str] {
+        HttpFilterKeys::VARIANTS
+    }
+
+    fn matches_filter(
+        &self,
+        filter: &search_expr::SearchOpExpr,
+        messages_by_stream: &HashMap<TcpStreamId, &MessagesData>,
+        model: &gtk::TreeModel,
+        iter: &gtk::TreeIter,
+    ) -> bool {
+        http_matches_filter(filter, messages_by_stream, model, iter)
     }
 }
 

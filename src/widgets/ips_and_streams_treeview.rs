@@ -1,5 +1,6 @@
 use super::win;
 use crate::colors;
+use crate::message_parser::AnyStreamGlobals;
 use crate::message_parser::StreamData;
 use crate::tshark_communication::TcpStreamId;
 use crate::widgets::comm_target_card::CommTargetCardData;
@@ -66,7 +67,7 @@ fn init_treestore() -> gtk::TreeStore {
 
 pub fn got_packet_refresh_remote_ips_treeview(
     treeview_state: &mut IpsAndStreamsTreeviewState,
-    stream_data: &StreamData,
+    stream_data: &StreamData<AnyStreamGlobals>,
     packet_stream_id: TcpStreamId,
 ) {
     let treestore = treeview_state.remote_ips_streams_treestore.clone();
@@ -213,7 +214,7 @@ pub enum IsNewDataStillIncoming {
 pub fn refresh_remote_ips_streams_tree(
     treeview_state: &mut IpsAndStreamsTreeviewState,
     remote_ips_streams_treeview: &gtk::TreeView,
-    streams: &HashMap<TcpStreamId, StreamData>,
+    streams: &HashMap<TcpStreamId, StreamData<AnyStreamGlobals>>,
     card: &CommTargetCardData,
     remote_ips: &HashSet<IpAddr>,
     is_new_data_incoming: IsNewDataStillIncoming,
