@@ -58,7 +58,7 @@ impl FromToAnyMessages for Vec<PostgresMessageData> {
         }
     }
 
-    fn extract_messages_ref<'a>(g: &'a AnyMessagesData) -> Option<&'a Self> {
+    fn extract_messages_ref(g: &AnyMessagesData) -> Option<&Self> {
         match g {
             AnyMessagesData::Postgres(h) => Some(h),
             _ => None,

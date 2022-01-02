@@ -55,7 +55,7 @@ impl FromToAnyMessages for Vec<HttpMessageData> {
         }
     }
 
-    fn extract_messages_ref<'a>(g: &'a AnyMessagesData) -> Option<&'a Self> {
+    fn extract_messages_ref(g: &AnyMessagesData) -> Option<&Self> {
         match g {
             AnyMessagesData::Http(h) => Some(h),
             _ => None,

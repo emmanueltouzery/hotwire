@@ -32,7 +32,7 @@ impl FromToAnyMessages for AnyMessagesData {
         Some(g)
     }
 
-    fn extract_messages_ref<'a>(g: &'a AnyMessagesData) -> Option<&'a Self> {
+    fn extract_messages_ref(g: &AnyMessagesData) -> Option<&Self> {
         Some(g)
     }
 
@@ -155,7 +155,7 @@ pub trait FromToStreamGlobal: Sized {
 pub trait FromToAnyMessages: Sized {
     fn to_any_messages(self) -> AnyMessagesData;
     fn extract_messages(g: AnyMessagesData) -> Option<Self>;
-    fn extract_messages_ref<'a>(g: &'a AnyMessagesData) -> Option<&'a Self>;
+    fn extract_messages_ref(g: &AnyMessagesData) -> Option<&Self>;
 }
 
 /// A MessageParser allows hotwire to parse & display messages related to
