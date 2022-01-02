@@ -14,8 +14,8 @@ use crate::config::Config;
 use crate::http::http_message_parser::Http;
 use crate::http2::http2_message_parser::Http2;
 use crate::icons::Icon;
-use crate::message_parser::MessageParser;
 use crate::message_parser::StreamData;
+use crate::message_parser::{AnyMessagesData, MessageParser};
 use crate::message_parser::{AnyStreamGlobals, ClientServerInfo};
 use crate::packets_read;
 use crate::packets_read::{InputStep, ParseInputStep, TSharkInputType};
@@ -52,7 +52,9 @@ const NORMAL_STACK_NAME: &str = "normal";
 
 const PCAP_MIME_TYPE: &str = "application/vnd.tcpdump.pcap";
 
-pub fn get_message_parsers() -> Vec<Box<dyn MessageParser<StreamGlobalsType = AnyStreamGlobals>>> {
+pub fn get_message_parsers(
+) -> Vec<Box<dyn MessageParser<StreamGlobalsType = AnyStreamGlobals, MessagesType = AnyMessagesData>>>
+{
     vec![
         Box::new(any_message_parser::wrap_message_parser(Http)),
         Box::new(any_message_parser::wrap_message_parser(Postgres)),
@@ -135,7 +137,7 @@ pub struct Model {
 
     sidebar_selection_change_signal_id: Option<glib::SignalHandlerId>,
 
-    streams: HashMap<TcpStreamId, StreamData<AnyStreamGlobals>>,
+    streams: HashMap<TcpStreamId, StreamData<AnyStreamGlobals, AnyMessagesData>>,
     comm_target_cards: Vec<CommTargetCardData>,
     selected_card: Option<CommTargetCardData>,
 
@@ -994,7 +996,10 @@ impl Widget for Win {
     fn add_update_comm_target_data(
         &mut self,
         protocol_index: usize,
-        parser: &dyn MessageParser<StreamGlobalsType = AnyStreamGlobals>,
+        parser: &dyn MessageParser<
+            StreamGlobalsType = AnyStreamGlobals,
+            MessagesType = AnyMessagesData,
+        >,
         client_server_info: ClientServerInfo,
         summary_details: Option<&str>,
         session_change_type: SessionChangeType,

@@ -5,7 +5,7 @@ use crate::http::http_message_parser::{
 use crate::http2::tshark_http2::TSharkHttp2Message;
 use crate::icons;
 use crate::message_parser::{
-    AnyStreamGlobals, ClientServerInfo, MessageInfo, MessageParser, MessagesData, StreamData,
+    AnyMessagesData, AnyStreamGlobals, ClientServerInfo, MessageInfo, MessageParser, StreamData,
 };
 use crate::search_expr;
 use crate::tshark_communication::{TSharkPacket, TSharkPacketBasicInfo, TcpSeqNumber, TcpStreamId};
@@ -38,6 +38,7 @@ pub struct Http2StreamGlobals {
 
 impl MessageParser for Http2 {
     type StreamGlobalsType = Http2StreamGlobals;
+    type MessagesType = Vec<HttpMessageData>;
 
     fn is_my_message(&self, msg: &TSharkPacket) -> bool {
         msg.http2.is_some()
@@ -63,21 +64,39 @@ impl MessageParser for Http2 {
         g.extract_http2()
     }
 
+    fn extract_messages(&self, g: AnyMessagesData) -> Option<Self::MessagesType> {
+        match g {
+            AnyMessagesData::Http(h) => Some(h),
+            _ => None,
+        }
+    }
+
+    fn extract_messages_ref<'a>(&self, g: &'a AnyMessagesData) -> Option<&'a Self::MessagesType> {
+        match g {
+            AnyMessagesData::Http(h) => Some(h),
+            _ => None,
+        }
+    }
+
+    fn to_any_messages(&self, g: Self::MessagesType) -> AnyMessagesData {
+        AnyMessagesData::Http(g)
+    }
+
     fn initial_globals(&self) -> Http2StreamGlobals {
         Http2StreamGlobals::default()
     }
 
-    fn empty_messages_data(&self) -> MessagesData {
-        MessagesData::Http(vec![])
+    fn empty_messages_data(&self) -> Self::MessagesType {
+        vec![]
     }
 
     fn add_to_stream(
         &self,
-        mut stream: StreamData<Self::StreamGlobalsType>,
+        mut stream: StreamData<Self::StreamGlobalsType, Self::MessagesType>,
         new_packet: TSharkPacket,
-    ) -> Result<StreamData<Self::StreamGlobalsType>, String> {
+    ) -> Result<StreamData<Self::StreamGlobalsType, Self::MessagesType>, String> {
         let mut globals = stream.stream_globals;
-        let mut messages = stream.messages.get_http().unwrap();
+        let mut messages = stream.messages;
         let cur_msg = new_packet.basic_info;
         let http2 = new_packet.http2.unwrap();
         for http2_msg in http2 {
@@ -153,17 +172,17 @@ impl MessageParser for Http2 {
             }
         }
         stream.stream_globals = globals;
-        stream.messages = MessagesData::Http(messages);
+        stream.messages = messages;
         Ok(stream)
     }
 
     fn finish_stream(
         &self,
-        mut stream: StreamData<Self::StreamGlobalsType>,
-    ) -> Result<StreamData<Self::StreamGlobalsType>, String> {
+        mut stream: StreamData<Self::StreamGlobalsType, Self::MessagesType>,
+    ) -> Result<StreamData<Self::StreamGlobalsType, Self::MessagesType>, String> {
         // flush all the incomplete messages as best we can
         let globals = stream.stream_globals;
-        let mut messages = stream.messages.get_http().unwrap();
+        let mut messages = stream.messages;
         for (http2_stream_id, stream_contents) in globals.messages_per_stream {
             let cur_msg = stream_contents.unfinished_basic_info.unwrap();
             match (
@@ -224,7 +243,7 @@ impl MessageParser for Http2 {
             }
         }
         stream.stream_globals = Http2StreamGlobals::default();
-        stream.messages = MessagesData::Http(messages);
+        stream.messages = messages;
         Ok(stream)
     }
 
@@ -240,7 +259,7 @@ impl MessageParser for Http2 {
         &self,
         ls: &gtk::ListStore,
         session_id: TcpStreamId,
-        messages: &MessagesData,
+        messages: &Vec<HttpMessageData>,
         start_idx: usize,
         item_count: usize,
     ) {
@@ -272,7 +291,7 @@ impl MessageParser for Http2 {
     fn matches_filter(
         &self,
         filter: &search_expr::SearchOpExpr,
-        messages_by_stream: &HashMap<TcpStreamId, &MessagesData>,
+        messages_by_stream: &HashMap<TcpStreamId, &Vec<HttpMessageData>>,
         model: &gtk::TreeModel,
         iter: &gtk::TreeIter,
     ) -> bool {
@@ -443,7 +462,7 @@ fn should_parse_simple_comm() {
     "#,
         ))
         .unwrap().messages;
-    let expected = MessagesData::Http(vec![HttpMessageData {
+    let expected = vec![HttpMessageData {
         http_stream_id: 1,
         request: Some(HttpRequestResponseData {
             tcp_stream_no: TcpStreamId(4),
@@ -460,7 +479,7 @@ fn should_parse_simple_comm() {
             content_encoding: ContentEncoding::Plain,
         }),
         response: None,
-    }]);
+    }];
     assert_eq!(expected, parsed);
     // assert!(false);
 }

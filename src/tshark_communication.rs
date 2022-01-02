@@ -427,7 +427,7 @@ pub fn parse_test_xml(xml: &str) -> Result<Vec<TSharkPacket>, String> {
 pub fn parse_stream<MP: MessageParser>(
     parser: MP,
     packets: Result<Vec<TSharkPacket>, String>,
-) -> Result<StreamData<MP::StreamGlobalsType>, String> {
+) -> Result<StreamData<MP::StreamGlobalsType, MP::MessagesType>, String> {
     let mut stream_data = StreamData {
         parser_index: 0,
         stream_globals: parser.initial_globals(),

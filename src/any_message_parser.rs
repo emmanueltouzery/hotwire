@@ -1,13 +1,13 @@
 use super::message_parser::{AnyStreamGlobals, MessageParser, StreamData};
 use crate::{
-    message_parser::MessagesData,
+    message_parser::AnyMessagesData,
     tshark_communication::{TSharkPacket, TcpStreamId},
 };
 use std::collections::HashMap;
 
 pub fn wrap_message_parser<MP: MessageParser>(
     p: MP,
-) -> impl MessageParser<StreamGlobalsType = AnyStreamGlobals> {
+) -> impl MessageParser<StreamGlobalsType = AnyStreamGlobals, MessagesType = AnyMessagesData> {
     AnyMessageParser { p }
 }
 
@@ -18,8 +18,8 @@ struct AnyMessageParser<MP: MessageParser> {
 impl<MP: MessageParser> AnyMessageParser<MP> {
     fn convert_stream_from_any(
         &self,
-        stream: StreamData<AnyStreamGlobals>,
-    ) -> StreamData<MP::StreamGlobalsType> {
+        stream: StreamData<AnyStreamGlobals, AnyMessagesData>,
+    ) -> StreamData<MP::StreamGlobalsType, MP::MessagesType> {
         StreamData {
             parser_index: stream.parser_index,
             stream_globals: self
@@ -27,7 +27,7 @@ impl<MP: MessageParser> AnyMessageParser<MP> {
                 .extract_stream_globals(stream.stream_globals)
                 .unwrap(),
             client_server: stream.client_server,
-            messages: stream.messages,
+            messages: self.p.extract_messages(stream.messages).unwrap(),
             summary_details: stream.summary_details,
         }
     }
@@ -36,13 +36,13 @@ impl<MP: MessageParser> AnyMessageParser<MP> {
 impl<MP: MessageParser> AnyMessageParser<MP> {
     fn convert_stream_to_any(
         &self,
-        stream: StreamData<MP::StreamGlobalsType>,
-    ) -> StreamData<AnyStreamGlobals> {
+        stream: StreamData<MP::StreamGlobalsType, MP::MessagesType>,
+    ) -> StreamData<AnyStreamGlobals, AnyMessagesData> {
         StreamData {
             parser_index: stream.parser_index,
             stream_globals: self.p.to_any_stream_globals(stream.stream_globals),
             client_server: stream.client_server,
-            messages: stream.messages,
+            messages: self.p.to_any_messages(stream.messages),
             summary_details: stream.summary_details,
         }
     }
@@ -50,6 +50,7 @@ impl<MP: MessageParser> AnyMessageParser<MP> {
 
 impl<MP: MessageParser> MessageParser for AnyMessageParser<MP> {
     type StreamGlobalsType = AnyStreamGlobals;
+    type MessagesType = AnyMessagesData;
 
     fn is_my_message(&self, msg: &TSharkPacket) -> bool {
         self.p.is_my_message(msg)
@@ -71,23 +72,35 @@ impl<MP: MessageParser> MessageParser for AnyMessageParser<MP> {
         g
     }
 
-    fn initial_globals(&self) -> Self::StreamGlobalsType {
-        self.p.to_any_stream_globals(self.p.initial_globals())
-    }
-
-    fn empty_messages_data(&self) -> MessagesData {
-        self.p.empty_messages_data()
-    }
-
     fn extract_stream_globals(&self, g: AnyStreamGlobals) -> Option<Self::StreamGlobalsType> {
         Some(g)
     }
 
+    fn to_any_messages(&self, g: Self::MessagesType) -> AnyMessagesData {
+        g
+    }
+
+    fn extract_messages(&self, g: AnyMessagesData) -> Option<Self::MessagesType> {
+        Some(g)
+    }
+
+    fn extract_messages_ref<'a>(&self, g: &'a AnyMessagesData) -> Option<&'a Self::MessagesType> {
+        Some(g)
+    }
+
+    fn initial_globals(&self) -> Self::StreamGlobalsType {
+        self.p.to_any_stream_globals(self.p.initial_globals())
+    }
+
+    fn empty_messages_data(&self) -> AnyMessagesData {
+        self.p.to_any_messages(self.p.empty_messages_data())
+    }
+
     fn add_to_stream(
         &self,
-        stream: StreamData<AnyStreamGlobals>,
+        stream: StreamData<AnyStreamGlobals, AnyMessagesData>,
         new_packet: TSharkPacket,
-    ) -> Result<StreamData<AnyStreamGlobals>, String> {
+    ) -> Result<StreamData<AnyStreamGlobals, AnyMessagesData>, String> {
         let s2 = self.convert_stream_from_any(stream);
         self.p
             .add_to_stream(s2, new_packet)
@@ -96,8 +109,8 @@ impl<MP: MessageParser> MessageParser for AnyMessageParser<MP> {
 
     fn finish_stream(
         &self,
-        stream: StreamData<AnyStreamGlobals>,
-    ) -> Result<StreamData<AnyStreamGlobals>, String> {
+        stream: StreamData<AnyStreamGlobals, AnyMessagesData>,
+    ) -> Result<StreamData<AnyStreamGlobals, AnyMessagesData>, String> {
         self.p
             .finish_stream(self.convert_stream_from_any(stream))
             .map(|s| self.convert_stream_to_any(s))
@@ -115,12 +128,13 @@ impl<MP: MessageParser> MessageParser for AnyMessageParser<MP> {
         &self,
         ls: &gtk::ListStore,
         session_id: TcpStreamId,
-        messages: &MessagesData,
+        messages: &AnyMessagesData,
         start_idx: usize,
         item_count: usize,
     ) {
+        let typed_messages = self.p.extract_messages_ref(messages).unwrap();
         self.p
-            .populate_treeview(ls, session_id, messages, start_idx, item_count)
+            .populate_treeview(ls, session_id, typed_messages, start_idx, item_count)
     }
 
     fn end_populate_treeview(&self, tv: &gtk::TreeView, ls: &gtk::ListStore) {
@@ -150,11 +164,14 @@ impl<MP: MessageParser> MessageParser for AnyMessageParser<MP> {
     fn matches_filter(
         &self,
         filter: &crate::search_expr::SearchOpExpr,
-        messages_by_stream: &HashMap<TcpStreamId, &MessagesData>,
+        messages_by_stream: &HashMap<TcpStreamId, &AnyMessagesData>,
         model: &gtk::TreeModel,
         iter: &gtk::TreeIter,
     ) -> bool {
-        self.p
-            .matches_filter(filter, &messages_by_stream, model, iter)
+        let messages_typed = messages_by_stream
+            .iter()
+            .map(|(tcp, msg_any)| (*tcp, self.p.extract_messages_ref(*msg_any).unwrap()))
+            .collect();
+        self.p.matches_filter(filter, &messages_typed, model, iter)
     }
 }

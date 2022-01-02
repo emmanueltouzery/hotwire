@@ -1,5 +1,5 @@
 use super::win;
-use crate::message_parser::{self, AnyStreamGlobals, MessagesData};
+use crate::message_parser::{self, AnyMessagesData, AnyStreamGlobals};
 use crate::message_parser::{
     ClientServerInfo, MessageData, MessageInfo, MessageParser, StreamData,
 };
@@ -80,7 +80,10 @@ fn add_message_parser_grid_and_pane(
     comm_remote_servers_stack: &gtk::Stack,
     relm: &relm::Relm<win::Win>,
     bg_sender: &mpsc::Sender<BgFunc>,
-    message_parser: &dyn MessageParser<StreamGlobalsType = AnyStreamGlobals>,
+    message_parser: &dyn MessageParser<
+        StreamGlobalsType = AnyStreamGlobals,
+        MessagesType = AnyMessagesData,
+    >,
     mp_idx: usize,
 ) -> (
     (gtk::TreeView, TreeViewSignals),
@@ -201,7 +204,7 @@ fn row_selected(
 pub fn refresh_remote_servers(
     tv_state: &mut MessagesTreeviewState,
     selected_card: Option<&CommTargetCardData>,
-    streams: &HashMap<TcpStreamId, StreamData<AnyStreamGlobals>>,
+    streams: &HashMap<TcpStreamId, StreamData<AnyStreamGlobals, AnyMessagesData>>,
     remote_ips_streams_treeview: &gtk::TreeView,
     sidebar_selection_change_signal_id: Option<&glib::SignalHandlerId>,
     constrain_remote_ips: &[IpAddr],
@@ -364,8 +367,8 @@ fn get_store_holding_model(
 }
 
 fn get_messages_by_stream(
-    streams: &HashMap<TcpStreamId, StreamData<AnyStreamGlobals>>,
-) -> HashMap<TcpStreamId, &MessagesData> {
+    streams: &HashMap<TcpStreamId, StreamData<AnyStreamGlobals, AnyMessagesData>>,
+) -> HashMap<TcpStreamId, &AnyMessagesData> {
     streams
         .iter()
         .map(|(tcp, sd)| (*tcp, &sd.messages))
@@ -373,9 +376,9 @@ fn get_messages_by_stream(
 }
 
 fn matches_filter(
-    mp: &dyn MessageParser<StreamGlobalsType = AnyStreamGlobals>,
+    mp: &dyn MessageParser<StreamGlobalsType = AnyStreamGlobals, MessagesType = AnyMessagesData>,
     f: &search_expr::SearchExpr,
-    streams: &HashMap<TcpStreamId, StreamData<AnyStreamGlobals>>,
+    streams: &HashMap<TcpStreamId, StreamData<AnyStreamGlobals, AnyMessagesData>>,
     model: &gtk::TreeModel,
     iter: &gtk::TreeIter,
 ) -> bool {
@@ -403,7 +406,7 @@ fn matches_filter(
 
 pub fn search_text_changed(
     tv_state: &MessagesTreeviewState,
-    streams: &HashMap<TcpStreamId, StreamData<AnyStreamGlobals>>,
+    streams: &HashMap<TcpStreamId, StreamData<AnyStreamGlobals, AnyMessagesData>>,
     protocol_index: usize,
     filter: Option<&search_expr::SearchExpr>,
 ) {
@@ -494,7 +497,7 @@ pub fn refresh_grids_new_messages(
     selected_card: Option<CommTargetCardData>,
     stream_id: TcpStreamId,
     message_count_before: usize,
-    stream_data: &StreamData<AnyStreamGlobals>,
+    stream_data: &StreamData<AnyStreamGlobals, AnyMessagesData>,
     follow_packets: FollowPackets,
 ) {
     let parsers = win::get_message_parsers();
@@ -548,7 +551,7 @@ pub fn refresh_grids_new_messages(
 
 fn packets_added_trigger_events(
     tv_state: &MessagesTreeviewState,
-    stream_data: &StreamData<AnyStreamGlobals>,
+    stream_data: &StreamData<AnyStreamGlobals, AnyMessagesData>,
     rstream: &relm::StreamHandle<win::Msg>,
     added_messages: usize,
     follow_packets: FollowPackets,

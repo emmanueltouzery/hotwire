@@ -16,7 +16,7 @@ use std::sync::mpsc;
 // there's a bit of a circular dependency problem here, with
 // message parsers depending on this file, and this file depending on them...
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum MessagesData {
+pub enum AnyMessagesData {
     Http(Vec<HttpMessageData>),
     Postgres(Vec<PostgresMessageData>),
 }
@@ -27,45 +27,45 @@ pub enum MessageData {
     Postgres(PostgresMessageData),
 }
 
-impl MessagesData {
+impl AnyMessagesData {
     pub fn len(&self) -> usize {
         match &self {
-            MessagesData::Http(x) => x.len(),
-            MessagesData::Postgres(x) => x.len(),
+            AnyMessagesData::Http(x) => x.len(),
+            AnyMessagesData::Postgres(x) => x.len(),
         }
     }
 
     pub fn get(&self, idx: usize) -> Option<MessageData> {
         match &self {
-            MessagesData::Http(x) => x.get(idx).cloned().map(MessageData::Http),
-            MessagesData::Postgres(x) => x.get(idx).cloned().map(MessageData::Postgres),
+            AnyMessagesData::Http(x) => x.get(idx).cloned().map(MessageData::Http),
+            AnyMessagesData::Postgres(x) => x.get(idx).cloned().map(MessageData::Postgres),
         }
     }
 
     pub fn as_http(&self) -> Option<&[HttpMessageData]> {
         match &self {
-            MessagesData::Http(x) => Some(&x),
+            AnyMessagesData::Http(x) => Some(x),
             _ => None,
         }
     }
 
     pub fn as_postgres(&self) -> Option<&[PostgresMessageData]> {
         match &self {
-            MessagesData::Postgres(x) => Some(&x),
+            AnyMessagesData::Postgres(x) => Some(x),
             _ => None,
         }
     }
 
     pub fn get_http(self) -> Option<Vec<HttpMessageData>> {
         match self {
-            MessagesData::Http(x) => Some(x),
+            AnyMessagesData::Http(x) => Some(x),
             _ => None,
         }
     }
 
     pub fn get_postgres(self) -> Option<Vec<PostgresMessageData>> {
         match self {
-            MessagesData::Postgres(x) => Some(x),
+            AnyMessagesData::Postgres(x) => Some(x),
             _ => None,
         }
     }
@@ -112,11 +112,11 @@ pub struct ClientServerInfo {
     pub client_ip: IpAddr,
 }
 
-pub struct StreamData<G> {
+pub struct StreamData<TGlobals, TMessagesData> {
     pub parser_index: usize,
-    pub stream_globals: G,
+    pub stream_globals: TGlobals,
     pub client_server: Option<ClientServerInfo>,
-    pub messages: MessagesData,
+    pub messages: TMessagesData,
     pub summary_details: Option<String>,
 }
 
@@ -155,6 +155,7 @@ pub const TREE_STORE_MESSAGE_INDEX_COL_IDX: u32 = 3;
 /// area, and others.
 pub trait MessageParser {
     type StreamGlobalsType;
+    type MessagesType;
 
     fn is_my_message(&self, msg: &TSharkPacket) -> bool;
 
@@ -170,19 +171,23 @@ pub trait MessageParser {
     fn to_any_stream_globals(&self, g: Self::StreamGlobalsType) -> AnyStreamGlobals;
     fn extract_stream_globals(&self, g: AnyStreamGlobals) -> Option<Self::StreamGlobalsType>;
 
+    fn to_any_messages(&self, g: Self::MessagesType) -> AnyMessagesData;
+    fn extract_messages(&self, g: AnyMessagesData) -> Option<Self::MessagesType>;
+    fn extract_messages_ref<'a>(&self, g: &'a AnyMessagesData) -> Option<&'a Self::MessagesType>;
+
     // parsing
     fn initial_globals(&self) -> Self::StreamGlobalsType;
-    fn empty_messages_data(&self) -> MessagesData;
+    fn empty_messages_data(&self) -> Self::MessagesType;
 
     fn add_to_stream(
         &self,
-        stream: StreamData<Self::StreamGlobalsType>,
+        stream: StreamData<Self::StreamGlobalsType, Self::MessagesType>,
         new_packet: TSharkPacket,
-    ) -> Result<StreamData<Self::StreamGlobalsType>, String>;
+    ) -> Result<StreamData<Self::StreamGlobalsType, Self::MessagesType>, String>;
     fn finish_stream(
         &self,
-        stream: StreamData<Self::StreamGlobalsType>,
-    ) -> Result<StreamData<Self::StreamGlobalsType>, String>;
+        stream: StreamData<Self::StreamGlobalsType, Self::MessagesType>,
+    ) -> Result<StreamData<Self::StreamGlobalsType, Self::MessagesType>, String>;
 
     // treeview
     fn prepare_treeview(&self, tv: &gtk::TreeView);
@@ -191,7 +196,7 @@ pub trait MessageParser {
         &self,
         ls: &gtk::ListStore,
         session_id: TcpStreamId,
-        messages: &MessagesData,
+        messages: &Self::MessagesType,
         start_idx: usize,
         item_count: usize,
     );
@@ -212,7 +217,7 @@ pub trait MessageParser {
     fn matches_filter(
         &self,
         filter: &search_expr::SearchOpExpr,
-        messages_by_stream: &HashMap<TcpStreamId, &MessagesData>,
+        messages_by_stream: &HashMap<TcpStreamId, &Self::MessagesType>,
         model: &gtk::TreeModel,
         iter: &gtk::TreeIter,
     ) -> bool;
@@ -225,11 +230,11 @@ pub struct MessageInfo {
     pub message_data: MessageData,
 }
 
-pub fn get_message<'a, 'b>(
-    messages_by_stream: &'a HashMap<TcpStreamId, &MessagesData>,
+pub fn get_message<'a, 'b, T>(
+    messages_by_stream: &'a HashMap<TcpStreamId, &Vec<T>>,
     model: &'b gtk::TreeModel,
     iter: &'b gtk::TreeIter,
-) -> Option<(usize, &'a MessagesData)> {
+) -> Option<&'a T> {
     let stream_id = TcpStreamId(
         model
             .value(iter, TREE_STORE_STREAM_ID_COL_IDX as i32)
@@ -242,5 +247,5 @@ pub fn get_message<'a, 'b>(
         .unwrap();
     messages_by_stream
         .get(&stream_id)
-        .map(|m| (idx as usize, *m))
+        .and_then(|m| m.get(idx as usize))
 }
