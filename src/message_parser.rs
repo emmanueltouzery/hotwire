@@ -55,34 +55,6 @@ impl AnyMessagesData {
             AnyMessagesData::Postgres(x) => x.get(idx).cloned().map(MessageData::Postgres),
         }
     }
-
-    pub fn as_http(&self) -> Option<&[HttpMessageData]> {
-        match &self {
-            AnyMessagesData::Http(x) => Some(x),
-            _ => None,
-        }
-    }
-
-    pub fn as_postgres(&self) -> Option<&[PostgresMessageData]> {
-        match &self {
-            AnyMessagesData::Postgres(x) => Some(x),
-            _ => None,
-        }
-    }
-
-    pub fn get_http(self) -> Option<Vec<HttpMessageData>> {
-        match self {
-            AnyMessagesData::Http(x) => Some(x),
-            _ => None,
-        }
-    }
-
-    pub fn get_postgres(self) -> Option<Vec<PostgresMessageData>> {
-        match self {
-            AnyMessagesData::Postgres(x) => Some(x),
-            _ => None,
-        }
-    }
 }
 
 pub enum AnyStreamGlobals {
