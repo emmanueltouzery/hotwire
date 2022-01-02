@@ -31,6 +31,30 @@ impl<MP: MessageParser> AnyMessageParser<MP> {
     }
 }
 
+impl FromToAnyMessages for AnyMessagesData {
+    fn extract_messages(g: AnyMessagesData) -> Option<Self> {
+        Some(g)
+    }
+
+    fn extract_messages_ref(g: &AnyMessagesData) -> Option<&Self> {
+        Some(g)
+    }
+
+    fn to_any_messages(self) -> AnyMessagesData {
+        self
+    }
+}
+
+impl FromToStreamGlobal for AnyStreamGlobals {
+    fn to_any_stream_globals(self) -> AnyStreamGlobals {
+        self
+    }
+
+    fn extract_stream_globals(g: AnyStreamGlobals) -> Option<Self> {
+        Some(g)
+    }
+}
+
 impl<MP: MessageParser> AnyMessageParser<MP> {
     fn convert_stream_to_any(
         &self,

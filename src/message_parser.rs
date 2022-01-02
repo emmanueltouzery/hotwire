@@ -27,20 +27,6 @@ pub enum MessageData {
     Postgres(PostgresMessageData),
 }
 
-impl FromToAnyMessages for AnyMessagesData {
-    fn extract_messages(g: AnyMessagesData) -> Option<Self> {
-        Some(g)
-    }
-
-    fn extract_messages_ref(g: &AnyMessagesData) -> Option<&Self> {
-        Some(g)
-    }
-
-    fn to_any_messages(self) -> AnyMessagesData {
-        self
-    }
-}
-
 impl AnyMessagesData {
     pub fn len(&self) -> usize {
         match &self {
@@ -62,16 +48,6 @@ pub enum AnyStreamGlobals {
     Http2(Http2StreamGlobals),
     Http(HttpStreamGlobals),
     None,
-}
-
-impl FromToStreamGlobal for AnyStreamGlobals {
-    fn to_any_stream_globals(self) -> AnyStreamGlobals {
-        self
-    }
-
-    fn extract_stream_globals(g: AnyStreamGlobals) -> Option<Self> {
-        Some(g)
-    }
 }
 
 #[derive(Copy, Clone)]
