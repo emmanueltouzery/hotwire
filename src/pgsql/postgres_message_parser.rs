@@ -46,7 +46,10 @@ impl FromToStreamGlobal for PostgresStreamGlobals {
     }
 
     fn extract_stream_globals(g: AnyStreamGlobals) -> Option<Self> {
-        g.extract_postgres()
+        match g {
+            AnyStreamGlobals::Postgres(x) => Some(x),
+            _ => None,
+        }
     }
 }
 

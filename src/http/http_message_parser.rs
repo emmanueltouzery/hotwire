@@ -183,7 +183,10 @@ impl FromToStreamGlobal for HttpStreamGlobals {
     }
 
     fn extract_stream_globals(g: AnyStreamGlobals) -> Option<Self> {
-        g.extract_http()
+        match g {
+            AnyStreamGlobals::Http(x) => Some(x),
+            _ => None,
+        }
     }
 }
 

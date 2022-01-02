@@ -102,29 +102,6 @@ impl FromToStreamGlobal for AnyStreamGlobals {
     }
 }
 
-impl AnyStreamGlobals {
-    pub fn extract_postgres(self) -> Option<PostgresStreamGlobals> {
-        match self {
-            AnyStreamGlobals::Postgres(x) => Some(x),
-            _ => None,
-        }
-    }
-
-    pub fn extract_http(self) -> Option<HttpStreamGlobals> {
-        match self {
-            AnyStreamGlobals::Http(x) => Some(x),
-            _ => None,
-        }
-    }
-
-    pub fn extract_http2(self) -> Option<Http2StreamGlobals> {
-        match self {
-            AnyStreamGlobals::Http2(x) => Some(x),
-            _ => None,
-        }
-    }
-}
-
 #[derive(Copy, Clone)]
 pub struct ClientServerInfo {
     // need to say who is the server. i have 50:50 chance
