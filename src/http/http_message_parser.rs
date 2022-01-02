@@ -3,9 +3,9 @@ use super::http_details_widget::HttpCommEntry;
 use crate::colors;
 use crate::http::tshark_http::HttpType;
 use crate::icons::Icon;
-use crate::message_parser::{self, AnyMessagesData};
 use crate::message_parser::{
-    AnyStreamGlobals, ClientServerInfo, MessageInfo, MessageParser, StreamData,
+    self, AnyStreamGlobals, ClientServerInfo, FromToStreamGlobal, MessageInfo, MessageParser,
+    StreamData,
 };
 use crate::search_expr;
 use crate::tshark_communication::{NetworkPort, TSharkPacket, TcpSeqNumber, TcpStreamId};
@@ -177,6 +177,16 @@ pub fn http_matches_filter(
     }
 }
 
+impl FromToStreamGlobal for HttpStreamGlobals {
+    fn to_any_stream_globals(self) -> AnyStreamGlobals {
+        AnyStreamGlobals::Http(self)
+    }
+
+    fn extract_stream_globals(g: AnyStreamGlobals) -> Option<Self> {
+        g.extract_http()
+    }
+}
+
 impl MessageParser for Http {
     type StreamGlobalsType = HttpStreamGlobals;
     type MessagesType = Vec<HttpMessageData>;
@@ -203,32 +213,6 @@ impl MessageParser for Http {
 
     fn empty_messages_data(&self) -> Self::MessagesType {
         vec![]
-    }
-
-    fn to_any_stream_globals(&self, g: Self::StreamGlobalsType) -> AnyStreamGlobals {
-        AnyStreamGlobals::Http(g)
-    }
-
-    fn extract_stream_globals(&self, g: AnyStreamGlobals) -> Option<Self::StreamGlobalsType> {
-        g.extract_http()
-    }
-
-    fn extract_messages(&self, g: AnyMessagesData) -> Option<Self::MessagesType> {
-        match g {
-            AnyMessagesData::Http(h) => Some(h),
-            _ => None,
-        }
-    }
-
-    fn extract_messages_ref<'a>(&self, g: &'a AnyMessagesData) -> Option<&'a Self::MessagesType> {
-        match g {
-            AnyMessagesData::Http(h) => Some(h),
-            _ => None,
-        }
-    }
-
-    fn to_any_messages(&self, g: Self::MessagesType) -> AnyMessagesData {
-        AnyMessagesData::Http(g)
     }
 
     fn add_to_stream(

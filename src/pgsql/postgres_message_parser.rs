@@ -2,7 +2,7 @@ use super::postgres_details_widget;
 use super::postgres_details_widget::PostgresCommEntry;
 use crate::colors;
 use crate::icons::Icon;
-use crate::message_parser::{self, AnyMessagesData};
+use crate::message_parser::{self, AnyMessagesData, FromToAnyMessages, FromToStreamGlobal};
 use crate::message_parser::{
     AnyStreamGlobals, ClientServerInfo, MessageInfo, MessageParser, StreamData,
 };
@@ -40,6 +40,36 @@ enum PostgresFilterKeys {
     QueryParamValue,
 }
 
+impl FromToStreamGlobal for PostgresStreamGlobals {
+    fn to_any_stream_globals(self) -> AnyStreamGlobals {
+        AnyStreamGlobals::Postgres(self)
+    }
+
+    fn extract_stream_globals(g: AnyStreamGlobals) -> Option<Self> {
+        g.extract_postgres()
+    }
+}
+
+impl FromToAnyMessages for Vec<PostgresMessageData> {
+    fn extract_messages(g: AnyMessagesData) -> Option<Self> {
+        match g {
+            AnyMessagesData::Postgres(h) => Some(h),
+            _ => None,
+        }
+    }
+
+    fn extract_messages_ref<'a>(g: &'a AnyMessagesData) -> Option<&'a Self> {
+        match g {
+            AnyMessagesData::Postgres(h) => Some(h),
+            _ => None,
+        }
+    }
+
+    fn to_any_messages(self) -> AnyMessagesData {
+        AnyMessagesData::Postgres(self)
+    }
+}
+
 impl MessageParser for Postgres {
     type StreamGlobalsType = PostgresStreamGlobals;
     type MessagesType = Vec<PostgresMessageData>;
@@ -66,32 +96,6 @@ impl MessageParser for Postgres {
 
     fn empty_messages_data(&self) -> Self::MessagesType {
         vec![]
-    }
-
-    fn to_any_stream_globals(&self, g: Self::StreamGlobalsType) -> AnyStreamGlobals {
-        AnyStreamGlobals::Postgres(g)
-    }
-
-    fn extract_stream_globals(&self, g: AnyStreamGlobals) -> Option<Self::StreamGlobalsType> {
-        g.extract_postgres()
-    }
-
-    fn extract_messages(&self, g: AnyMessagesData) -> Option<Self::MessagesType> {
-        match g {
-            AnyMessagesData::Postgres(p) => Some(p),
-            _ => None,
-        }
-    }
-
-    fn extract_messages_ref<'a>(&self, g: &'a AnyMessagesData) -> Option<&'a Self::MessagesType> {
-        match g {
-            AnyMessagesData::Postgres(p) => Some(p),
-            _ => None,
-        }
-    }
-
-    fn to_any_messages(&self, g: Self::MessagesType) -> AnyMessagesData {
-        AnyMessagesData::Postgres(g)
     }
 
     fn add_to_stream(

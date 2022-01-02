@@ -27,6 +27,20 @@ pub enum MessageData {
     Postgres(PostgresMessageData),
 }
 
+impl FromToAnyMessages for AnyMessagesData {
+    fn extract_messages(g: AnyMessagesData) -> Option<Self> {
+        Some(g)
+    }
+
+    fn extract_messages_ref<'a>(g: &'a AnyMessagesData) -> Option<&'a Self> {
+        Some(g)
+    }
+
+    fn to_any_messages(self) -> AnyMessagesData {
+        self
+    }
+}
+
 impl AnyMessagesData {
     pub fn len(&self) -> usize {
         match &self {
@@ -78,6 +92,16 @@ pub enum AnyStreamGlobals {
     None,
 }
 
+impl FromToStreamGlobal for AnyStreamGlobals {
+    fn to_any_stream_globals(self) -> AnyStreamGlobals {
+        self
+    }
+
+    fn extract_stream_globals(g: AnyStreamGlobals) -> Option<Self> {
+        Some(g)
+    }
+}
+
 impl AnyStreamGlobals {
     pub fn extract_postgres(self) -> Option<PostgresStreamGlobals> {
         match self {
@@ -123,6 +147,17 @@ pub struct StreamData<TGlobals, TMessagesData> {
 pub const TREE_STORE_STREAM_ID_COL_IDX: u32 = 2;
 pub const TREE_STORE_MESSAGE_INDEX_COL_IDX: u32 = 3;
 
+pub trait FromToStreamGlobal: Sized {
+    fn to_any_stream_globals(self) -> AnyStreamGlobals;
+    fn extract_stream_globals(g: AnyStreamGlobals) -> Option<Self>;
+}
+
+pub trait FromToAnyMessages: Sized {
+    fn to_any_messages(self) -> AnyMessagesData;
+    fn extract_messages(g: AnyMessagesData) -> Option<Self>;
+    fn extract_messages_ref<'a>(g: &'a AnyMessagesData) -> Option<&'a Self>;
+}
+
 /// A MessageParser allows hotwire to parse & display messages related to
 /// a certain protocol, for instance HTTP. The message parser deals with
 /// parsing packets as well as displaying them.
@@ -154,8 +189,8 @@ pub const TREE_STORE_MESSAGE_INDEX_COL_IDX: u32 = 3;
 /// Then there are methods for populating the GUI treeview, the details
 /// area, and others.
 pub trait MessageParser {
-    type StreamGlobalsType;
-    type MessagesType;
+    type StreamGlobalsType: FromToStreamGlobal;
+    type MessagesType: FromToAnyMessages;
 
     fn is_my_message(&self, msg: &TSharkPacket) -> bool;
 
@@ -167,13 +202,6 @@ pub trait MessageParser {
     fn protocol_icon(&self) -> Icon;
 
     fn protocol_name(&self) -> &'static str;
-
-    fn to_any_stream_globals(&self, g: Self::StreamGlobalsType) -> AnyStreamGlobals;
-    fn extract_stream_globals(&self, g: AnyStreamGlobals) -> Option<Self::StreamGlobalsType>;
-
-    fn to_any_messages(&self, g: Self::MessagesType) -> AnyMessagesData;
-    fn extract_messages(&self, g: AnyMessagesData) -> Option<Self::MessagesType>;
-    fn extract_messages_ref<'a>(&self, g: &'a AnyMessagesData) -> Option<&'a Self::MessagesType>;
 
     // parsing
     fn initial_globals(&self) -> Self::StreamGlobalsType;

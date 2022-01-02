@@ -5,7 +5,8 @@ use crate::http::http_message_parser::{
 use crate::http2::tshark_http2::TSharkHttp2Message;
 use crate::icons;
 use crate::message_parser::{
-    AnyMessagesData, AnyStreamGlobals, ClientServerInfo, MessageInfo, MessageParser, StreamData,
+    AnyMessagesData, AnyStreamGlobals, ClientServerInfo, FromToAnyMessages, FromToStreamGlobal,
+    MessageInfo, MessageParser, StreamData,
 };
 use crate::search_expr;
 use crate::tshark_communication::{TSharkPacket, TSharkPacketBasicInfo, TcpSeqNumber, TcpStreamId};
@@ -36,6 +37,36 @@ pub struct Http2StreamGlobals {
     pub messages_per_stream: HashMap<u32, Http2StreamProcessedContents>,
 }
 
+impl FromToStreamGlobal for Http2StreamGlobals {
+    fn to_any_stream_globals(self) -> AnyStreamGlobals {
+        AnyStreamGlobals::Http2(self)
+    }
+
+    fn extract_stream_globals(g: AnyStreamGlobals) -> Option<Self> {
+        g.extract_http2()
+    }
+}
+
+impl FromToAnyMessages for Vec<HttpMessageData> {
+    fn extract_messages(g: AnyMessagesData) -> Option<Self> {
+        match g {
+            AnyMessagesData::Http(h) => Some(h),
+            _ => None,
+        }
+    }
+
+    fn extract_messages_ref<'a>(g: &'a AnyMessagesData) -> Option<&'a Self> {
+        match g {
+            AnyMessagesData::Http(h) => Some(h),
+            _ => None,
+        }
+    }
+
+    fn to_any_messages(self) -> AnyMessagesData {
+        AnyMessagesData::Http(self)
+    }
+}
+
 impl MessageParser for Http2 {
     type StreamGlobalsType = Http2StreamGlobals;
     type MessagesType = Vec<HttpMessageData>;
@@ -54,32 +85,6 @@ impl MessageParser for Http2 {
 
     fn protocol_name(&self) -> &'static str {
         "HTTP2"
-    }
-
-    fn to_any_stream_globals(&self, g: Self::StreamGlobalsType) -> AnyStreamGlobals {
-        AnyStreamGlobals::Http2(g)
-    }
-
-    fn extract_stream_globals(&self, g: AnyStreamGlobals) -> Option<Self::StreamGlobalsType> {
-        g.extract_http2()
-    }
-
-    fn extract_messages(&self, g: AnyMessagesData) -> Option<Self::MessagesType> {
-        match g {
-            AnyMessagesData::Http(h) => Some(h),
-            _ => None,
-        }
-    }
-
-    fn extract_messages_ref<'a>(&self, g: &'a AnyMessagesData) -> Option<&'a Self::MessagesType> {
-        match g {
-            AnyMessagesData::Http(h) => Some(h),
-            _ => None,
-        }
-    }
-
-    fn to_any_messages(&self, g: Self::MessagesType) -> AnyMessagesData {
-        AnyMessagesData::Http(g)
     }
 
     fn initial_globals(&self) -> Http2StreamGlobals {
