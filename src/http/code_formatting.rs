@@ -152,7 +152,18 @@ fn highlight_indent_json(json: &str) -> String {
     if let Ok(val) = serde_json::from_str(json) {
         highlight_indent_json_value(&val, 0)
     } else {
-        glib::markup_escape_text(json).to_string()
+        // also support NDJSON -- Newline-Delimited JSON
+        // one JSON object on each line, not wrapped in arrays.
+        if let Ok(ndjson_fmt) = json.lines().try_fold("".to_string(), |sofar, cur| {
+            let val = serde_json::from_str(cur)?;
+            let r: Result<String, serde_json::Error> =
+                Ok(sofar + &highlight_indent_json_value(&val, 0) + "\n");
+            r
+        }) {
+            return ndjson_fmt;
+        } else {
+            glib::markup_escape_text(json).to_string()
+        }
     }
 }
 
@@ -244,5 +255,13 @@ fn simple_json_indent() {
     assert_eq!(
         "{\n  \"<b>field1</b>\": 12,\n  \"<b>field2</b>\": [\n    &quot;hi&quot;,\n    &quot;array&quot;\n  ]\n}",
         highlight_indent_json(r#"{"field1": 12, "field2": ["hi", "array"]}"#)
+    );
+}
+
+#[test]
+fn simple_ndjson_indent() {
+    assert_eq!(
+        "{\n  \"<b>key</b>\": 1\n}\n{\n  \"<b>key2</b>\": 2\n}\n",
+        highlight_indent_json("{\"key\": 1}\n{\"key2\": 2}")
     );
 }
