@@ -565,9 +565,9 @@ impl Widget for Win {
                 );
             }
             Msg::SelectCardFromRemoteIpsAndStreams(_, remote_ips, stream_ids) => {
-                let mut ips_treeview_state =
+                let ips_treeview_state =
                     self.model.ips_and_streams_treeview_state.as_mut().unwrap();
-                ips_and_streams_treeview::init_remote_ips_streams_tree(&mut ips_treeview_state);
+                ips_and_streams_treeview::init_remote_ips_streams_tree(ips_treeview_state);
                 messages_treeview::refresh_remote_servers(
                     self.model.messages_treeview_state.as_mut().unwrap(),
                     self.model.selected_card.as_ref(),
@@ -666,8 +666,8 @@ impl Widget for Win {
                     mp.supported_filter_keys().iter().cloned().collect(),
                 ));
         }
-        let mut ips_treeview_state = self.model.ips_and_streams_treeview_state.as_mut().unwrap();
-        ips_and_streams_treeview::init_remote_ips_streams_tree(&mut ips_treeview_state);
+        let ips_treeview_state = self.model.ips_and_streams_treeview_state.as_mut().unwrap();
+        ips_and_streams_treeview::init_remote_ips_streams_tree(ips_treeview_state);
         let refresh_streams_tree = messages_treeview::refresh_remote_servers(
             self.model.messages_treeview_state.as_mut().unwrap(),
             self.model.selected_card.as_ref(),
@@ -678,9 +678,9 @@ impl Widget for Win {
             &[],
         );
         if let RefreshRemoteIpsAndStreams::Yes(card, ips) = refresh_streams_tree {
-            let mut treeview_state = self.model.ips_and_streams_treeview_state.as_mut().unwrap();
+            let treeview_state = self.model.ips_and_streams_treeview_state.as_mut().unwrap();
             ips_and_streams_treeview::refresh_remote_ips_streams_tree(
-                &mut treeview_state,
+                treeview_state,
                 &self.widgets.remote_ips_streams_treeview,
                 &self.model.streams,
                 &card,
@@ -739,9 +739,8 @@ impl Widget for Win {
             self.model.current_file = None;
             self.model.streams = HashMap::new();
             // self.refresh_comm_targets();
-            let mut ips_treeview_state =
-                self.model.ips_and_streams_treeview_state.as_mut().unwrap();
-            ips_and_streams_treeview::init_remote_ips_streams_tree(&mut ips_treeview_state);
+            let ips_treeview_state = self.model.ips_and_streams_treeview_state.as_mut().unwrap();
+            ips_and_streams_treeview::init_remote_ips_streams_tree(ips_treeview_state);
             let refresh_streams_tree = messages_treeview::refresh_remote_servers(
                 self.model.messages_treeview_state.as_mut().unwrap(),
                 self.model.selected_card.as_ref(),
@@ -752,10 +751,9 @@ impl Widget for Win {
                 &[],
             );
             if let RefreshRemoteIpsAndStreams::Yes(card, ips) = refresh_streams_tree {
-                let mut treeview_state =
-                    self.model.ips_and_streams_treeview_state.as_mut().unwrap();
+                let treeview_state = self.model.ips_and_streams_treeview_state.as_mut().unwrap();
                 ips_and_streams_treeview::refresh_remote_ips_streams_tree(
-                    &mut treeview_state,
+                    treeview_state,
                     &self.widgets.remote_ips_streams_treeview,
                     &self.model.streams,
                     &card,
@@ -835,10 +833,10 @@ impl Widget for Win {
                                 && parser_index == card.protocol_index);
 
                     if is_for_current_card {
-                        let mut treeview_state =
+                        let treeview_state =
                             self.model.ips_and_streams_treeview_state.as_mut().unwrap();
                         ips_and_streams_treeview::got_packet_refresh_remote_ips_treeview(
-                            &mut treeview_state,
+                            treeview_state,
                             &stream_data,
                             packet_stream_id,
                         );
@@ -847,9 +845,9 @@ impl Widget for Win {
                 stream_data
             };
             let follow_packets = self.get_follow_packets();
-            let mut tv_state = self.model.messages_treeview_state.as_mut().unwrap();
+            let tv_state = self.model.messages_treeview_state.as_mut().unwrap();
             messages_treeview::refresh_grids_new_messages(
-                &mut tv_state,
+                tv_state,
                 self.model.relm.stream(),
                 self.model.selected_card.clone(),
                 packet_stream_id,
@@ -902,9 +900,9 @@ impl Widget for Win {
             match parser.finish_stream(stream_data) {
                 Ok(sd) => {
                     let follow_packets = self.get_follow_packets();
-                    let mut tv_state = self.model.messages_treeview_state.as_mut().unwrap();
+                    let tv_state = self.model.messages_treeview_state.as_mut().unwrap();
                     messages_treeview::refresh_grids_new_messages(
-                        &mut tv_state,
+                        tv_state,
                         self.model.relm.stream(),
                         self.model.selected_card.clone(),
                         stream_id,
@@ -953,11 +951,11 @@ impl Widget for Win {
             // when we load data, we do NOT update the number of messages
             // per stream in the tree model. We'll now update it after
             // we finished the loading
-            let mut treeview_state = self.model.ips_and_streams_treeview_state.as_mut().unwrap();
+            let treeview_state = self.model.ips_and_streams_treeview_state.as_mut().unwrap();
             let remote_ips = treeview_state.remote_ips();
-            ips_and_streams_treeview::init_remote_ips_streams_tree(&mut treeview_state);
+            ips_and_streams_treeview::init_remote_ips_streams_tree(treeview_state);
             ips_and_streams_treeview::refresh_remote_ips_streams_tree(
-                &mut treeview_state,
+                treeview_state,
                 &self.widgets.remote_ips_streams_treeview,
                 &self.model.streams,
                 card,
@@ -1291,8 +1289,8 @@ impl Widget for Win {
             }
         }
         self.widgets.save_capture_btn.set_visible(false);
-        let mut ips_treeview_state = self.model.ips_and_streams_treeview_state.as_mut().unwrap();
-        ips_and_streams_treeview::init_remote_ips_streams_tree(&mut ips_treeview_state);
+        let ips_treeview_state = self.model.ips_and_streams_treeview_state.as_mut().unwrap();
+        ips_and_streams_treeview::init_remote_ips_streams_tree(ips_treeview_state);
         ips_and_streams_treeview::connect_remote_ips_streams_tree(
             ips_treeview_state,
             &self.widgets.remote_ips_streams_treeview,

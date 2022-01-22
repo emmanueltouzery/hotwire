@@ -302,7 +302,7 @@ impl Widget for PostgresCommEntry {
                     list_store.set_value(
                         &iter,
                         col_idx as u32,
-                        &str_val.as_deref().unwrap_or("null").to_value(),
+                        &str_val.unwrap_or("null").to_value(),
                     );
                 },
                 |col_idx, datetime_val, _| {
@@ -473,7 +473,7 @@ impl Widget for PostgresCommEntry {
                                                     .iter()
                                                     .cloned()
                                                     .enumerate()
-                                                    .map(|(i, (_typ, p))| format!("<b>${}</b>: {}", i+1, glib::markup_escape_text(&p).to_string())),
+                                                    .map(|(i, (_typ, p))| format!("<b>${}</b>: {}", i+1, glib::markup_escape_text(&p))),
                                                     "\n".to_string()).collect::<String>(),
                             visible: !self.model.data.parameter_values.is_empty(),
                             xalign: 0.0,

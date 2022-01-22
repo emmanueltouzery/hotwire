@@ -160,7 +160,7 @@ fn highlight_indent_json(json: &str) -> String {
                 Ok(sofar + &highlight_indent_json_value(&val, 0) + "\n");
             r
         }) {
-            return ndjson_fmt;
+            ndjson_fmt
         } else {
             glib::markup_escape_text(json).to_string()
         }

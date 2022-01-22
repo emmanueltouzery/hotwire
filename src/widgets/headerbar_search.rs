@@ -494,7 +494,6 @@ impl Widget for HeaderbarSearch {
     view! {
         gtk::Box {
             #[style_class="linked"]
-            #[name="search_box"]
             gtk::Box {
                 #[name="recent_searches_btn"]
                 gtk::MenuButton {
