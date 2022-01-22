@@ -5,46 +5,46 @@ authors = ["Emmanuel Touzery <etouzery@gmail.com>"]
 edition = "2018"
 
 [build-dependencies]
-reqwest = { version = "0.11.3", features = ["blocking"] }
-flate2 = "1.0.20"
-tar = "0.4.35"
+reqwest = { version = "0.11.9", features = ["blocking"] }
+flate2 = "1.0.22"
+tar = "0.4.38"
 includedir_codegen = "0.6.0"
 
 [dependencies]
-serde = "1.0.126"
-serde_json = "1.0.64"
-itertools = "0.10.1"
+serde = "1.0.134"
+serde_json = "1.0.76"
+itertools = "0.10.3"
 
 relm = "0.22.0"
 relm-derive = "0.22.0"
 
-glib = "0.14.5"
-gio = "0.14.6"
+glib = "0.14.8"
+gio = "0.14.8"
 hex = "0.4.3"
-pango = "0.14.3"
+pango = "0.14.8"
 chrono = "0.4.19"
 gdk-pixbuf = "0.14.0"
-gdk = "0.14.2"
+gdk = "0.14.3"
 regex = "1.5.4"
 xmlparser = "0.13.3"
-brotli = "3.3.0"
-flate2 = "1.0.20"
+brotli = "3.3.3"
+flate2 = "1.0.22"
 quick-xml = "0.22.0"
-nix = "0.21.0"
-dirs = "3.0.2"
-libc = "0.2.97"
-signal-hook = "0.3.9"
-derive_more = "0.99.14"
+nix = "0.23.1"
+dirs = "4.0.0"
+libc = "0.2.113"
+signal-hook = "0.3.13"
+derive_more = "0.99.17"
 lazy_static = "1.4.0"
 num-traits = "0.2.14"
-serde_derive = "1.0.126"
+serde_derive = "1.0.134"
 toml = "0.5.8"
 # filetime = "0.2.14"
-nom = "7.0.0"
-strum = "0.22"
-strum_macros = "0.22"
+nom = "7.1.0"
+strum = "0.23"
+strum_macros = "0.23.1"
 
 
 [dependencies.gtk]
-version = "0.14.1"
+version = "0.14.3"
 features = ["v3_22_29"]
