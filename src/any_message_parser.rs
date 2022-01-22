@@ -60,6 +60,8 @@ impl<MP: MessageParser> AnyMessageParser<MP> {
         &self,
         stream: StreamData<MP::StreamGlobalsType, MP::MessagesType>,
     ) -> StreamData<AnyStreamGlobals, AnyMessagesData> {
+        // TODO i don't like building a new struct everytime here.
+        // this is called everytime add_to_stream is called on AnyMessageParser...
         StreamData {
             parser_index: stream.parser_index,
             stream_globals: stream.stream_globals.to_any_stream_globals(),
