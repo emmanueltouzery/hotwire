@@ -46,7 +46,7 @@ fn highlight_indent_xml(xml: &str) -> String {
                     }
                 }
                 result.push_str("&lt;<b>");
-                result.push_str(&local);
+                result.push_str(&glib::markup_escape_text(&local).to_string());
                 has_attributes = false;
                 has_text = false;
                 attrs_on_line = 0;
@@ -64,7 +64,7 @@ fn highlight_indent_xml(xml: &str) -> String {
                     attrs_on_line = 0;
                 }
                 result.push(' ');
-                result.push_str(&span);
+                result.push_str(&glib::markup_escape_text(&span).to_string());
                 has_attributes = true;
             }
             Ok(xmlparser::Token::ElementEnd {
@@ -105,44 +105,44 @@ fn highlight_indent_xml(xml: &str) -> String {
                     }
                 }
                 result.push_str("&lt;/<b>");
-                result.push_str(&name);
+                result.push_str(&glib::markup_escape_text(&name).to_string());
                 result.push_str("</b>&gt;");
                 has_text = false;
             }
             Ok(xmlparser::Token::Text { text, .. }) => {
                 let txt = text.replace("\n", "").trim().to_string();
                 if !txt.is_empty() {
-                    result.push_str(&txt);
+                    result.push_str(&glib::markup_escape_text(&txt).to_string());
                     has_text = true;
                 }
             }
             Ok(xmlparser::Token::Declaration { span, .. }) => {
-                result.push_str(&span);
+                result.push_str(&glib::markup_escape_text(&span).to_string());
             }
             Ok(xmlparser::Token::ProcessingInstruction { span, .. }) => {
-                result.push_str(&span);
+                result.push_str(&glib::markup_escape_text(&span).to_string());
             }
             Ok(xmlparser::Token::Comment { text, .. }) => {
                 result.push_str(" <i>&lt;!-- ");
-                result.push_str(&text);
+                result.push_str(&glib::markup_escape_text(&text).to_string());
                 result.push_str(" --&gt;</i>");
             }
             Ok(xmlparser::Token::DtdStart { span, .. }) => {
-                result.push_str(&span);
+                result.push_str(&glib::markup_escape_text(&span).to_string());
             }
             Ok(xmlparser::Token::EmptyDtd { span, .. }) => {
-                result.push_str(&span);
+                result.push_str(&glib::markup_escape_text(&span).to_string());
             }
             Ok(xmlparser::Token::DtdEnd { span, .. }) => {
-                result.push_str(&span);
+                result.push_str(&glib::markup_escape_text(&span).to_string());
             }
             Ok(xmlparser::Token::EntityDeclaration { span, .. }) => {
-                result.push_str(&span);
+                result.push_str(&glib::markup_escape_text(&span).to_string());
             }
             Ok(xmlparser::Token::Cdata { span, .. }) => {
-                result.push_str(&span);
+                result.push_str(&glib::markup_escape_text(&span).to_string());
             }
-            Err(_) => return xml.to_string(),
+            Err(_) => return glib::markup_escape_text(xml).to_string(),
         }
     }
     result
@@ -152,7 +152,7 @@ fn highlight_indent_json(json: &str) -> String {
     if let Ok(val) = serde_json::from_str(json) {
         highlight_indent_json_value(&val, 0)
     } else {
-        json.to_string()
+        glib::markup_escape_text(json).to_string()
     }
 }
 
@@ -196,22 +196,30 @@ fn highlight_indent_json_value(v: &serde_json::Value, indent_depth: usize) -> St
                 + cur_indent
                 + "]"
         }
-        _ => v.to_string(),
+        _ => glib::markup_escape_text(&v.to_string()).to_string(),
     }
 }
 
 #[test]
 fn simple_xml_indent() {
     assert_eq!(
-    "<?xml?>\n&lt;<b>body</b>&gt;\n  &lt;<b>tag1</b>/&gt;\n  &lt;<b>tag2</b> attr=\"val\"&gt;contents&lt;/<b>tag2</b>&gt;\n&lt;/<b>body</b>&gt;",
+    "&lt;?xml?&gt;\n&lt;<b>body</b>&gt;\n  &lt;<b>tag1</b>/&gt;\n  &lt;<b>tag2</b> attr=&quot;val&quot;&gt;contents&lt;/<b>tag2</b>&gt;\n&lt;/<b>body</b>&gt;",
     highlight_indent_xml("<?xml?><body><tag1/><tag2 attr=\"val\">contents</tag2></body>")
+);
+}
+
+#[test]
+fn simple_xml_indent_must_escape() {
+    assert_eq!(
+    "&lt;?xml?&gt;\n&lt;<b>body</b>&gt;\n  &lt;<b>tag1</b>/&gt;\n  &lt;<b>tag2</b> attr=&quot;val&quot;&gt;cont&amp;ents&lt;/<b>tag2</b>&gt;\n&lt;/<b>body</b>&gt;",
+    highlight_indent_xml("<?xml?><body><tag1/><tag2 attr=\"val\">cont&ents</tag2></body>")
 );
 }
 
 #[test]
 fn simple_xml_indent_already_indented() {
     assert_eq!(
-    "<?xml?>\n&lt;<b>body</b>&gt;\n  &lt;<b>tag1</b>/&gt;\n  &lt;<b>tag2</b> attr=\"val\"&gt;contents&lt;/<b>tag2</b>&gt;\n&lt;/<b>body</b>&gt;",
+    "&lt;?xml?&gt;\n&lt;<b>body</b>&gt;\n  &lt;<b>tag1</b>/&gt;\n  &lt;<b>tag2</b> attr=&quot;val&quot;&gt;contents&lt;/<b>tag2</b>&gt;\n&lt;/<b>body</b>&gt;",
     highlight_indent_xml("<?xml?>\n<body>\n\n\n      <tag1/>\n\n\n<tag2 attr=\"val\">contents</tag2>\n</body>")
 );
 }
@@ -219,7 +227,7 @@ fn simple_xml_indent_already_indented() {
 #[test]
 fn xml_highlight_attrs_no_children() {
     assert_eq!(
-        "&lt;<b>mytag</b> attr1=\"a\" attr2=\"b\"/&gt;",
+        "&lt;<b>mytag</b> attr1=&quot;a&quot; attr2=&quot;b&quot;/&gt;",
         highlight_indent_xml("<mytag attr1=\"a\" attr2=\"b\" />")
     );
 }
@@ -227,14 +235,14 @@ fn xml_highlight_attrs_no_children() {
 #[test]
 fn xml_indent_long_lines() {
     assert_eq!(
-    "&lt;<b>mytag</b> firstattr=\"first value\" secondattr=\"second value\" thirdattr=\"third value\"\n   fourthattr=\"fourth value\" fifthattr=\"fifth value\"/&gt;",
+    "&lt;<b>mytag</b> firstattr=&quot;first value&quot; secondattr=&quot;second value&quot; thirdattr=&quot;third value&quot;\n   fourthattr=&quot;fourth value&quot; fifthattr=&quot;fifth value&quot;/&gt;",
     highlight_indent_xml("<mytag firstattr=\"first value\" secondattr=\"second value\" thirdattr=\"third value\" fourthattr=\"fourth value\" fifthattr=\"fifth value\"/>"))
 }
 
 #[test]
 fn simple_json_indent() {
     assert_eq!(
-        "{\n  \"<b>field1</b>\": 12,\n  \"<b>field2</b>\": [\n    \"hi\",\n    \"array\"\n  ]\n}",
+        "{\n  \"<b>field1</b>\": 12,\n  \"<b>field2</b>\": [\n    &quot;hi&quot;,\n    &quot;array&quot;\n  ]\n}",
         highlight_indent_json(r#"{"field1": 12, "field2": ["hi", "array"]}"#)
     );
 }
