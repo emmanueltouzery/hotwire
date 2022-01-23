@@ -55,14 +55,9 @@ pub fn init_grids_and_panes(
     let mut message_treeviews = vec![];
     let mut details_component_emitters = vec![];
     let mut details_adjustments = vec![];
-    for (idx, message_parser) in win::get_message_parsers().iter().enumerate() {
-        let (tv, dtl_emitter, dtl_adj) = add_message_parser_grid_and_pane(
-            &comm_remote_servers_stack,
-            relm,
-            bg_sender,
-            message_parser.as_ref(),
-            idx,
-        );
+    for idx in win::MESSAGE_PARSERS.protocol_indices() {
+        let (tv, dtl_emitter, dtl_adj) =
+            add_message_parser_grid_and_pane(&comm_remote_servers_stack, relm, bg_sender, idx);
         message_treeviews.push(tv);
         details_component_emitters.push(dtl_emitter);
         details_adjustments.push(dtl_adj);
@@ -80,10 +75,6 @@ fn add_message_parser_grid_and_pane(
     comm_remote_servers_stack: &gtk::Stack,
     relm: &relm::Relm<win::Win>,
     bg_sender: &mpsc::Sender<BgFunc>,
-    message_parser: &dyn MessageParser<
-        StreamGlobalsType = AnyStreamGlobals,
-        MessagesType = AnyMessagesData,
-    >,
     mp_idx: usize,
 ) -> (
     (gtk::TreeView, TreeViewSignals),
@@ -93,7 +84,7 @@ fn add_message_parser_grid_and_pane(
     let tv = gtk::TreeViewBuilder::new()
         .activate_on_single_click(true)
         .build();
-    message_parser.prepare_treeview(&tv);
+    crate::win::MESSAGE_PARSERS.prepare_treeview(mp_idx, &tv);
 
     let selection_change_signal_id = {
         let rstream = relm.stream().clone();
@@ -151,7 +142,7 @@ fn add_message_parser_grid_and_pane(
     let scroll2 = gtk::ScrolledWindowBuilder::new().margin_start(3).build();
     scroll2.set_height_request(200);
 
-    let (child, overlay) = if message_parser.requests_details_overlay() {
+    let (child, overlay) = if crate::win::MESSAGE_PARSERS.requests_details_overlay(mp_idx) {
         let overlay = gtk::OverlayBuilder::new().child(&scroll2).build();
         (
             overlay.clone().dynamic_cast::<gtk::Widget>().unwrap(),
@@ -161,7 +152,8 @@ fn add_message_parser_grid_and_pane(
         (scroll2.clone().dynamic_cast::<gtk::Widget>().unwrap(), None)
     };
     paned.pack2(&child, false, true);
-    let component_emitter = message_parser.add_details_to_scroll(
+    let component_emitter = crate::win::MESSAGE_PARSERS.add_details_to_scroll(
+        mp_idx,
         &scroll2,
         overlay.as_ref(),
         bg_sender.clone(),
@@ -204,7 +196,7 @@ fn row_selected(
 pub fn refresh_remote_servers(
     tv_state: &mut MessagesTreeviewState,
     selected_card: Option<&CommTargetCardData>,
-    streams: &HashMap<TcpStreamId, StreamData<AnyStreamGlobals, AnyMessagesData>>,
+    streams: &Box<dyn crate::win::Streams>,
     remote_ips_streams_treeview: &gtk::TreeView,
     sidebar_selection_change_signal_id: Option<&glib::SignalHandlerId>,
     constrain_remote_ips: &[IpAddr],
@@ -217,47 +209,25 @@ pub fn refresh_remote_servers(
         RefreshOngoing::Yes,
     );
     if let Some(card) = selected_card.cloned() {
-        let mut by_remote_ip = HashMap::new();
-        let parsers = win::get_message_parsers();
-        for (stream_id, messages) in streams {
-            if !matches!(messages.client_server, Some(cs) if card.to_key().matches_server(cs)) {
-                continue;
-            }
-            let allowed_all = constrain_remote_ips.is_empty() && constrain_stream_ids.is_empty();
-
-            let allowed_ip = messages
-                .client_server
-                .as_ref()
-                .filter(|cs| constrain_remote_ips.contains(&cs.client_ip))
-                .is_some();
-            let allowed_stream = constrain_stream_ids.contains(stream_id);
-            let allowed = allowed_all || allowed_ip || allowed_stream;
-
-            if !allowed {
-                continue;
-            }
-            let remote_server_streams = by_remote_ip
-                .entry(
-                    messages
-                        .client_server
-                        .as_ref()
-                        .map(|cs| cs.client_ip)
-                        .unwrap_or_else(|| IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))),
-                )
-                .or_insert_with(Vec::new);
-            remote_server_streams.push((stream_id, messages));
-        }
-        let mp = parsers.get(card.protocol_index).unwrap();
+        let by_remote_ip =
+            streams.by_remote_ip(card.to_key(), constrain_remote_ips, constrain_stream_ids);
         tv_state
             .comm_remote_servers_stack
             .set_visible_child_name(&card.protocol_index.to_string());
         let (ref tv, ref _signals) = &tv_state.message_treeviews.get(card.protocol_index).unwrap();
-        let ls = mp.get_empty_liststore();
+        let ls = crate::win::MESSAGE_PARSERS.get_empty_liststore(card.protocol_index);
         for tcp_sessions in by_remote_ip.values() {
             for (session_id, session) in tcp_sessions {
                 let mut idx = 0;
                 while idx < session.messages.len() {
-                    mp.populate_treeview(&ls, **session_id, &session.messages, idx, 100);
+                    crate::win::MESSAGE_PARSERS.populate_treeview(
+                        card.protocol_index,
+                        &ls,
+                        **session_id,
+                        &session.messages,
+                        idx,
+                        100,
+                    );
                     idx += 100;
                     // https://developer.gnome.org/gtk3/stable/gtk3-General.html#gtk-events-pending
                     // I've had this loop last almost 3 seconds!!
@@ -271,7 +241,7 @@ pub fn refresh_remote_servers(
                 }
             }
         }
-        mp.end_populate_treeview(tv, &ls);
+        crate::win::MESSAGE_PARSERS.end_populate_treeview(card.protocol_index, tv, &ls);
         let ip_hash = by_remote_ip.keys().copied().collect::<HashSet<_>>();
 
         tv_state.cur_liststore = Some((card.to_key(), ls));
@@ -366,52 +336,40 @@ fn get_store_holding_model(
     (tv, store_holding_model)
 }
 
-fn get_messages_by_stream(
-    streams: &HashMap<TcpStreamId, StreamData<AnyStreamGlobals, AnyMessagesData>>,
-) -> HashMap<TcpStreamId, &AnyMessagesData> {
-    streams
-        .iter()
-        .map(|(tcp, sd)| (*tcp, &sd.messages))
-        .collect()
-}
-
 fn matches_filter(
-    mp: &dyn MessageParser<StreamGlobalsType = AnyStreamGlobals, MessagesType = AnyMessagesData>,
+    protocol_index: usize,
     f: &search_expr::SearchExpr,
-    streams: &HashMap<TcpStreamId, StreamData<AnyStreamGlobals, AnyMessagesData>>,
+    streams: &Box<dyn win::Streams>,
     model: &gtk::TreeModel,
     iter: &gtk::TreeIter,
 ) -> bool {
     match f {
         search_expr::SearchExpr::And(a, b) => {
-            matches_filter(mp, a, streams, model, iter)
-                && matches_filter(mp, b, streams, model, iter)
+            matches_filter(protocol_index, a, streams, model, iter)
+                && matches_filter(protocol_index, b, streams, model, iter)
         }
         search_expr::SearchExpr::Or(a, b) => {
-            matches_filter(mp, a, streams, model, iter)
-                || matches_filter(mp, b, streams, model, iter)
+            matches_filter(protocol_index, a, streams, model, iter)
+                || matches_filter(protocol_index, b, streams, model, iter)
         }
         search_expr::SearchExpr::SearchOpExpr(expr)
             if expr.op_negation == OperatorNegation::Negated =>
         {
-            let msg_by_stream = get_messages_by_stream(streams);
-            !mp.matches_filter(expr, &msg_by_stream, model, iter)
+            !crate::win::MESSAGE_PARSERS.matches_filter(protocol_index, expr, &streams, model, iter)
         }
         search_expr::SearchExpr::SearchOpExpr(expr) => {
-            let msg_by_stream = get_messages_by_stream(streams);
-            mp.matches_filter(expr, &msg_by_stream, model, iter)
+            crate::win::MESSAGE_PARSERS.matches_filter(protocol_index, expr, &streams, model, iter)
         }
     }
 }
 
 pub fn search_text_changed(
     tv_state: &MessagesTreeviewState,
-    streams: &HashMap<TcpStreamId, StreamData<AnyStreamGlobals, AnyMessagesData>>,
+    streams: &Box<dyn win::Streams>,
     protocol_index: usize,
     filter: Option<&search_expr::SearchExpr>,
 ) {
     let (tv, m) = get_store_holding_model(tv_state, protocol_index);
-    let parsers = win::get_message_parsers();
     // compute all the row indexes to show right here. then in the callback only check the row id,
     // because i can't share the streams with the set_visible_func callback (which needs 'static lifetime)
     let mut shown = HashSet::new();
@@ -427,12 +385,11 @@ pub fn search_text_changed(
                 .dynamic_cast::<gtk::ListStore>()
                 .unwrap()
         });
-    let mp = parsers.get(protocol_index).unwrap();
     let cur_iter_o = m.iter_first();
     if let Some(cur_iter) = cur_iter_o {
         if let Some(f) = filter {
             loop {
-                if matches_filter(mp.as_ref(), f, streams, &m, &cur_iter) {
+                if matches_filter(protocol_index, f, streams, &m, &cur_iter) {
                     let stream_id = store
                         .value(
                             &cur_iter,
@@ -497,16 +454,15 @@ pub fn refresh_grids_new_messages(
     selected_card: Option<CommTargetCardData>,
     stream_id: TcpStreamId,
     message_count_before: usize,
-    stream_data: &StreamData<AnyStreamGlobals, AnyMessagesData>,
+    stream_data: &Box<dyn crate::win::Streams>,
     follow_packets: FollowPackets,
 ) {
-    let parsers = win::get_message_parsers();
-    let parser = parsers.get(stream_data.parser_index).unwrap();
-    let added_messages = stream_data.messages.len() - message_count_before;
+    let added_messages = stream_data.messages_len(stream_id) - message_count_before;
     // self.refresh_comm_targets();
 
     // self.refresh_remote_servers(RefreshRemoteIpsAndStreams::Yes, &[], &[]);
-    if let (Some(client_server), Some(card)) = (stream_data.client_server, selected_card) {
+    if let (Some(client_server), Some(card)) = (stream_data.client_server(stream_id), selected_card)
+    {
         if client_server.server_ip == card.ip
             && client_server.server_port == card.port
             && stream_data.parser_index == card.protocol_index
@@ -522,18 +478,19 @@ pub fn refresh_grids_new_messages(
                 .map(|(_c, s)| s.clone())
                 .unwrap_or_else(|| {
                     let key = card.to_key();
-                    let ls = parser.get_empty_liststore();
+                    let ls = crate::win::MESSAGE_PARSERS.get_empty_liststore(card.protocol_index);
                     tv_state.cur_liststore = Some((key, ls.clone()));
                     let (ref tv, ref _signals) =
                         &tv_state.message_treeviews.get(card.protocol_index).unwrap();
-                    parser.end_populate_treeview(tv, &ls);
+                    crate::win::MESSAGE_PARSERS.end_populate_treeview(card.protocol_index, tv, &ls);
                     ls
                 });
             // refresh_remote_ips_streams_tree() // <------
-            parser.populate_treeview(
+            crate::win::MESSAGE_PARSERS.populate_treeview(
+                card.protocol_index,
                 &ls,
                 stream_id,
-                &stream_data.messages,
+                &stream_data,
                 stream_data.messages.len() - added_messages,
                 added_messages,
             );

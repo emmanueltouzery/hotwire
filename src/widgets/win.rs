@@ -8,18 +8,17 @@ use super::ips_and_streams_treeview;
 use super::messages_treeview;
 use super::preferences::Preferences;
 use super::recent_file_item::RecentFileItem;
-use crate::any_message_parser;
 use crate::config;
 use crate::config::Config;
-use crate::http::http_message_parser::Http;
-use crate::http2::http2_message_parser::Http2;
+use crate::http::http_message_parser::{Http, HttpMessageData, HttpStreamGlobals};
+use crate::http2::http2_message_parser::{Http2, Http2StreamGlobals};
 use crate::icons::Icon;
-use crate::message_parser::StreamData;
 use crate::message_parser::{AnyMessagesData, MessageParser};
 use crate::message_parser::{AnyStreamGlobals, ClientServerInfo};
+use crate::message_parser::{MessageInfo, StreamData};
 use crate::packets_read;
 use crate::packets_read::{InputStep, ParseInputStep, TSharkInputType};
-use crate::pgsql::postgres_message_parser::Postgres;
+use crate::pgsql::postgres_message_parser::{Postgres, PostgresMessageData, PostgresStreamGlobals};
 use crate::search_expr;
 use crate::tshark_communication;
 use crate::tshark_communication::{NetworkPort, TSharkPacket, TcpStreamId};
@@ -29,7 +28,6 @@ use crate::BgFunc;
 use gdk::prelude::*;
 use gtk::prelude::*;
 use gtk::traits::SettingsExt;
-use itertools::Itertools;
 use relm::{Component, ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
 use std::cmp::Reverse;
@@ -52,14 +50,113 @@ const NORMAL_STACK_NAME: &str = "normal";
 
 const PCAP_MIME_TYPE: &str = "application/vnd.tcpdump.pcap";
 
-pub fn get_message_parsers(
-) -> Vec<Box<dyn MessageParser<StreamGlobalsType = AnyStreamGlobals, MessagesType = AnyMessagesData>>>
-{
-    vec![
-        Box::new(any_message_parser::wrap_message_parser(Http)),
-        Box::new(any_message_parser::wrap_message_parser(Postgres)),
-        Box::new(any_message_parser::wrap_message_parser(Http2)),
-    ]
+// gonna put the concrete type here later
+pub const MESSAGE_PARSERS: MessageParserList = (Http, Postgres, Http2);
+
+trait MessageParserList {
+    // let filter = get_message_parsers()
+    //     .into_iter()
+    //     .map(|p| p.tshark_filter_string())
+    //     .join(" || ");
+    fn combine_tshark_filter_strings(&self) -> String;
+
+    fn protocol_indices(&self) -> &[usize];
+
+    fn supported_filter_keys(&self, protocol_index: usize) -> &'static [&'static str];
+
+    fn protocol_icon(&self, protocol_index: usize) -> Icon;
+
+    fn get_empty_liststore(&self, protocol_index: usize) -> gtk::ListStore;
+
+    fn populate_treeview(
+        &self,
+        protocol_index: usize,
+        ls: &gtk::ListStore,
+        session_id: TcpStreamId,
+        messages: &Box<dyn Streams>,
+        start_idx: usize,
+        item_count: usize,
+    );
+
+    fn end_populate_treeview(&self, protocol_index: usize, tv: &gtk::TreeView, ls: &gtk::ListStore);
+
+    fn prepare_treeview(&self, protocol_index: usize, tv: &gtk::TreeView);
+    fn requests_details_overlay(&self, protocol_index: usize) -> bool;
+
+    fn add_details_to_scroll(
+        &self,
+        protocol_index: usize,
+        parent: &gtk::ScrolledWindow,
+        overlay: Option<&gtk::Overlay>,
+        bg_sender: mpsc::Sender<BgFunc>,
+        win_msg_sender: relm::StreamHandle<Msg>,
+    ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, MessageInfo)>;
+
+    fn matches_filter(
+        &self,
+        protocol_index: usize,
+        filter: &search_expr::SearchOpExpr,
+        streams: &Box<dyn Streams>,
+        model: &gtk::TreeModel,
+        iter: &gtk::TreeIter,
+    ) -> bool;
+}
+
+pub trait Streams {
+    fn finish_stream(&mut self, stream_id: TcpStreamId) -> Result<(), String>;
+    fn handle_got_packet(
+        &mut self,
+        p: TSharkPacket,
+    ) -> Result<
+        (
+            usize,
+            SessionChangeType,
+            Option<ClientServerInfo>,
+            usize,
+            Option<&str>,
+        ),
+        (TcpStreamId, String),
+    >;
+    fn messages_len(&self, stream_id: TcpStreamId) -> usize;
+    fn client_server(&self, stream_id: TcpStreamId) -> Option<ClientServerInfo>;
+    fn protocol_index(&self, stream_id: TcpStreamId) -> Option<usize>;
+
+    fn by_remote_ip(
+        &self,
+        card_key: CommTargetCardKey,
+        constrain_remote_ips: &[IpAddr],
+        constrain_stream_ids: &[TcpStreamId],
+    ) -> HashMap<IpAddr, Vec<TcpStreamId>>;
+    // let mut by_remote_ip = HashMap::new();
+    // let parsers = win::get_message_parsers();
+    // for (stream_id, messages) in streams {
+    //     if !matches!(messages.client_server, Some(cs) if card.to_key().matches_server(cs)) {
+    //         continue;
+    //     }
+    //     let allowed_all = constrain_remote_ips.is_empty() && constrain_stream_ids.is_empty();
+
+    //     let allowed_ip = messages
+    //         .client_server
+    //         .as_ref()
+    //         .filter(|cs| constrain_remote_ips.contains(&cs.client_ip))
+    //         .is_some();
+    //     let allowed_stream = constrain_stream_ids.contains(stream_id);
+    //     let allowed = allowed_all || allowed_ip || allowed_stream;
+
+    //     if !allowed {
+    //         continue;
+    //     }
+    //     let remote_server_streams = by_remote_ip
+    //         .entry(
+    //             messages
+    //                 .client_server
+    //                 .as_ref()
+    //                 .map(|cs| cs.client_ip)
+    //                 .unwrap_or_else(|| IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))),
+    //         )
+    //         .or_insert_with(Vec::new);
+    //     remote_server_streams.push((stream_id, messages));
+    // }
 }
 
 pub fn is_flatpak() -> bool {
@@ -137,7 +234,14 @@ pub struct Model {
 
     sidebar_selection_change_signal_id: Option<glib::SignalHandlerId>,
 
-    streams: HashMap<TcpStreamId, StreamData<AnyStreamGlobals, AnyMessagesData>>,
+    // streams: HashMap<TcpStreamId, StreamData<AnyStreamGlobals, AnyMessagesData>>, // hashmap<tcpstreamid ,anystreamdata>
+    streams: Streams, // gonna put the concrete type here later
+    //     (
+    //     HashMap<TcpStreamId, StreamData<HttpStreamGlobals, Vec<HttpMessageData>>>,
+    //     HashMap<TcpStreamId, StreamData<PostgresStreamGlobals, Vec<PostgresMessageData>>>,
+    //     HashMap<TcpStreamId, StreamData<Http2StreamGlobals, Vec<HttpMessageData>>>,
+    // ),
+    // // hashmap<tcpstreamid ,anystreamdata>
     comm_target_cards: Vec<CommTargetCardData>,
     selected_card: Option<CommTargetCardData>,
 
@@ -664,13 +768,14 @@ impl Widget for Win {
             .and_then(|idx| self.model.comm_target_cards.get(idx as usize))
             .cloned();
         if let Some(card) = self.model.selected_card.as_ref() {
-            let parsers = get_message_parsers();
-            let mp = parsers.get(card.protocol_index).unwrap();
+            // let parsers = get_message_parsers();
+            // let mp = parsers.get(card.protocol_index).unwrap();
 
             self.streams
                 .headerbar_search
                 .emit(HeaderbarSearchMsg::SearchFilterKeysChanged(
-                    mp.supported_filter_keys().iter().cloned().collect(),
+                    // mp.supported_filter_keys().iter().cloned().collect(),
+                    MESSAGE_PARSERS.supported_filter_keys(card.protocol_index),
                 ));
         }
         let mut ips_treeview_state = self.model.ips_and_streams_treeview_state.as_mut().unwrap();
@@ -787,96 +892,114 @@ impl Widget for Win {
         if p.is_malformed {
             self.model.capture_malformed_packets += 1;
         }
-        if let Some((parser_index, parser)) = get_message_parsers()
-            .iter()
-            .enumerate()
-            .find(|(_idx, ps)| ps.is_my_message(&p))
-        {
-            let packet_stream_id = p.basic_info.tcp_stream_id;
-            let existing_stream = self.model.streams.remove(&packet_stream_id);
-            let message_count_before;
-            let session_change_type;
-            let stream_data = if let Some(stream_data) = existing_stream {
-                // existing stream
-                session_change_type = SessionChangeType::NewDataInSession;
-                message_count_before = stream_data.messages.len();
-                let stream_data = match parser.add_to_stream(stream_data, p) {
-                    Ok(sd) => sd,
-                    Err(msg) => {
-                        self.model.relm.stream().emit(Msg::LoadedData(Err(format!(
-                            "Error parsing file, in stream {}: {}",
-                            packet_stream_id, msg
-                        ))));
-                        return;
-                    }
-                };
-                stream_data
-            } else {
-                // new stream
-                session_change_type = SessionChangeType::NewSession;
-                message_count_before = 0;
-                let mut stream_data = StreamData {
-                    parser_index,
-                    stream_globals: parser.initial_globals(),
-                    client_server: None,
-                    messages: parser.empty_messages_data(),
-                    summary_details: None,
-                };
-                match parser.add_to_stream(stream_data, p) {
-                    Ok(sd) => {
-                        stream_data = sd;
-                    }
-                    Err(msg) => {
-                        self.model.relm.stream().emit(Msg::LoadedData(Err(format!(
-                            "Error parsing file, in stream {}: {}",
-                            packet_stream_id, msg
-                        ))));
-                        return;
-                    }
-                }
-                if stream_data.client_server.is_some() {
-                    let is_for_current_card = matches!(
-                            (stream_data.client_server, self.model.selected_card.as_ref()),
-                            (Some(clientserver), Some(card)) if clientserver.server_ip == card.ip
-                                && clientserver.server_port == card.port
-                                && parser_index == card.protocol_index);
-
-                    if is_for_current_card {
-                        let mut treeview_state =
-                            self.model.ips_and_streams_treeview_state.as_mut().unwrap();
-                        ips_and_streams_treeview::got_packet_refresh_remote_ips_treeview(
-                            &mut treeview_state,
-                            &stream_data,
-                            packet_stream_id,
-                        );
-                    }
-                }
-                stream_data
-            };
-            let follow_packets = self.get_follow_packets();
-            let mut tv_state = self.model.messages_treeview_state.as_mut().unwrap();
-            messages_treeview::refresh_grids_new_messages(
-                &mut tv_state,
-                self.model.relm.stream(),
-                self.model.selected_card.clone(),
-                packet_stream_id,
-                message_count_before,
-                &stream_data,
-                follow_packets,
-            );
-
-            if let Some(cs) = stream_data.client_server {
-                self.add_update_comm_target_data(
-                    parser_index,
-                    parser.as_ref(),
-                    cs,
-                    stream_data.summary_details.as_deref(),
-                    session_change_type,
-                );
+        match self.model.streams.handle_got_packet(p) {
+            Err((packet_stream_id, msg)) => {
+                self.model.relm.stream().emit(Msg::LoadedData(Err(format!(
+                    "Error parsing file, in stream {}: {}",
+                    packet_stream_id, msg
+                ))));
             }
+            Ok((
+                parser_index,
+                session_change_type,
+                client_server,
+                message_count_before,
+                summary_details,
+            )) => {
+                let follow_packets = self.get_follow_packets();
+                let mut tv_state = self.model.messages_treeview_state.as_mut().unwrap();
+                let packet_stream_id = p.basic_info.tcp_stream_id;
+                messages_treeview::refresh_grids_new_messages(
+                    &mut tv_state,
+                    self.model.relm.stream(),
+                    self.model.selected_card.clone(),
+                    packet_stream_id,
+                    message_count_before,
+                    &self.model.streams,
+                    follow_packets,
+                );
 
-            self.model.streams.insert(packet_stream_id, stream_data);
+                if let Some(cs) = client_server {
+                    let icon = MESSAGE_PARSERS.protocol_icon(parser_index);
+                    self.add_update_comm_target_data(
+                        parser_index,
+                        icon,
+                        cs,
+                        summary_details.as_deref(),
+                        session_change_type,
+                    );
+                }
+            }
         }
+        // if let Some((parser_index, parser)) = get_message_parsers()
+        //     .iter()
+        //     .enumerate()
+        //     .find(|(_idx, ps)| ps.is_my_message(&p))
+        // {
+        //     let packet_stream_id = p.basic_info.tcp_stream_id;
+        //     let existing_stream = self.model.streams.remove(&packet_stream_id);
+        //     let message_count_before;
+        //     let session_change_type;
+        //     let stream_data = if let Some(stream_data) = existing_stream {
+        //         // existing stream
+        //         session_change_type = SessionChangeType::NewDataInSession;
+        //         message_count_before = stream_data.messages.len();
+        //         let stream_data = match parser.add_to_stream(stream_data, p) {
+        //             Ok(sd) => sd,
+        //             Err(msg) => {
+        //                 self.model.relm.stream().emit(Msg::LoadedData(Err(format!(
+        //                     "Error parsing file, in stream {}: {}",
+        //                     packet_stream_id, msg
+        //                 ))));
+        //                 return;
+        //             }
+        //         };
+        //         stream_data
+        //     } else {
+        //         // new stream
+        //         session_change_type = SessionChangeType::NewSession;
+        //         message_count_before = 0;
+        //         let mut stream_data = StreamData {
+        //             parser_index,
+        //             stream_globals: parser.initial_globals(),
+        //             client_server: None,
+        //             messages: parser.empty_messages_data(),
+        //             summary_details: None,
+        //         };
+        //         match parser.add_to_stream(stream_data, p) {
+        //             Ok(sd) => {
+        //                 stream_data = sd;
+        //             }
+        //             Err(msg) => {
+        //                 self.model.relm.stream().emit(Msg::LoadedData(Err(format!(
+        //                     "Error parsing file, in stream {}: {}",
+        //                     packet_stream_id, msg
+        //                 ))));
+        //                 return;
+        //             }
+        //         }
+        //         if stream_data.client_server.is_some() {
+        //             let is_for_current_card = matches!(
+        //                     (stream_data.client_server, self.model.selected_card.as_ref()),
+        //                     (Some(clientserver), Some(card)) if clientserver.server_ip == card.ip
+        //                         && clientserver.server_port == card.port
+        //                         && parser_index == card.protocol_index);
+
+        //             if is_for_current_card {
+        //                 let mut treeview_state =
+        //                     self.model.ips_and_streams_treeview_state.as_mut().unwrap();
+        //                 ips_and_streams_treeview::got_packet_refresh_remote_ips_treeview(
+        //                     &mut treeview_state,
+        //                     &stream_data,
+        //                     packet_stream_id,
+        //                 );
+        //             }
+        //         }
+        //         stream_data
+        //     };
+
+        //     self.model.streams.insert(packet_stream_id, stream_data);
+        // }
     }
 
     fn get_follow_packets(&self) -> messages_treeview::FollowPackets {
@@ -901,47 +1024,54 @@ impl Widget for Win {
         }
         let keys: Vec<TcpStreamId> = self.model.streams.keys().copied().collect();
         for stream_id in keys {
-            let stream_data = self.model.streams.remove(&stream_id).unwrap();
-            let message_count_before = stream_data.messages.len();
-            let parsers = get_message_parsers();
-            let parser_index = stream_data.parser_index;
-            let parser = parsers.get(parser_index).unwrap();
-            match parser.finish_stream(stream_data) {
-                Ok(sd) => {
-                    let follow_packets = self.get_follow_packets();
-                    let mut tv_state = self.model.messages_treeview_state.as_mut().unwrap();
-                    messages_treeview::refresh_grids_new_messages(
-                        &mut tv_state,
-                        self.model.relm.stream(),
-                        self.model.selected_card.clone(),
-                        stream_id,
-                        message_count_before,
-                        &sd,
-                        follow_packets,
-                    );
-
-                    // finishing the stream may well have caused us to
-                    // update the comm target data stats, update them
-                    if let Some(cs) = sd.client_server.as_ref() {
-                        self.add_update_comm_target_data(
-                            parser_index,
-                            parser.as_ref(),
-                            *cs,
-                            sd.summary_details.as_deref(),
-                            SessionChangeType::NewDataInSession,
-                        );
-                    }
-
-                    self.model.streams.insert(stream_id, sd);
-                }
-                Err(e) => {
-                    self.model.relm.stream().emit(Msg::LoadedData(Err(format!(
-                        "Error parsing file after collecting the final packets: {}",
-                        e
-                    ))));
-                    return;
-                }
+            if let Err(e) = self.model.streams.finish_stream(stream_id) {
+                self.model.relm.stream().emit(Msg::LoadedData(Err(format!(
+                    "Error parsing file after collecting the final packets: {}",
+                    e
+                ))));
+                return;
             }
+            // let stream_data = self.model.streams.remove(&stream_id).unwrap();
+            // let message_count_before = stream_data.messages.len();
+            // let parsers = get_message_parsers();
+            // let parser_index = stream_data.parser_index;
+            // let parser = parsers.get(parser_index).unwrap();
+            // match parser.finish_stream(stream_data) {
+            //     Ok(sd) => {
+            //         let follow_packets = self.get_follow_packets();
+            //         let mut tv_state = self.model.messages_treeview_state.as_mut().unwrap();
+            //         messages_treeview::refresh_grids_new_messages(
+            //             &mut tv_state,
+            //             self.model.relm.stream(),
+            //             self.model.selected_card.clone(),
+            //             stream_id,
+            //             message_count_before,
+            //             &sd,
+            //             follow_packets,
+            //         );
+
+            //         // finishing the stream may well have caused us to
+            //         // update the comm target data stats, update them
+            //         if let Some(cs) = sd.client_server.as_ref() {
+            //             self.add_update_comm_target_data(
+            //                 parser_index,
+            //                 parser.as_ref(),
+            //                 *cs,
+            //                 sd.summary_details.as_deref(),
+            //                 SessionChangeType::NewDataInSession,
+            //             );
+            //         }
+
+            //         self.model.streams.insert(stream_id, sd);
+            //     }
+            //     Err(e) => {
+            //         self.model.relm.stream().emit(Msg::LoadedData(Err(format!(
+            //             "Error parsing file after collecting the final packets: {}",
+            //             e
+            //         ))));
+            //         return;
+            //     }
+            // }
         }
         if self.model.streams.is_empty() {
             self.model.relm.stream().emit(Msg::LoadedData(Err(
@@ -996,10 +1126,7 @@ impl Widget for Win {
     fn add_update_comm_target_data(
         &mut self,
         protocol_index: usize,
-        parser: &dyn MessageParser<
-            StreamGlobalsType = AnyStreamGlobals,
-            MessagesType = AnyMessagesData,
-        >,
+        protocol_icon: Icon,
         client_server_info: ClientServerInfo,
         summary_details: Option<&str>,
         session_change_type: SessionChangeType,
@@ -1041,7 +1168,7 @@ impl Widget for Win {
                     bs.insert(client_server_info.client_ip);
                     bs
                 },
-                parser.protocol_icon(),
+                protocol_icon,
                 summary_details.and_then(|d| SummaryDetails::new(d.to_string(), card_key)),
                 1,
             );
@@ -1421,10 +1548,11 @@ impl Widget for Win {
     }
 
     fn load_file(file_type: TSharkInputType, fname: PathBuf, sender: relm::Sender<ParseInputStep>) {
-        let filter = get_message_parsers()
-            .into_iter()
-            .map(|p| p.tshark_filter_string())
-            .join(" || ");
+        // let filter = get_message_parsers()
+        //     .into_iter()
+        //     .map(|p| p.tshark_filter_string())
+        //     .join(" || ");
+        let filter = MESSAGE_PARSERS.combine_tshark_filter_strings();
         packets_read::invoke_tshark(file_type, &fname, &filter, sender);
     }
 
