@@ -213,10 +213,10 @@ pub enum IsNewDataStillIncoming {
 /// the treeview the count of messages per stream, we'll just
 /// put a unicode hourglass. If there no more data incoming
 /// (file fully loaded) then we'll compute the message counts
-pub fn refresh_remote_ips_streams_tree<T: Streams>(
+pub fn refresh_remote_ips_streams_tree(
     treeview_state: &mut IpsAndStreamsTreeviewState,
     remote_ips_streams_treeview: &gtk::TreeView,
-    streams: &T,
+    streams: &Streams,
     card: &CommTargetCardData,
     remote_ips: &HashSet<IpAddr>,
     is_new_data_incoming: IsNewDataStillIncoming,

@@ -30,7 +30,7 @@ pub trait MessageParserList {
         protocol_index: usize,
         ls: &gtk::ListStore,
         session_id: TcpStreamId,
-        messages: &Box<dyn Streams>,
+        messages: &Streams,
         start_idx: usize,
         item_count: usize,
     );
@@ -53,7 +53,7 @@ pub trait MessageParserList {
         &self,
         protocol_index: usize,
         filter: &search_expr::SearchOpExpr,
-        streams: &Box<dyn Streams>,
+        streams: &Streams,
         model: &gtk::TreeModel,
         iter: &gtk::TreeIter,
     ) -> bool;
@@ -106,19 +106,37 @@ impl MessageParserList for (Http, Postgres, Http2) {
         }
     }
 
-    fn populate_treeview<T: Streams>(
+    fn populate_treeview(
         &self,
         protocol_index: usize,
         ls: &gtk::ListStore,
         session_id: TcpStreamId,
-        messages: &T,
+        messages: &Streams,
         start_idx: usize,
         item_count: usize,
     ) {
         match protocol_index {
-            0 => Http.populate_treeview(ls, session_id, messages, start_idx, item_count),
-            1 => Postgres.populate_treeview(ls, session_id, messages, start_idx, item_count),
-            2 => Http2.populate_treeview(ls, session_id, messages, start_idx, item_count),
+            0 => Http.populate_treeview(
+                ls,
+                session_id,
+                &messages.0.get(&session_id).unwrap().messages,
+                start_idx,
+                item_count,
+            ),
+            1 => Postgres.populate_treeview(
+                ls,
+                session_id,
+                &messages.1.get(&session_id).unwrap().messages,
+                start_idx,
+                item_count,
+            ),
+            2 => Http2.populate_treeview(
+                ls,
+                session_id,
+                &messages.2.get(&session_id).unwrap().messages,
+                start_idx,
+                item_count,
+            ),
             _ => panic!(),
         }
     }
@@ -170,18 +188,33 @@ impl MessageParserList for (Http, Postgres, Http2) {
         }
     }
 
-    fn matches_filter<T: Streams>(
+    fn matches_filter(
         &self,
         protocol_index: usize,
         filter: &search_expr::SearchOpExpr,
-        streams: &T,
+        streams: &Streams,
         model: &gtk::TreeModel,
         iter: &gtk::TreeIter,
     ) -> bool {
         match protocol_index {
-            0 => Http.matches_filter(filter, streams, model, iter),
-            1 => Postgres.matches_filter(filter, streams, model, iter),
-            2 => Http2.matches_filter(filter, streams, model, iter),
+            0 => Http.matches_filter(
+                filter,
+                &streams.0.iter().map(|(k, v)| (*k, &v.messages)).collect(),
+                model,
+                iter,
+            ),
+            1 => Postgres.matches_filter(
+                filter,
+                &streams.1.iter().map(|(k, v)| (*k, &v.messages)).collect(),
+                model,
+                iter,
+            ),
+            2 => Http2.matches_filter(
+                filter,
+                &streams.2.iter().map(|(k, v)| (*k, &v.messages)).collect(),
+                model,
+                iter,
+            ),
             _ => panic!(),
         }
     }

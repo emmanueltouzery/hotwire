@@ -18,43 +18,15 @@ pub enum SessionChangeType {
     NewDataInSession,
 }
 
-pub trait Streams {
-    fn finish_stream(&mut self, stream_id: TcpStreamId) -> Result<(), String>;
-    fn handle_got_packet(
-        &mut self,
-        p: TSharkPacket,
-    ) -> Result<
-        (
-            usize,
-            SessionChangeType,
-            Option<ClientServerInfo>,
-            usize,
-            Option<&str>,
-            bool,
-        ),
-        (TcpStreamId, String),
-    >;
-    fn messages_len(&self, stream_id: TcpStreamId) -> usize;
-    fn client_server(&self, stream_id: TcpStreamId) -> Option<ClientServerInfo>;
-    fn protocol_index(&self, stream_id: TcpStreamId) -> Option<usize>;
-
-    fn by_remote_ip(
-        &self,
-        card_key: CommTargetCardKey,
-        constrain_remote_ips: &[IpAddr],
-        constrain_stream_ids: &[TcpStreamId],
-    ) -> HashMap<IpAddr, Vec<TcpStreamId>>;
-}
-
-pub type StreamsImpl = (
-    HashMap<TcpStreamId, StreamData<HttpStreamGlobals, Vec<HttpMessageData>>>,
-    HashMap<TcpStreamId, StreamData<PostgresStreamGlobals, Vec<PostgresMessageData>>>,
-    HashMap<TcpStreamId, StreamData<Http2StreamGlobals, Vec<HttpMessageData>>>,
+pub struct Streams(
+    pub HashMap<TcpStreamId, StreamData<HttpStreamGlobals, Vec<HttpMessageData>>>,
+    pub HashMap<TcpStreamId, StreamData<PostgresStreamGlobals, Vec<PostgresMessageData>>>,
+    pub HashMap<TcpStreamId, StreamData<Http2StreamGlobals, Vec<HttpMessageData>>>,
 );
 
 // TODO this is meant to be implemented through a macro
-impl Streams for StreamsImpl {
-    fn finish_stream(&mut self, stream_id: TcpStreamId) -> Result<(), String> {
+impl Streams {
+    pub fn finish_stream(&mut self, stream_id: TcpStreamId) -> Result<(), String> {
         if let Some(s) = self.0.get_mut(&stream_id) {
             return Http.finish_stream(*s).map(|_| ());
         }
@@ -68,7 +40,7 @@ impl Streams for StreamsImpl {
     }
 
     // TODO obviously return a struct not a huge tuple like that
-    fn handle_got_packet(
+    pub fn handle_got_packet(
         &mut self,
         p: TSharkPacket,
     ) -> Result<
@@ -94,7 +66,7 @@ impl Streams for StreamsImpl {
         panic!();
     }
 
-    fn messages_len(&self, stream_id: TcpStreamId) -> usize {
+    pub fn messages_len(&self, stream_id: TcpStreamId) -> usize {
         if let Some(sd) = self.0.get(&stream_id) {
             return sd.messages.len();
         }
@@ -107,7 +79,7 @@ impl Streams for StreamsImpl {
         panic!();
     }
 
-    fn client_server(&self, stream_id: TcpStreamId) -> Option<ClientServerInfo> {
+    pub fn client_server(&self, stream_id: TcpStreamId) -> Option<ClientServerInfo> {
         if let Some(sd) = self.0.get(&stream_id) {
             return sd.client_server;
         }
@@ -120,7 +92,7 @@ impl Streams for StreamsImpl {
         panic!();
     }
 
-    fn protocol_index(&self, stream_id: TcpStreamId) -> Option<usize> {
+    pub fn protocol_index(&self, stream_id: TcpStreamId) -> Option<usize> {
         if let Some(sd) = self.0.get(&stream_id) {
             return Some(sd.parser_index);
         }
@@ -133,7 +105,7 @@ impl Streams for StreamsImpl {
         None
     }
 
-    fn by_remote_ip(
+    pub fn by_remote_ip(
         &self,
         card_key: CommTargetCardKey,
         constrain_remote_ips: &[IpAddr],

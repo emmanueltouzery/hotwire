@@ -23,7 +23,7 @@ use crate::packets_read::{InputStep, ParseInputStep, TSharkInputType};
 use crate::pgsql::postgres_message_parser::{Postgres, PostgresMessageData, PostgresStreamGlobals};
 use crate::search_expr;
 use crate::streams::Streams;
-use crate::streams::{SessionChangeType, StreamsImpl};
+use crate::streams::{SessionChangeType, Streams};
 use crate::tshark_communication;
 use crate::tshark_communication::{NetworkPort, TSharkPacket, TcpStreamId};
 use crate::widgets::comm_target_card::CommTargetCardKey;
@@ -130,7 +130,7 @@ pub struct Model {
     sidebar_selection_change_signal_id: Option<glib::SignalHandlerId>,
 
     // streams: HashMap<TcpStreamId, StreamData<AnyStreamGlobals, AnyMessagesData>>, // hashmap<tcpstreamid ,anystreamdata>
-    streams: StreamsImpl, // gonna put the concrete type here later
+    streams: Streams,
     // // hashmap<tcpstreamid ,anystreamdata>
     comm_target_cards: Vec<CommTargetCardData>,
     selected_card: Option<CommTargetCardData>,

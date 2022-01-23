@@ -195,10 +195,10 @@ fn row_selected(
     ));
 }
 
-pub fn refresh_remote_servers<T: Streams>(
+pub fn refresh_remote_servers(
     tv_state: &mut MessagesTreeviewState,
     selected_card: Option<&CommTargetCardData>,
-    streams: &T,
+    streams: &Streams,
     remote_ips_streams_treeview: &gtk::TreeView,
     sidebar_selection_change_signal_id: Option<&glib::SignalHandlerId>,
     constrain_remote_ips: &[IpAddr],
@@ -338,10 +338,10 @@ fn get_store_holding_model(
     (tv, store_holding_model)
 }
 
-fn matches_filter<T: Streams>(
+fn matches_filter(
     protocol_index: usize,
     f: &search_expr::SearchExpr,
-    streams: &T,
+    streams: &Streams,
     model: &gtk::TreeModel,
     iter: &gtk::TreeIter,
 ) -> bool {
@@ -365,9 +365,9 @@ fn matches_filter<T: Streams>(
     }
 }
 
-pub fn search_text_changed<T: Streams>(
+pub fn search_text_changed(
     tv_state: &MessagesTreeviewState,
-    streams: &T,
+    streams: &Streams,
     protocol_index: usize,
     filter: Option<&search_expr::SearchExpr>,
 ) {
@@ -450,13 +450,13 @@ pub enum FollowPackets {
     DontFollow,
 }
 
-pub fn refresh_grids_new_messages<T: Streams>(
+pub fn refresh_grids_new_messages(
     tv_state: &mut MessagesTreeviewState,
     rstream: &relm::StreamHandle<win::Msg>,
     selected_card: Option<CommTargetCardData>,
     stream_id: TcpStreamId,
     message_count_before: usize,
-    stream_data: &T,
+    stream_data: &Streams,
     follow_packets: FollowPackets,
 ) {
     let added_messages = stream_data.messages_len(stream_id) - message_count_before;
