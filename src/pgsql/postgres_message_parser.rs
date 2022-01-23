@@ -71,6 +71,10 @@ impl FromToAnyMessages for Vec<PostgresMessageData> {
     fn to_any_messages(self) -> AnyMessagesData {
         AnyMessagesData::Postgres(self)
     }
+
+    fn len(&self) -> usize {
+        self.len()
+    }
 }
 
 impl MessageParser for Postgres {

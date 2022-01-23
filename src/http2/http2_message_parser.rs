@@ -68,6 +68,10 @@ impl FromToAnyMessages for Vec<HttpMessageData> {
     fn to_any_messages(self) -> AnyMessagesData {
         AnyMessagesData::Http(self)
     }
+
+    fn len(&self) -> usize {
+        self.len()
+    }
 }
 
 impl MessageParser for Http2 {
