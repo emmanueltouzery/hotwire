@@ -16,10 +16,14 @@ use crate::icons::Icon;
 use crate::message_parser::{AnyMessagesData, MessageParser};
 use crate::message_parser::{AnyStreamGlobals, ClientServerInfo};
 use crate::message_parser::{MessageInfo, StreamData};
+use crate::message_parsers::MessageParserList;
+use crate::message_parsers::MESSAGE_PARSERS;
 use crate::packets_read;
 use crate::packets_read::{InputStep, ParseInputStep, TSharkInputType};
 use crate::pgsql::postgres_message_parser::{Postgres, PostgresMessageData, PostgresStreamGlobals};
 use crate::search_expr;
+use crate::streams::Streams;
+use crate::streams::{SessionChangeType, StreamsImpl};
 use crate::tshark_communication;
 use crate::tshark_communication::{NetworkPort, TSharkPacket, TcpStreamId};
 use crate::widgets::comm_target_card::CommTargetCardKey;
@@ -49,115 +53,6 @@ const LOADING_STACK_NAME: &str = "loading";
 const NORMAL_STACK_NAME: &str = "normal";
 
 const PCAP_MIME_TYPE: &str = "application/vnd.tcpdump.pcap";
-
-// gonna put the concrete type here later
-pub const MESSAGE_PARSERS: MessageParserList = (Http, Postgres, Http2);
-
-trait MessageParserList {
-    // let filter = get_message_parsers()
-    //     .into_iter()
-    //     .map(|p| p.tshark_filter_string())
-    //     .join(" || ");
-    fn combine_tshark_filter_strings(&self) -> String;
-
-    fn protocol_indices(&self) -> &[usize];
-
-    fn supported_filter_keys(&self, protocol_index: usize) -> &'static [&'static str];
-
-    fn protocol_icon(&self, protocol_index: usize) -> Icon;
-
-    fn get_empty_liststore(&self, protocol_index: usize) -> gtk::ListStore;
-
-    fn populate_treeview(
-        &self,
-        protocol_index: usize,
-        ls: &gtk::ListStore,
-        session_id: TcpStreamId,
-        messages: &Box<dyn Streams>,
-        start_idx: usize,
-        item_count: usize,
-    );
-
-    fn end_populate_treeview(&self, protocol_index: usize, tv: &gtk::TreeView, ls: &gtk::ListStore);
-
-    fn prepare_treeview(&self, protocol_index: usize, tv: &gtk::TreeView);
-    fn requests_details_overlay(&self, protocol_index: usize) -> bool;
-
-    fn add_details_to_scroll(
-        &self,
-        protocol_index: usize,
-        parent: &gtk::ScrolledWindow,
-        overlay: Option<&gtk::Overlay>,
-        bg_sender: mpsc::Sender<BgFunc>,
-        win_msg_sender: relm::StreamHandle<Msg>,
-    ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, MessageInfo)>;
-
-    fn matches_filter(
-        &self,
-        protocol_index: usize,
-        filter: &search_expr::SearchOpExpr,
-        streams: &Box<dyn Streams>,
-        model: &gtk::TreeModel,
-        iter: &gtk::TreeIter,
-    ) -> bool;
-}
-
-pub trait Streams {
-    fn finish_stream(&mut self, stream_id: TcpStreamId) -> Result<(), String>;
-    fn handle_got_packet(
-        &mut self,
-        p: TSharkPacket,
-    ) -> Result<
-        (
-            usize,
-            SessionChangeType,
-            Option<ClientServerInfo>,
-            usize,
-            Option<&str>,
-        ),
-        (TcpStreamId, String),
-    >;
-    fn messages_len(&self, stream_id: TcpStreamId) -> usize;
-    fn client_server(&self, stream_id: TcpStreamId) -> Option<ClientServerInfo>;
-    fn protocol_index(&self, stream_id: TcpStreamId) -> Option<usize>;
-
-    fn by_remote_ip(
-        &self,
-        card_key: CommTargetCardKey,
-        constrain_remote_ips: &[IpAddr],
-        constrain_stream_ids: &[TcpStreamId],
-    ) -> HashMap<IpAddr, Vec<TcpStreamId>>;
-    // let mut by_remote_ip = HashMap::new();
-    // let parsers = win::get_message_parsers();
-    // for (stream_id, messages) in streams {
-    //     if !matches!(messages.client_server, Some(cs) if card.to_key().matches_server(cs)) {
-    //         continue;
-    //     }
-    //     let allowed_all = constrain_remote_ips.is_empty() && constrain_stream_ids.is_empty();
-
-    //     let allowed_ip = messages
-    //         .client_server
-    //         .as_ref()
-    //         .filter(|cs| constrain_remote_ips.contains(&cs.client_ip))
-    //         .is_some();
-    //     let allowed_stream = constrain_stream_ids.contains(stream_id);
-    //     let allowed = allowed_all || allowed_ip || allowed_stream;
-
-    //     if !allowed {
-    //         continue;
-    //     }
-    //     let remote_server_streams = by_remote_ip
-    //         .entry(
-    //             messages
-    //                 .client_server
-    //                 .as_ref()
-    //                 .map(|cs| cs.client_ip)
-    //                 .unwrap_or_else(|| IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))),
-    //         )
-    //         .or_insert_with(Vec::new);
-    //     remote_server_streams.push((stream_id, messages));
-    // }
-}
 
 pub fn is_flatpak() -> bool {
     // The Flatpak environment can be detected at runtime by looking for a file named /.flatpak-info. https://github.com/flathub/flathub/wiki/App-Maintenance
@@ -235,12 +130,7 @@ pub struct Model {
     sidebar_selection_change_signal_id: Option<glib::SignalHandlerId>,
 
     // streams: HashMap<TcpStreamId, StreamData<AnyStreamGlobals, AnyMessagesData>>, // hashmap<tcpstreamid ,anystreamdata>
-    streams: Streams, // gonna put the concrete type here later
-    //     (
-    //     HashMap<TcpStreamId, StreamData<HttpStreamGlobals, Vec<HttpMessageData>>>,
-    //     HashMap<TcpStreamId, StreamData<PostgresStreamGlobals, Vec<PostgresMessageData>>>,
-    //     HashMap<TcpStreamId, StreamData<Http2StreamGlobals, Vec<HttpMessageData>>>,
-    // ),
+    streams: StreamsImpl, // gonna put the concrete type here later
     // // hashmap<tcpstreamid ,anystreamdata>
     comm_target_cards: Vec<CommTargetCardData>,
     selected_card: Option<CommTargetCardData>,
@@ -272,12 +162,6 @@ pub enum RefreshRemoteIpsAndStreams {
 pub enum RefreshOngoing {
     Yes,
     No,
-}
-
-#[derive(PartialEq, Eq, Copy, Clone)]
-enum SessionChangeType {
-    NewSession,
-    NewDataInSession,
 }
 
 #[widget]
@@ -905,7 +789,26 @@ impl Widget for Win {
                 client_server,
                 message_count_before,
                 summary_details,
+                is_new_stream,
             )) => {
+                if is_new_stream && client_server.is_some() {
+                    let is_for_current_card = matches!(
+                            (client_server, self.model.selected_card.as_ref()),
+                            (Some(clientserver), Some(card)) if clientserver.server_ip == card.ip
+                                && clientserver.server_port == card.port
+                                && parser_index == card.protocol_index);
+
+                    if is_for_current_card {
+                        let treeview_state =
+                            self.model.ips_and_streams_treeview_state.as_mut().unwrap();
+                        let packet_stream_id = p.basic_info.tcp_stream_id;
+                        ips_and_streams_treeview::got_packet_refresh_remote_ips_treeview(
+                            treeview_state,
+                            &stream_data,
+                            packet_stream_id,
+                        );
+                    }
+                }
                 let follow_packets = self.get_follow_packets();
                 let mut tv_state = self.model.messages_treeview_state.as_mut().unwrap();
                 let packet_stream_id = p.basic_info.tcp_stream_id;

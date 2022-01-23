@@ -11,8 +11,10 @@ pub mod colors;
 pub mod config;
 pub mod icons;
 pub mod message_parser;
+pub mod message_parsers;
 pub mod packets_read;
 pub mod search_expr;
+pub mod streams;
 #[macro_use]
 mod tshark_communication;
 mod widgets;

@@ -78,9 +78,11 @@ pub trait FromToStreamGlobal: Sized {
 }
 
 pub trait FromToAnyMessages: Sized {
+    // TODO that type name is obviously wrong at this point
     fn to_any_messages(self) -> AnyMessagesData;
     fn extract_messages(g: AnyMessagesData) -> Option<Self>;
     fn extract_messages_ref(g: &AnyMessagesData) -> Option<&Self>;
+    fn len(&self) -> usize;
 }
 
 /// A MessageParser allows hotwire to parse & display messages related to
@@ -115,7 +117,7 @@ pub trait FromToAnyMessages: Sized {
 /// area, and others.
 pub trait MessageParser {
     type StreamGlobalsType: FromToStreamGlobal;
-    type MessagesType: FromToAnyMessages;
+    type MessagesType: FromToAnyMessages; // TODO probably have the T not the Ts as type param
 
     fn is_my_message(&self, msg: &TSharkPacket) -> bool;
 
