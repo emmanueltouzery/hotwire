@@ -3,6 +3,7 @@ use crate::colors;
 use crate::message_parser::AnyMessagesData;
 use crate::message_parser::AnyStreamGlobals;
 use crate::message_parser::StreamData;
+use crate::streams::Streams;
 use crate::tshark_communication::TcpStreamId;
 use crate::widgets::comm_target_card::CommTargetCardData;
 use gtk::prelude::*;
@@ -212,10 +213,10 @@ pub enum IsNewDataStillIncoming {
 /// the treeview the count of messages per stream, we'll just
 /// put a unicode hourglass. If there no more data incoming
 /// (file fully loaded) then we'll compute the message counts
-pub fn refresh_remote_ips_streams_tree(
+pub fn refresh_remote_ips_streams_tree<T: Streams>(
     treeview_state: &mut IpsAndStreamsTreeviewState,
     remote_ips_streams_treeview: &gtk::TreeView,
-    streams: &HashMap<TcpStreamId, StreamData<AnyStreamGlobals, AnyMessagesData>>,
+    streams: &T,
     card: &CommTargetCardData,
     remote_ips: &HashSet<IpAddr>,
     is_new_data_incoming: IsNewDataStillIncoming,

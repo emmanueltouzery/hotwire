@@ -390,7 +390,7 @@ impl Widget for Win {
             ips_and_streams_treeview_state: None,
             sidebar_selection_change_signal_id: None,
             comm_target_cards: vec![],
-            streams: HashMap::new(),
+            streams: (HashMap::new(), HashMap::new(), HashMap::new()),
             current_file,
             capture_toggle_signal: None,
             window_subtitle: None,
@@ -733,7 +733,7 @@ impl Widget for Win {
             // abort loading
             self.model.window_subtitle = None;
             self.model.current_file = None;
-            self.model.streams = HashMap::new();
+            self.model.streams = (HashMap::new(), HashMap::new(), HashMap::new());
             // self.refresh_comm_targets();
             let mut ips_treeview_state =
                 self.model.ips_and_streams_treeview_state.as_mut().unwrap();
