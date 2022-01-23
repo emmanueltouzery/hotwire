@@ -6,7 +6,6 @@ use std::sync::mpsc;
 use std::thread;
 use widgets::win;
 
-pub mod any_message_parser;
 pub mod colors;
 pub mod config;
 pub mod icons;
