@@ -76,7 +76,7 @@ impl MessageParserList for (Http, Postgres, Http2) {
     }
 
     fn protocol_indices(&self) -> &[usize] {
-        [0, 1, 2]
+        &[0, 1, 2]
     }
 
     fn supported_filter_keys(&self, protocol_index: usize) -> &'static [&'static str] {
@@ -106,12 +106,12 @@ impl MessageParserList for (Http, Postgres, Http2) {
         }
     }
 
-    fn populate_treeview(
+    fn populate_treeview<T: Streams>(
         &self,
         protocol_index: usize,
         ls: &gtk::ListStore,
         session_id: TcpStreamId,
-        messages: &Box<dyn Streams>,
+        messages: &T,
         start_idx: usize,
         item_count: usize,
     ) {
