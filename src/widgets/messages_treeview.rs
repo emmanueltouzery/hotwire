@@ -3,7 +3,7 @@ use crate::message_parser::{self, AnyMessagesData, AnyStreamGlobals};
 use crate::message_parser::{
     ClientServerInfo, MessageData, MessageInfo, MessageParser, StreamData,
 };
-use crate::message_parsers::MESSAGE_PARSERS;
+use crate::message_parsers::{MessageParserList, MESSAGE_PARSERS};
 use crate::search_expr::OperatorNegation;
 use crate::streams::Streams;
 use crate::tshark_communication::TcpStreamId;
