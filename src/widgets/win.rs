@@ -658,8 +658,11 @@ impl Widget for Win {
             self.streams
                 .headerbar_search
                 .emit(HeaderbarSearchMsg::SearchFilterKeysChanged(
-                    // mp.supported_filter_keys().iter().cloned().collect(),
-                    MESSAGE_PARSERS.supported_filter_keys(card.protocol_index),
+                    MESSAGE_PARSERS
+                        .supported_filter_keys(card.protocol_index)
+                        .iter()
+                        .cloned()
+                        .collect(),
                 ));
         }
         let mut ips_treeview_state = self.model.ips_and_streams_treeview_state.as_mut().unwrap();

@@ -170,11 +170,11 @@ impl MessageParserList for (Http, Postgres, Http2) {
         }
     }
 
-    fn matches_filter(
+    fn matches_filter<T: Streams>(
         &self,
         protocol_index: usize,
         filter: &search_expr::SearchOpExpr,
-        streams: &Box<dyn Streams>,
+        streams: &T,
         model: &gtk::TreeModel,
         iter: &gtk::TreeIter,
     ) -> bool {
