@@ -249,10 +249,10 @@ fn quoted_string_char(input: &str) -> nom::IResult<&str, char> {
     alt((none_of("\\\""), escaped_char))(input)
 }
 
-// meant for \" mostly for now
+// meant for \" and \\ mostly for now
 fn escaped_char(input: &str) -> nom::IResult<&str, char> {
     let (input, _) = char('\\')(input)?;
-    none_of("\\")(input)
+    anychar(input)
 }
 
 fn parse_word(input: &str) -> nom::IResult<&str, String> {
@@ -276,6 +276,14 @@ mod tests {
         assert_eq!(
             "my \"string",
             parse_quoted_string("\"my \\\"string\"").unwrap().1
+        );
+    }
+
+    #[test]
+    fn parse_quoted_string_quoted_backslash() {
+        assert_eq!(
+            "my \"str\\ing",
+            parse_quoted_string("\"my \\\"str\\\\ing\"").unwrap().1
         );
     }
 

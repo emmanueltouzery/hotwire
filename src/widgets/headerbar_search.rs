@@ -291,7 +291,7 @@ impl Widget for HeaderbarSearch {
                 }
                 if val.contains(' ') || val.contains('"') {
                     t.push('"');
-                    t.push_str(&val.replace('"', "\\\""));
+                    t.push_str(&val.replace('\\', "\\\\").replace('"', "\\\""));
                     t.push('"');
                 } else {
                     t.push_str(&val);
