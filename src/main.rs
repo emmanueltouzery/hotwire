@@ -8,10 +8,11 @@ use widgets::win;
 
 pub mod colors;
 pub mod config;
+pub mod custom_streams_store;
 pub mod icons;
-pub mod message_parser;
 pub mod packets_read;
 pub mod search_expr;
+pub mod streams;
 #[macro_use]
 mod tshark_communication;
 mod widgets;

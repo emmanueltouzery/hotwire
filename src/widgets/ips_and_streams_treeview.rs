@@ -1,6 +1,7 @@
 use super::win;
 use crate::colors;
-use crate::message_parser::StreamData;
+use crate::custom_streams_store::ClientServerInfo;
+use crate::streams::Streams;
 use crate::tshark_communication::TcpStreamId;
 use crate::widgets::comm_target_card::CommTargetCardData;
 use gtk::prelude::*;
@@ -66,35 +67,26 @@ fn init_treestore() -> gtk::TreeStore {
 
 pub fn got_packet_refresh_remote_ips_treeview(
     treeview_state: &mut IpsAndStreamsTreeviewState,
-    stream_data: &StreamData,
+    client_server: Option<&ClientServerInfo>,
     packet_stream_id: TcpStreamId,
 ) {
     let treestore = treeview_state.remote_ips_streams_treestore.clone();
 
     let remote_ip_iter = treeview_state
         .remote_ips_streams_iptopath
-        .get(&stream_data.client_server.as_ref().unwrap().client_ip)
+        .get(&client_server.unwrap().client_ip)
         .and_then(|path| treestore.iter(path))
         .unwrap_or_else(|| {
             let new_iter = treestore.insert_with_values(
                 None,
                 None,
                 &[
-                    (
-                        0,
-                        &stream_data
-                            .client_server
-                            .as_ref()
-                            .unwrap()
-                            .client_ip
-                            .to_string()
-                            .to_value(),
-                    ),
+                    (0, &client_server.unwrap().client_ip.to_string().to_value()),
                     (1, &pango::Weight::Normal.to_value()),
                 ],
             );
             treeview_state.remote_ips_streams_iptopath.insert(
-                stream_data.client_server.as_ref().unwrap().client_ip,
+                client_server.unwrap().client_ip,
                 treestore.path(&new_iter).unwrap(),
             );
             new_iter
@@ -213,7 +205,7 @@ pub enum IsNewDataStillIncoming {
 pub fn refresh_remote_ips_streams_tree(
     treeview_state: &mut IpsAndStreamsTreeviewState,
     remote_ips_streams_treeview: &gtk::TreeView,
-    streams: &HashMap<TcpStreamId, StreamData>,
+    streams: &Streams,
     card: &CommTargetCardData,
     remote_ips: &HashSet<IpAddr>,
     is_new_data_incoming: IsNewDataStillIncoming,
@@ -244,10 +236,11 @@ pub fn refresh_remote_ips_streams_tree(
                 .path(&remote_ip_iter)
                 .unwrap(),
         );
-        for (stream_id, messages) in streams {
-            if messages.client_server.as_ref().map(|cs| cs.server_ip) != Some(target_ip)
-                || messages.client_server.as_ref().map(|cs| cs.server_port) != Some(target_port)
-                || messages.client_server.as_ref().map(|cs| cs.client_ip) != Some(*remote_ip)
+        for stream_id in &streams.tcp_stream_ids() {
+            let client_server = streams.get_client_server(*stream_id);
+            if client_server.map(|cs| cs.server_ip) != Some(target_ip)
+                || client_server.map(|cs| cs.server_port) != Some(target_port)
+                || client_server.map(|cs| cs.client_ip) != Some(*remote_ip)
             {
                 continue;
             }
@@ -259,8 +252,8 @@ pub fn refresh_remote_ips_streams_tree(
                     "⌛".to_string()
                 } else {
                     streams
-                        .get(stream_id)
-                        .map(|s| s.messages.len().to_string())
+                        .stream_message_count(*stream_id)
+                        .map(|s| s.to_string())
                         .unwrap_or_else(|| "error".to_string())
                 }
                 .to_value(),

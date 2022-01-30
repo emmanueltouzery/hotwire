@@ -1,5 +1,5 @@
+use crate::custom_streams_store::ClientServerInfo;
 use crate::icons::Icon;
-use crate::message_parser::ClientServerInfo;
 use crate::tshark_communication::NetworkPort;
 use gtk::prelude::*;
 use relm::Widget;
@@ -36,7 +36,7 @@ impl SummaryDetails {
 pub struct CommTargetCardKey {
     pub ip: IpAddr,
     pub port: NetworkPort,
-    pub protocol_index: usize,
+    pub store_index: usize,
 }
 
 impl CommTargetCardKey {
@@ -49,7 +49,7 @@ impl CommTargetCardKey {
 pub struct CommTargetCardData {
     pub ip: IpAddr,
     pub port: NetworkPort,
-    pub protocol_index: usize,
+    pub store_index: usize,
     pub remote_hosts: BTreeSet<IpAddr>,
     pub protocol_icon: Icon,
     pub summary_details: Option<SummaryDetails>,
@@ -60,7 +60,7 @@ impl CommTargetCardData {
     pub fn new(
         ip: IpAddr,
         port: NetworkPort,
-        protocol_index: usize,
+        store_index: usize,
         remote_hosts: BTreeSet<IpAddr>,
         protocol_icon: Icon,
         summary_details: Option<SummaryDetails>,
@@ -69,7 +69,7 @@ impl CommTargetCardData {
         CommTargetCardData {
             ip,
             port,
-            protocol_index,
+            store_index,
             remote_hosts,
             protocol_icon,
             summary_details,
@@ -85,7 +85,7 @@ impl CommTargetCardData {
         CommTargetCardKey {
             ip: self.ip,
             port: self.port,
-            protocol_index: self.protocol_index,
+            store_index: self.store_index,
         }
     }
 }

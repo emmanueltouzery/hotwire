@@ -10,25 +10,20 @@ use super::preferences::Preferences;
 use super::recent_file_item::RecentFileItem;
 use crate::config;
 use crate::config::Config;
-use crate::http::http_message_parser::Http;
-use crate::http2::http2_message_parser::Http2;
+use crate::custom_streams_store::ClientServerInfo;
 use crate::icons::Icon;
-use crate::message_parser::ClientServerInfo;
-use crate::message_parser::MessageParser;
-use crate::message_parser::StreamData;
 use crate::packets_read;
 use crate::packets_read::{InputStep, ParseInputStep, TSharkInputType};
-use crate::pgsql::postgres_message_parser::Postgres;
 use crate::search_expr;
+use crate::streams::{SessionChangeType, Streams};
 use crate::tshark_communication;
-use crate::tshark_communication::{NetworkPort, TSharkPacket, TcpStreamId};
+use crate::tshark_communication::{TSharkPacket, TcpStreamId};
 use crate::widgets::comm_target_card::CommTargetCardKey;
 use crate::widgets::comm_target_card::SummaryDetails;
 use crate::BgFunc;
 use gdk::prelude::*;
 use gtk::prelude::*;
 use gtk::traits::SettingsExt;
-use itertools::Itertools;
 use relm::{Component, ContainerWidget, Widget};
 use relm_derive::{widget, Msg};
 use std::cmp::Reverse;
@@ -50,10 +45,6 @@ const LOADING_STACK_NAME: &str = "loading";
 const NORMAL_STACK_NAME: &str = "normal";
 
 const PCAP_MIME_TYPE: &str = "application/vnd.tcpdump.pcap";
-
-pub fn get_message_parsers() -> Vec<Box<dyn MessageParser>> {
-    vec![Box::new(Http), Box::new(Postgres), Box::new(Http2)]
-}
 
 pub fn is_flatpak() -> bool {
     // The Flatpak environment can be detected at runtime by looking for a file named /.flatpak-info. https://github.com/flathub/flathub/wiki/App-Maintenance
@@ -102,14 +93,6 @@ pub enum Msg {
     Quit,
 }
 
-#[derive(Debug)]
-pub struct StreamInfo {
-    stream_id: TcpStreamId,
-    target_ip: IpAddr,
-    target_port: NetworkPort,
-    source_ip: IpAddr,
-}
-
 pub struct Model {
     relm: relm::Relm<Win>,
     bg_sender: mpsc::Sender<BgFunc>,
@@ -130,7 +113,7 @@ pub struct Model {
 
     sidebar_selection_change_signal_id: Option<glib::SignalHandlerId>,
 
-    streams: HashMap<TcpStreamId, StreamData>,
+    streams: Streams,
     comm_target_cards: Vec<CommTargetCardData>,
     selected_card: Option<CommTargetCardData>,
 
@@ -161,12 +144,6 @@ pub enum RefreshRemoteIpsAndStreams {
 pub enum RefreshOngoing {
     Yes,
     No,
-}
-
-#[derive(PartialEq, Eq, Copy, Clone)]
-enum SessionChangeType {
-    NewSession,
-    NewDataInSession,
 }
 
 #[widget]
@@ -238,6 +215,7 @@ impl Widget for Win {
             &self.model.relm,
             &self.model.bg_sender,
             self.widgets.comm_remote_servers_stack.clone(),
+            &mut self.model.streams,
         ));
 
         self.model.ips_and_streams_treeview_state =
@@ -395,7 +373,7 @@ impl Widget for Win {
             ips_and_streams_treeview_state: None,
             sidebar_selection_change_signal_id: None,
             comm_target_cards: vec![],
-            streams: HashMap::new(),
+            streams: Streams::default(),
             current_file,
             capture_toggle_signal: None,
             window_subtitle: None,
@@ -482,7 +460,7 @@ impl Widget for Win {
                     messages_treeview::search_text_changed(
                         self.model.messages_treeview_state.as_ref().unwrap(),
                         &self.model.streams,
-                        card.protocol_index,
+                        card.store_index,
                         if is_active {
                             self.model
                                 .search_expr
@@ -501,7 +479,7 @@ impl Widget for Win {
                     messages_treeview::search_text_changed(
                         self.model.messages_treeview_state.as_ref().unwrap(),
                         &self.model.streams,
-                        card.protocol_index,
+                        card.store_index,
                         expr.and_then(|r| r.ok())
                             .map(|(_rest, parsed)| parsed)
                             .as_ref(),
@@ -585,28 +563,13 @@ impl Widget for Win {
                 );
             }
             Msg::DisplayDetails(stream_id, idx) => {
-                //
-                if let Some((stream_client_server, msg_data)) = self
-                    .model
-                    .streams
-                    .get(&stream_id)
-                    .and_then(|s| s.messages.get(idx as usize).map(|f| (&s.client_server, f)))
-                {
-                    messages_treeview::handle_display_details(
-                        self.model.messages_treeview_state.as_ref().unwrap(),
-                        &self.model.bg_sender,
-                        stream_id,
-                        stream_client_server,
-                        msg_data,
-                    );
-                } else {
-                    println!(
-                        "NO DATA for {}/{} -- stream length {:?}",
-                        stream_id,
-                        idx,
-                        self.model.streams.get(&stream_id).map(|s| s.messages.len())
-                    );
-                }
+                messages_treeview::handle_display_details(
+                    self.model.messages_treeview_state.as_ref().unwrap(),
+                    self.model.bg_sender.clone(),
+                    &self.model.streams,
+                    stream_id,
+                    idx as usize,
+                );
             }
             Msg::Quit => {
                 // needed for the pcap save temp files at least
@@ -657,13 +620,15 @@ impl Widget for Win {
             .and_then(|idx| self.model.comm_target_cards.get(idx as usize))
             .cloned();
         if let Some(card) = self.model.selected_card.as_ref() {
-            let parsers = get_message_parsers();
-            let mp = parsers.get(card.protocol_index).unwrap();
-
             self.streams
                 .headerbar_search
                 .emit(HeaderbarSearchMsg::SearchFilterKeysChanged(
-                    mp.supported_filter_keys().iter().cloned().collect(),
+                    self.model
+                        .streams
+                        .supported_filter_keys(card.store_index)
+                        .iter()
+                        .cloned()
+                        .collect(),
                 ));
         }
         let ips_treeview_state = self.model.ips_and_streams_treeview_state.as_mut().unwrap();
@@ -737,7 +702,7 @@ impl Widget for Win {
             // abort loading
             self.model.window_subtitle = None;
             self.model.current_file = None;
-            self.model.streams = HashMap::new();
+            self.model.streams.clear();
             // self.refresh_comm_targets();
             let ips_treeview_state = self.model.ips_and_streams_treeview_state.as_mut().unwrap();
             ips_and_streams_treeview::init_remote_ips_streams_tree(ips_treeview_state);
@@ -778,95 +743,66 @@ impl Widget for Win {
         if p.is_malformed {
             self.model.capture_malformed_packets += 1;
         }
-        if let Some((parser_index, parser)) = get_message_parsers()
-            .iter()
-            .enumerate()
-            .find(|(_idx, ps)| ps.is_my_message(&p))
-        {
-            let packet_stream_id = p.basic_info.tcp_stream_id;
-            let existing_stream = self.model.streams.remove(&packet_stream_id);
-            let message_count_before;
-            let session_change_type;
-            let stream_data = if let Some(stream_data) = existing_stream {
-                // existing stream
-                session_change_type = SessionChangeType::NewDataInSession;
-                message_count_before = stream_data.messages.len();
-                let stream_data = match parser.add_to_stream(stream_data, p) {
-                    Ok(sd) => sd,
-                    Err(msg) => {
-                        self.model.relm.stream().emit(Msg::LoadedData(Err(format!(
-                            "Error parsing file, in stream {}: {}",
-                            packet_stream_id, msg
-                        ))));
-                        return;
-                    }
-                };
-                stream_data
-            } else {
-                // new stream
-                session_change_type = SessionChangeType::NewSession;
-                message_count_before = 0;
-                let mut stream_data = StreamData {
-                    parser_index,
-                    stream_globals: parser.initial_globals(),
-                    client_server: None,
-                    messages: vec![],
-                    summary_details: None,
-                };
-                match parser.add_to_stream(stream_data, p) {
-                    Ok(sd) => {
-                        stream_data = sd;
-                    }
-                    Err(msg) => {
-                        self.model.relm.stream().emit(Msg::LoadedData(Err(format!(
-                            "Error parsing file, in stream {}: {}",
-                            packet_stream_id, msg
-                        ))));
-                        return;
-                    }
-                }
-                if stream_data.client_server.is_some() {
-                    let is_for_current_card = matches!(
-                            (stream_data.client_server, self.model.selected_card.as_ref()),
+        // TODO messy/overcomplicated
+        let tcp_stream_id = p.basic_info.tcp_stream_id;
+        if let Some(handle_packet_data) = match self.model.streams.handle_got_packet(p) {
+            Ok(client_server) => client_server,
+            Err(msg) => {
+                self.model.relm.stream().emit(Msg::LoadedData(Err(format!(
+                    "Error parsing file, in stream {}: {}",
+                    tcp_stream_id, msg
+                ))));
+                return;
+            }
+        } {
+            let client_server_info = handle_packet_data.client_server_info;
+            let store_index = handle_packet_data.store_index;
+            if client_server_info.is_some() {
+                let is_for_current_card = matches!(
+                            (client_server_info, self.model.selected_card.as_ref()),
                             (Some(clientserver), Some(card)) if clientserver.server_ip == card.ip
                                 && clientserver.server_port == card.port
-                                && parser_index == card.protocol_index);
+                                && store_index == card.store_index);
 
-                    if is_for_current_card {
-                        let treeview_state =
-                            self.model.ips_and_streams_treeview_state.as_mut().unwrap();
-                        ips_and_streams_treeview::got_packet_refresh_remote_ips_treeview(
-                            treeview_state,
-                            &stream_data,
-                            packet_stream_id,
-                        );
-                    }
+                if is_for_current_card {
+                    let treeview_state =
+                        self.model.ips_and_streams_treeview_state.as_mut().unwrap();
+                    ips_and_streams_treeview::got_packet_refresh_remote_ips_treeview(
+                        treeview_state,
+                        client_server_info.as_ref(),
+                        tcp_stream_id,
+                    );
                 }
-                stream_data
-            };
+            }
             let follow_packets = self.get_follow_packets();
             let tv_state = self.model.messages_treeview_state.as_mut().unwrap();
             messages_treeview::refresh_grids_new_messages(
                 tv_state,
                 self.model.relm.stream(),
                 self.model.selected_card.clone(),
-                packet_stream_id,
-                message_count_before,
-                &stream_data,
+                tcp_stream_id,
+                store_index,
+                handle_packet_data.message_count_before,
+                &self.model.streams,
                 follow_packets,
             );
 
-            if let Some(cs) = stream_data.client_server {
+            if let Some(cs) = client_server_info {
+                let protocol_icon = self
+                    .model
+                    .streams
+                    .get_streams_stores()
+                    .get(store_index)
+                    .unwrap()
+                    .protocol_icon();
                 self.add_update_comm_target_data(
-                    parser_index,
-                    parser.as_ref(),
+                    tcp_stream_id,
+                    store_index,
+                    protocol_icon,
                     cs,
-                    stream_data.summary_details.as_deref(),
-                    session_change_type,
+                    handle_packet_data.session_change_type,
                 );
             }
-
-            self.model.streams.insert(packet_stream_id, stream_data);
         }
     }
 
@@ -890,40 +826,43 @@ impl Widget for Win {
                 e
             ))));
         }
-        let keys: Vec<TcpStreamId> = self.model.streams.keys().copied().collect();
+        let keys: Vec<TcpStreamId> = self.model.streams.tcp_stream_ids();
         for stream_id in keys {
-            let stream_data = self.model.streams.remove(&stream_id).unwrap();
-            let message_count_before = stream_data.messages.len();
-            let parsers = get_message_parsers();
-            let parser_index = stream_data.parser_index;
-            let parser = parsers.get(parser_index).unwrap();
-            match parser.finish_stream(stream_data) {
-                Ok(sd) => {
+            let message_count_before = self.model.streams.stream_message_count(stream_id);
+            match self.model.streams.finish_stream(stream_id) {
+                Ok(_) => {
                     let follow_packets = self.get_follow_packets();
                     let tv_state = self.model.messages_treeview_state.as_mut().unwrap();
+                    let store_index = self.model.streams.get_store_index(stream_id).unwrap();
                     messages_treeview::refresh_grids_new_messages(
                         tv_state,
                         self.model.relm.stream(),
                         self.model.selected_card.clone(),
                         stream_id,
-                        message_count_before,
-                        &sd,
+                        store_index,
+                        message_count_before.unwrap_or(0),
+                        &self.model.streams,
                         follow_packets,
                     );
 
                     // finishing the stream may well have caused us to
                     // update the comm target data stats, update them
-                    if let Some(cs) = sd.client_server.as_ref() {
+                    if let Some(cs) = self.model.streams.get_client_server(stream_id).as_ref() {
+                        let protocol_icon = self
+                            .model
+                            .streams
+                            .get_streams_stores()
+                            .get(store_index)
+                            .unwrap()
+                            .protocol_icon();
                         self.add_update_comm_target_data(
-                            parser_index,
-                            parser.as_ref(),
+                            stream_id,
+                            store_index,
+                            protocol_icon,
                             *cs,
-                            sd.summary_details.as_deref(),
                             SessionChangeType::NewDataInSession,
                         );
                     }
-
-                    self.model.streams.insert(stream_id, sd);
                 }
                 Err(e) => {
                     self.model.relm.stream().emit(Msg::LoadedData(Err(format!(
@@ -986,19 +925,20 @@ impl Widget for Win {
 
     fn add_update_comm_target_data(
         &mut self,
-        protocol_index: usize,
-        parser: &dyn MessageParser,
+        stream_id: TcpStreamId,
+        store_index: usize,
+        protocol_icon: Icon,
         client_server_info: ClientServerInfo,
-        summary_details: Option<&str>,
         session_change_type: SessionChangeType,
     ) {
+        let summary_details = self.model.streams.stream_summary_details(stream_id);
         let card_key = CommTargetCardKey {
             ip: client_server_info.server_ip,
             port: client_server_info.server_port,
-            protocol_index,
+            store_index,
         };
         if let Some(card_idx) = self.model.comm_target_cards.iter().position(|c| {
-            c.protocol_index == protocol_index
+            c.store_index == store_index
                 && c.port == client_server_info.server_port
                 && c.ip == client_server_info.server_ip
         }) {
@@ -1023,13 +963,13 @@ impl Widget for Win {
             let card = CommTargetCardData::new(
                 client_server_info.server_ip,
                 client_server_info.server_port,
-                protocol_index,
+                store_index,
                 {
                     let mut bs = BTreeSet::new();
                     bs.insert(client_server_info.client_ip);
                     bs
                 },
-                parser.protocol_icon(),
+                protocol_icon,
                 summary_details.and_then(|d| SummaryDetails::new(d.to_string(), card_key)),
                 1,
             );
@@ -1150,10 +1090,11 @@ impl Widget for Win {
                 self.model.tcpdump_child = Some(tcpdump_child);
             }
             let s = self.model.loaded_data_sender.clone();
+            let filter = self.model.streams.tshark_filter_string();
             self.model
                 .bg_sender
                 .send(BgFunc::new(move || {
-                    Self::load_file(TSharkInputType::Fifo, fifo_path.clone(), s.clone());
+                    Self::load_file(TSharkInputType::Fifo, &filter, fifo_path.clone(), s.clone());
                 }))
                 .unwrap();
         } else {
@@ -1390,6 +1331,7 @@ impl Widget for Win {
         }
 
         let s = self.model.loaded_data_sender.clone();
+        let filter = self.model.streams.tshark_filter_string();
         // self.init_remote_ips_streams_tree();
         self.model
             .bg_sender
@@ -1400,6 +1342,7 @@ impl Widget for Win {
                     } else {
                         TSharkInputType::File
                     },
+                    &filter,
                     fname.clone(),
                     s.clone(),
                 );
@@ -1408,12 +1351,13 @@ impl Widget for Win {
         self.refresh_recent_files();
     }
 
-    fn load_file(file_type: TSharkInputType, fname: PathBuf, sender: relm::Sender<ParseInputStep>) {
-        let filter = get_message_parsers()
-            .into_iter()
-            .map(|p| p.tshark_filter_string())
-            .join(" || ");
-        packets_read::invoke_tshark(file_type, &fname, &filter, sender);
+    fn load_file(
+        file_type: TSharkInputType,
+        filter_string: &str,
+        fname: PathBuf,
+        sender: relm::Sender<ParseInputStep>,
+    ) {
+        packets_read::invoke_tshark(file_type, &fname, filter_string, sender);
     }
 
     view! {

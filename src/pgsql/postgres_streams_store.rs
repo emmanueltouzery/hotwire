@@ -1,11 +1,9 @@
 use super::postgres_details_widget;
 use super::postgres_details_widget::PostgresCommEntry;
 use crate::colors;
+use crate::custom_streams_store;
+use crate::custom_streams_store::{ClientServerInfo, CustomStreamsStore};
 use crate::icons::Icon;
-use crate::message_parser;
-use crate::message_parser::{
-    ClientServerInfo, MessageData, MessageInfo, MessageParser, StreamData, StreamGlobals,
-};
 use crate::pgsql::tshark_pgsql::{PostgresColType, PostgresWireMessage};
 use crate::search_expr;
 use crate::tshark_communication::{TSharkPacket, TcpStreamId};
@@ -24,11 +22,35 @@ use strum::VariantNames;
 use strum_macros::{EnumString, EnumVariantNames};
 
 #[cfg(test)]
-use crate::tshark_communication::{parse_stream, parse_test_xml};
+use crate::tshark_communication::parse_test_xml;
 #[cfg(test)]
 use chrono::NaiveDate;
 
-pub struct Postgres;
+#[derive(Default)]
+pub struct PostgresStreamData {
+    pub stream_globals: PostgresStreamGlobals,
+    pub client_server: Option<ClientServerInfo>,
+    pub messages: Vec<PostgresMessageData>,
+    pub summary_details: Option<String>,
+}
+
+#[derive(Default)]
+pub struct PostgresStreamsStore {
+    streams: HashMap<TcpStreamId, PostgresStreamData>,
+    component: Option<relm::Component<PostgresCommEntry>>,
+}
+
+impl PostgresStreamsStore {
+    fn get_msg_info(
+        &self,
+        stream_id: TcpStreamId,
+        msg_idx: usize,
+    ) -> Option<(&PostgresMessageData, ClientServerInfo)> {
+        let stream = self.streams.get(&stream_id)?;
+        let msg = stream.messages.get(msg_idx)?;
+        Some((msg, stream.client_server?))
+    }
+}
 
 #[derive(EnumString, EnumVariantNames)]
 enum PostgresFilterKeys {
@@ -41,14 +63,17 @@ enum PostgresFilterKeys {
 }
 
 fn get_pg_message<'a, 'b>(
-    streams: &'a HashMap<TcpStreamId, StreamData>,
+    streams: &'a HashMap<TcpStreamId, PostgresStreamData>,
     model: &'b gtk::TreeModel,
     iter: &'b gtk::TreeIter,
 ) -> Option<&'a PostgresMessageData> {
-    message_parser::get_message(streams, model, iter).and_then(|m| m.as_postgres())
+    let (stream_id, idx) = custom_streams_store::get_message_helper(model, iter);
+    streams
+        .get(&stream_id)
+        .and_then(|s| s.messages.get(idx as usize))
 }
 
-impl MessageParser for Postgres {
+impl CustomStreamsStore for PostgresStreamsStore {
     fn is_my_message(&self, msg: &TSharkPacket) -> bool {
         msg.pgsql.is_some()
     }
@@ -65,16 +90,45 @@ impl MessageParser for Postgres {
         "PGSQL"
     }
 
-    fn initial_globals(&self) -> StreamGlobals {
-        StreamGlobals::Postgres(PostgresStreamGlobals::default())
+    fn tcp_stream_ids(&self) -> Vec<TcpStreamId> {
+        self.streams.keys().copied().collect()
+    }
+
+    fn has_stream_id(&self, stream_id: TcpStreamId) -> bool {
+        self.streams.contains_key(&stream_id)
+    }
+
+    fn reset(&mut self) {
+        self.streams = HashMap::new();
+    }
+
+    fn stream_message_count(&self, stream_id: TcpStreamId) -> Option<usize> {
+        self.streams.get(&stream_id).map(|s| s.messages.len())
+    }
+
+    fn stream_summary_details(&self, stream_id: TcpStreamId) -> Option<&str> {
+        self.streams
+            .get(&stream_id)
+            .and_then(|s| s.summary_details.as_deref())
+    }
+
+    fn stream_client_server(&self, stream_id: TcpStreamId) -> Option<ClientServerInfo> {
+        self.streams.get(&stream_id).and_then(|s| s.client_server)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.streams.is_empty()
     }
 
     fn add_to_stream(
-        &self,
-        mut stream: StreamData,
+        &mut self,
+        stream_id: TcpStreamId,
         new_packet: TSharkPacket,
-    ) -> Result<StreamData, String> {
-        let mut globals = stream.stream_globals.extract_postgres().unwrap();
+    ) -> Result<Option<ClientServerInfo>, String> {
+        let stream = self
+            .streams
+            .entry(stream_id)
+            .or_insert_with(PostgresStreamData::default);
         let timestamp = new_packet.basic_info.frame_time;
         if let Some(mds) = new_packet.pgsql {
             for md in mds {
@@ -101,27 +155,25 @@ impl MessageParser for Postgres {
                                 server_port: new_packet.basic_info.port_dst,
                             });
                         }
-                        stream
-                            .messages
-                            .push(MessageData::Postgres(PostgresMessageData {
-                                query: Some(Cow::Owned(format!(
-                                    "LOGIN: user: {}, db: {}, app: {}",
-                                    username,
-                                    database,
-                                    application.as_deref().unwrap_or("-")
-                                ))),
-                                query_timestamp: timestamp,
-                                result_timestamp: timestamp,
-                                parameter_values: vec![],
-                                resultset_col_names: vec![],
-                                resultset_row_count: 0,
-                                resultset_int_cols: vec![],
-                                resultset_bigint_cols: vec![],
-                                resultset_bool_cols: vec![],
-                                resultset_string_cols: vec![],
-                                resultset_datetime_cols: vec![],
-                                resultset_col_types: vec![],
-                            }));
+                        stream.messages.push(PostgresMessageData {
+                            query: Some(Cow::Owned(format!(
+                                "LOGIN: user: {}, db: {}, app: {}",
+                                username,
+                                database,
+                                application.as_deref().unwrap_or("-")
+                            ))),
+                            query_timestamp: timestamp,
+                            result_timestamp: timestamp,
+                            parameter_values: vec![],
+                            resultset_col_names: vec![],
+                            resultset_row_count: 0,
+                            resultset_int_cols: vec![],
+                            resultset_bigint_cols: vec![],
+                            resultset_bool_cols: vec![],
+                            resultset_string_cols: vec![],
+                            resultset_datetime_cols: vec![],
+                            resultset_col_types: vec![],
+                        });
                     }
                     PostgresWireMessage::Startup { .. } => {
                         if stream.client_server.is_none() {
@@ -145,10 +197,13 @@ impl MessageParser for Postgres {
                             });
                         }
                         if let (Some(st), Some(q)) = (statement, query) {
-                            globals.known_statements.insert((*st).clone(), (*q).clone());
+                            stream
+                                .stream_globals
+                                .known_statements
+                                .insert((*st).clone(), (*q).clone());
                         }
-                        globals.cur_query = query.clone();
-                        globals.parse_param_types = param_types.clone();
+                        stream.stream_globals.cur_query = query.clone();
+                        stream.stream_globals.parse_param_types = param_types.clone();
                     }
                     PostgresWireMessage::Bind {
                         statement,
@@ -161,23 +216,26 @@ impl MessageParser for Postgres {
                                 server_port: new_packet.basic_info.port_dst,
                             });
                         }
-                        globals.was_bind = true;
-                        globals.query_timestamp = Some(timestamp);
-                        globals.cur_query_with_fallback = match (&globals.cur_query, &statement) {
-                            (Some(_), _) => globals.cur_query.clone(),
-                            (None, Some(s)) => Some(
-                                globals
-                                    .known_statements
-                                    .get(s)
-                                    .cloned()
-                                    .unwrap_or(format!("Unknown statement: {}", s)),
-                            ),
-                            _ => None,
-                        };
-                        globals.cur_parameter_values = parameter_lengths_and_vals
+                        stream.stream_globals.was_bind = true;
+                        stream.stream_globals.query_timestamp = Some(timestamp);
+                        stream.stream_globals.cur_query_with_fallback =
+                            match (&stream.stream_globals.cur_query, &statement) {
+                                (Some(_), _) => stream.stream_globals.cur_query.clone(),
+                                (None, Some(s)) => Some(
+                                    stream
+                                        .stream_globals
+                                        .known_statements
+                                        .get(s)
+                                        .cloned()
+                                        .unwrap_or(format!("Unknown statement: {}", s)),
+                                ),
+                                _ => None,
+                            };
+                        stream.stream_globals.cur_parameter_values = parameter_lengths_and_vals
                             .iter()
                             .zip(
-                                globals
+                                stream
+                                    .stream_globals
                                     .parse_param_types
                                     .iter()
                                     .chain(iter::repeat(&PostgresColType::Unknown)),
@@ -196,24 +254,24 @@ impl MessageParser for Postgres {
                                 server_port: new_packet.basic_info.port_src,
                             });
                         }
-                        globals.cur_col_names = col_names;
-                        globals.cur_col_types = col_types;
-                        for col_type in &globals.cur_col_types {
+                        stream.stream_globals.cur_col_names = col_names;
+                        stream.stream_globals.cur_col_types = col_types;
+                        for col_type in &stream.stream_globals.cur_col_types {
                             match col_type {
                                 PostgresColType::Bool => {
-                                    globals.cur_rs_bool_cols.push(vec![]);
+                                    stream.stream_globals.cur_rs_bool_cols.push(vec![]);
                                 }
                                 PostgresColType::Int2 | PostgresColType::Int4 => {
-                                    globals.cur_rs_int_cols.push(vec![]);
+                                    stream.stream_globals.cur_rs_int_cols.push(vec![]);
                                 }
                                 PostgresColType::Timestamp => {
-                                    globals.cur_rs_datetime_cols.push(vec![]);
+                                    stream.stream_globals.cur_rs_datetime_cols.push(vec![]);
                                 }
                                 PostgresColType::Int8 => {
-                                    globals.cur_rs_bigint_cols.push(vec![]);
+                                    stream.stream_globals.cur_rs_bigint_cols.push(vec![]);
                                 }
                                 _ => {
-                                    globals.cur_rs_string_cols.push(vec![]);
+                                    stream.stream_globals.cur_rs_string_cols.push(vec![]);
                                 }
                             }
                         }
@@ -229,7 +287,7 @@ impl MessageParser for Postgres {
                             });
                         }
                         handle_pgsql_resultset_row(
-                            &mut globals,
+                            &mut stream.stream_globals,
                             col_lengths_and_vals
                                 .iter()
                                 .map(|(_l, v)| v.clone())
@@ -244,38 +302,26 @@ impl MessageParser for Postgres {
                                 server_port: new_packet.basic_info.port_src,
                             });
                         }
+
+                        // reset all the globals, but keep known_statements
+                        let globals = std::mem::take(&mut stream.stream_globals);
+                        stream.stream_globals.known_statements = globals.known_statements;
                         if globals.was_bind {
-                            stream
-                                .messages
-                                .push(MessageData::Postgres(PostgresMessageData {
-                                    query: globals.cur_query_with_fallback.map(Cow::Owned),
-                                    query_timestamp: globals.query_timestamp.unwrap(), // know it was populated since was_bind is true
-                                    result_timestamp: timestamp,
-                                    parameter_values: globals.cur_parameter_values,
-                                    resultset_col_names: globals.cur_col_names,
-                                    resultset_row_count: globals.cur_rs_row_count,
-                                    resultset_bool_cols: globals.cur_rs_bool_cols,
-                                    resultset_string_cols: globals.cur_rs_string_cols,
-                                    resultset_int_cols: globals.cur_rs_int_cols,
-                                    resultset_bigint_cols: globals.cur_rs_bigint_cols,
-                                    resultset_datetime_cols: globals.cur_rs_datetime_cols,
-                                    resultset_col_types: globals.cur_col_types,
-                                }));
+                            stream.messages.push(PostgresMessageData {
+                                query: globals.cur_query_with_fallback.map(Cow::Owned),
+                                query_timestamp: globals.query_timestamp.unwrap(), // know it was populated since was_bind is true
+                                result_timestamp: timestamp,
+                                parameter_values: globals.cur_parameter_values,
+                                resultset_col_names: globals.cur_col_names,
+                                resultset_row_count: globals.cur_rs_row_count,
+                                resultset_bool_cols: globals.cur_rs_bool_cols,
+                                resultset_string_cols: globals.cur_rs_string_cols,
+                                resultset_int_cols: globals.cur_rs_int_cols,
+                                resultset_bigint_cols: globals.cur_rs_bigint_cols,
+                                resultset_datetime_cols: globals.cur_rs_datetime_cols,
+                                resultset_col_types: globals.cur_col_types,
+                            });
                         }
-                        globals.was_bind = false;
-                        globals.parse_param_types = vec![];
-                        globals.cur_query_with_fallback = None;
-                        globals.cur_query = None;
-                        globals.cur_col_names = vec![];
-                        globals.cur_parameter_values = vec![];
-                        globals.cur_rs_row_count = 0;
-                        globals.cur_rs_bool_cols = vec![];
-                        globals.cur_rs_string_cols = vec![];
-                        globals.cur_rs_int_cols = vec![];
-                        globals.cur_rs_bigint_cols = vec![];
-                        globals.cur_rs_datetime_cols = vec![];
-                        globals.cur_col_types = vec![];
-                        globals.query_timestamp = None;
                     }
                     PostgresWireMessage::CopyData => {
                         if stream.client_server.is_none() {
@@ -285,32 +331,29 @@ impl MessageParser for Postgres {
                                 server_port: new_packet.basic_info.port_src,
                             });
                         }
-                        stream
-                            .messages
-                            .push(MessageData::Postgres(PostgresMessageData {
-                                query: Some(Cow::Borrowed("COPY DATA")),
-                                query_timestamp: timestamp,
-                                result_timestamp: timestamp,
-                                parameter_values: vec![],
-                                resultset_col_names: vec![],
-                                resultset_row_count: 0,
-                                resultset_int_cols: vec![],
-                                resultset_bigint_cols: vec![],
-                                resultset_bool_cols: vec![],
-                                resultset_string_cols: vec![],
-                                resultset_datetime_cols: vec![],
-                                resultset_col_types: vec![],
-                            }));
+                        stream.messages.push(PostgresMessageData {
+                            query: Some(Cow::Borrowed("COPY DATA")),
+                            query_timestamp: timestamp,
+                            result_timestamp: timestamp,
+                            parameter_values: vec![],
+                            resultset_col_names: vec![],
+                            resultset_row_count: 0,
+                            resultset_int_cols: vec![],
+                            resultset_bigint_cols: vec![],
+                            resultset_bool_cols: vec![],
+                            resultset_string_cols: vec![],
+                            resultset_datetime_cols: vec![],
+                            resultset_col_types: vec![],
+                        });
                     }
                 }
             }
         }
-        stream.stream_globals = StreamGlobals::Postgres(globals);
-        Ok(stream)
+        Ok(stream.client_server)
     }
 
-    fn finish_stream(&self, stream: StreamData) -> Result<StreamData, String> {
-        Ok(stream)
+    fn finish_stream(&mut self, _stream_id: TcpStreamId) -> Result<(), String> {
+        Ok(())
     }
 
     fn prepare_treeview(&self, tv: &gtk::TreeView) {
@@ -394,16 +437,10 @@ impl MessageParser for Postgres {
         ])
     }
 
-    fn populate_treeview(
-        &self,
-        ls: &gtk::ListStore,
-        session_id: TcpStreamId,
-        messages: &[MessageData],
-        start_idx: i32,
-    ) {
+    fn populate_treeview(&self, ls: &gtk::ListStore, session_id: TcpStreamId, start_idx: i32) {
+        let messages = &self.streams.get(&session_id).unwrap().messages;
         // println!("adding {} rows", messages.len());
-        for (idx, message) in messages.iter().enumerate() {
-            let postgres = message.as_postgres().unwrap();
+        for (idx, postgres) in messages.iter().enumerate() {
             ls.insert_with_values(
                 None,
                 &[
@@ -422,11 +459,11 @@ impl MessageParser for Postgres {
                         &format!("{} rows", postgres.resultset_row_count).to_value(),
                     ),
                     (
-                        message_parser::TREE_STORE_STREAM_ID_COL_IDX,
+                        custom_streams_store::TREE_STORE_STREAM_ID_COL_IDX,
                         &session_id.as_u32().to_value(),
                     ),
                     (
-                        message_parser::TREE_STORE_MESSAGE_INDEX_COL_IDX,
+                        custom_streams_store::TREE_STORE_MESSAGE_INDEX_COL_IDX,
                         &(start_idx + idx as i32).to_value(),
                     ),
                     (4, &postgres.query_timestamp.to_string().to_value()),
@@ -472,10 +509,10 @@ impl MessageParser for Postgres {
     fn matches_filter(
         &self,
         filter: &search_expr::SearchOpExpr,
-        streams: &HashMap<TcpStreamId, StreamData>,
         model: &gtk::TreeModel,
         iter: &gtk::TreeIter,
     ) -> bool {
+        let streams = &self.streams;
         if let Ok(filter_key) = PostgresFilterKeys::from_str(filter.filter_key) {
             match filter_key {
                 PostgresFilterKeys::QueryString => model
@@ -514,13 +551,13 @@ impl MessageParser for Postgres {
     }
 
     fn add_details_to_scroll(
-        &self,
+        &mut self,
         parent: &gtk::ScrolledWindow,
         _overlay: Option<&gtk::Overlay>,
         bg_sender: mpsc::Sender<BgFunc>,
         win_msg_sender: relm::StreamHandle<win::Msg>,
-    ) -> Box<dyn Fn(mpsc::Sender<BgFunc>, MessageInfo)> {
-        let component = Box::leak(Box::new(parent.add_widget::<PostgresCommEntry>((
+    ) {
+        let component = parent.add_widget::<PostgresCommEntry>((
             TcpStreamId(0),
             "0.0.0.0".parse().unwrap(),
             PostgresMessageData {
@@ -539,15 +576,26 @@ impl MessageParser for Postgres {
             },
             win_msg_sender,
             bg_sender,
-        ))));
-        Box::new(move |bg_sender, message_info| {
-            component
-                .stream()
-                .emit(postgres_details_widget::Msg::DisplayDetails(
+        ));
+        self.component = Some(component);
+    }
+
+    fn display_in_details_widget(
+        &self,
+        bg_sender: mpsc::Sender<BgFunc>,
+        stream_id: TcpStreamId,
+        msg_idx: usize,
+    ) {
+        if let Some((pg_msg, client_server)) = self.get_msg_info(stream_id, msg_idx) {
+            self.component.as_ref().unwrap().stream().emit(
+                postgres_details_widget::Msg::DisplayDetails(
                     bg_sender,
-                    message_info,
-                ))
-        })
+                    client_server.client_ip,
+                    stream_id,
+                    pg_msg.clone(),
+                ),
+            )
+        }
     }
 }
 
@@ -808,9 +856,22 @@ pub struct PostgresStreamGlobals {
     cur_rs_datetime_cols: Vec<Vec<Option<NaiveDateTime>>>,
 }
 
+#[cfg(test)]
+fn tests_parse_stream(
+    packets: Result<Vec<TSharkPacket>, String>,
+) -> Result<Vec<PostgresMessageData>, String> {
+    let sid = TcpStreamId(1);
+    let mut parser = PostgresStreamsStore::default();
+    for packet in packets.unwrap().into_iter() {
+        parser.add_to_stream(sid, packet)?;
+    }
+    parser.finish_stream(sid)?;
+    Ok(parser.streams.get(&sid).unwrap().messages.clone())
+}
+
 #[test]
 fn should_parse_simple_query() {
-    let parsed = parse_stream(Postgres, parse_test_xml(
+    let parsed = tests_parse_stream(parse_test_xml(
             r#"
   <proto name="pgsql" showname="PostgreSQL" size="25" pos="66">
     <field name="pgsql.type" showname="Type: Parse" size="1" pos="66" show="Parse" value="50"/>
@@ -838,8 +899,8 @@ fn should_parse_simple_query() {
   </proto>
         "#,
         ))
-        .unwrap().messages;
-    let expected: Vec<MessageData> = vec![MessageData::Postgres(PostgresMessageData {
+        .unwrap();
+    let expected = vec![PostgresMessageData {
         query_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
         result_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
         query: Some(Cow::Borrowed("select 1")),
@@ -855,13 +916,13 @@ fn should_parse_simple_query() {
             Some("PostgreSQL".to_string()),
             Some("9.6.12 on x8".to_string()),
         ]],
-    })];
+    }];
     assert_eq!(expected, parsed);
 }
 
 #[test]
 fn should_parse_prepared_statement() {
-    let parsed = parse_stream(Postgres, parse_test_xml(
+    let parsed = tests_parse_stream(parse_test_xml(
             r#"
   <proto name="pgsql" showname="PostgreSQL" size="25" pos="66">
     <field name="pgsql.type" showname="Type: Parse" size="1" pos="66" show="Parse" value="50"/>
@@ -891,9 +952,9 @@ fn should_parse_prepared_statement() {
   </proto>
         "#,
         ))
-        .unwrap().messages;
-    let expected: Vec<MessageData> = vec![
-        MessageData::Postgres(PostgresMessageData {
+        .unwrap();
+    let expected = vec![
+        PostgresMessageData {
             query_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
             result_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
             query: Some(Cow::Borrowed("select 1")),
@@ -906,8 +967,8 @@ fn should_parse_prepared_statement() {
             resultset_datetime_cols: vec![],
             resultset_bool_cols: vec![],
             resultset_string_cols: vec![],
-        }),
-        MessageData::Postgres(PostgresMessageData {
+        },
+        PostgresMessageData {
             query_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
             result_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
             query: Some(Cow::Borrowed("select 1")),
@@ -920,14 +981,14 @@ fn should_parse_prepared_statement() {
             resultset_datetime_cols: vec![],
             resultset_bool_cols: vec![],
             resultset_string_cols: vec![vec![Some("PostgreSQL".to_string())]],
-        }),
+        },
     ];
     assert_eq!(expected, parsed);
 }
 
 #[test]
 fn should_parse_prepared_statement_with_parameters() {
-    let parsed = parse_stream(Postgres, parse_test_xml(
+    let parsed = tests_parse_stream(parse_test_xml(
             r#"
   <proto name="pgsql" showname="PostgreSQL" size="25" pos="66">
     <field name="pgsql.type" showname="Type: Parse" size="1" pos="66" show="Parse" value="50"/>
@@ -969,9 +1030,9 @@ fn should_parse_prepared_statement_with_parameters() {
   </proto>
         "#,
         ))
-        .unwrap().messages;
-    let expected: Vec<MessageData> = vec![
-        MessageData::Postgres(PostgresMessageData {
+        .unwrap();
+    let expected = vec![
+        PostgresMessageData {
             query_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
             result_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
             query: Some(Cow::Borrowed("select $1")),
@@ -984,8 +1045,8 @@ fn should_parse_prepared_statement_with_parameters() {
             resultset_datetime_cols: vec![],
             resultset_bool_cols: vec![],
             resultset_string_cols: vec![],
-        }),
-        MessageData::Postgres(PostgresMessageData {
+        },
+        PostgresMessageData {
             query_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
             result_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
             query: Some(Cow::Borrowed("select $1")),
@@ -1002,28 +1063,28 @@ fn should_parse_prepared_statement_with_parameters() {
             resultset_datetime_cols: vec![],
             resultset_bool_cols: vec![],
             resultset_string_cols: vec![vec![Some("PostgreSQL".to_string())]],
-        }),
+        },
     ];
     assert_eq!(expected, parsed);
 }
 
 #[test]
 fn should_not_generate_queries_for_just_a_ready_message() {
-    let parsed = parse_stream(Postgres, parse_test_xml(
+    let parsed = tests_parse_stream(parse_test_xml(
             r#"
   <proto name="pgsql" showname="PostgreSQL" size="6" pos="239">
     <field name="pgsql.type" showname="Type: Ready for query" size="1" pos="239" show="Ready for query" value="5a"/>
   </proto>
         "#,
         ))
-        .unwrap().messages;
-    let expected: Vec<MessageData> = vec![];
+        .unwrap();
+    let expected: Vec<PostgresMessageData> = vec![];
     assert_eq!(expected, parsed);
 }
 
 #[test]
 fn should_parse_query_with_multiple_columns_and_nulls() {
-    let parsed = parse_stream(Postgres, parse_test_xml(
+    let parsed = tests_parse_stream(parse_test_xml(
             r#"
   <proto name="pgsql" showname="PostgreSQL" size="25" pos="66">
     <field name="pgsql.type" showname="Type: Parse" size="1" pos="66" show="Parse" value="50"/>
@@ -1066,8 +1127,8 @@ fn should_parse_query_with_multiple_columns_and_nulls() {
   </proto>
         "#,
         ))
-        .unwrap().messages;
-    let expected: Vec<MessageData> = vec![MessageData::Postgres(PostgresMessageData {
+        .unwrap();
+    let expected = vec![PostgresMessageData {
         query_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
         result_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
         query: Some(Cow::Borrowed("select 1")),
@@ -1080,14 +1141,14 @@ fn should_parse_query_with_multiple_columns_and_nulls() {
         resultset_datetime_cols: vec![],
         resultset_bool_cols: vec![],
         resultset_int_cols: vec![vec![Some(26)]],
-    })];
+    }];
     assert_eq!(expected, parsed);
 }
 
 // this will happen if we don't catch the TCP stream at the beginning
 #[test]
 fn should_parse_query_with_no_parse_and_unknown_bind() {
-    let parsed = parse_stream(Postgres, parse_test_xml(
+    let parsed = tests_parse_stream(parse_test_xml(
             r#"
   <proto name="pgsql" showname="PostgreSQL" size="25" pos="66">
     <field name="pgsql.type" showname="Type: Parse" size="1" pos="66" show="Parse" value="50"/>
@@ -1158,8 +1219,8 @@ fn should_parse_query_with_no_parse_and_unknown_bind() {
   </proto>
         "#,
         ))
-        .unwrap().messages;
-    let expected: Vec<MessageData> = vec![MessageData::Postgres(PostgresMessageData {
+        .unwrap();
+    let expected = vec![PostgresMessageData {
         query_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
         result_timestamp: NaiveDate::from_ymd(2021, 3, 5).and_hms_nano(8, 49, 52, 736275000),
         query: Some(Cow::Borrowed("Unknown statement: S_18")),
@@ -1186,7 +1247,7 @@ fn should_parse_query_with_no_parse_and_unknown_bind() {
             vec![Some("GENERAL".to_string())],
             vec![Some("APPLICATION_TIMEZONE".to_string())],
         ],
-    })];
+    }];
     assert_eq!(expected, parsed);
 }
 

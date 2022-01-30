@@ -1,8 +1,7 @@
 use super::http_body_widget;
 use super::http_body_widget::HttpBodyWidget;
-use super::http_message_parser::{HttpMessageData, HttpRequestResponseData};
+use super::http_streams_store::{HttpMessageData, HttpRequestResponseData};
 use crate::icons::Icon;
-use crate::message_parser::{MessageData, MessageInfo};
 use crate::tshark_communication::TcpStreamId;
 use crate::widgets::comm_info_header;
 use crate::widgets::comm_info_header::CommInfoHeader;
@@ -18,7 +17,7 @@ use std::sync::mpsc;
 
 #[derive(Msg, Debug)]
 pub enum Msg {
-    DisplayDetails(mpsc::Sender<BgFunc>, MessageInfo),
+    DisplayDetails(mpsc::Sender<BgFunc>, IpAddr, TcpStreamId, HttpMessageData),
     RemoveFormatToggled,
     CopyContentsClick,
 }
@@ -119,15 +118,8 @@ impl Widget for HttpCommEntry {
     fn update(&mut self, event: Msg) {
         // dbg!(&event);
         match event {
-            Msg::DisplayDetails(
-                ..,
-                MessageInfo {
-                    client_ip,
-                    stream_id,
-                    message_data: MessageData::Http(msg),
-                },
-            ) => {
-                self.model.data = msg;
+            Msg::DisplayDetails(.., client_ip, stream_id, message_data) => {
+                self.model.data = message_data;
                 self.streams
                     .comm_info_header
                     .emit(comm_info_header::Msg::Update(client_ip, stream_id));
@@ -204,7 +196,6 @@ impl Widget for HttpCommEntry {
                 }
                 self.model.options_popover.popdown();
             }
-            _ => {}
         }
     }
 

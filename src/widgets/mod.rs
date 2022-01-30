@@ -1,5 +1,4 @@
 pub mod comm_info_header;
-pub mod comm_remote_server;
 mod comm_target_card;
 pub mod headerbar_search;
 mod ips_and_streams_treeview;

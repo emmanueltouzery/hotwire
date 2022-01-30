@@ -1,6 +1,6 @@
 use super::code_formatting;
-use super::http_message_parser;
-use super::http_message_parser::{HttpBody, HttpRequestResponseData};
+use super::http_streams_store;
+use super::http_streams_store::{HttpBody, HttpRequestResponseData};
 use crate::widgets::win;
 use crate::BgFunc;
 use gdk_pixbuf::prelude::*;
@@ -192,7 +192,7 @@ impl Widget for HttpBodyWidget {
             .data
             .as_ref()
             .and_then(|d| {
-                http_message_parser::get_http_header_value(&d.headers, "Content-Disposition")
+                http_streams_store::get_http_header_value(&d.headers, "Content-Disposition")
             })
             .and_then(|d| {
                 d.strip_prefix("attachment: filename=\"")

@@ -1,3 +1,3 @@
 pub mod postgres_details_widget;
-pub mod postgres_message_parser;
+pub mod postgres_streams_store;
 pub mod tshark_pgsql;

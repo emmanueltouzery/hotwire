@@ -12,9 +12,6 @@ use std::path::PathBuf;
 use std::str;
 use std::str::FromStr;
 
-#[cfg(test)]
-use crate::message_parser::{MessageParser, StreamData};
-
 macro_rules! xml_event_loop {
     ($reader:ident, $buf:ident, $($tts:tt)*) => {
         loop {
@@ -421,25 +418,6 @@ pub fn parse_test_xml(xml: &str) -> Result<Vec<TSharkPacket>, String> {
         };
         buf.clear();
     }
-}
-
-#[cfg(test)]
-pub fn parse_stream<MP: MessageParser>(
-    parser: MP,
-    packets: Result<Vec<TSharkPacket>, String>,
-) -> Result<StreamData, String> {
-    let mut stream_data = StreamData {
-        parser_index: 0,
-        stream_globals: parser.initial_globals(),
-        client_server: None,
-        messages: vec![],
-        summary_details: None,
-    };
-    for packet in packets.unwrap().into_iter() {
-        stream_data = parser.add_to_stream(stream_data, packet)?;
-    }
-    stream_data = parser.finish_stream(stream_data)?;
-    Ok(stream_data)
 }
 
 /// supports both disk paths and file:// URIs

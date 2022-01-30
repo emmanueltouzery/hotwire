@@ -1,5 +1,4 @@
-use super::postgres_message_parser::PostgresMessageData;
-use crate::message_parser::{MessageData, MessageInfo};
+use super::postgres_streams_store::PostgresMessageData;
 use crate::pgsql::tshark_pgsql::PostgresColType;
 use crate::tshark_communication::TcpStreamId;
 use crate::widgets::comm_info_header;
@@ -35,7 +34,12 @@ pub struct Model {
 
 #[derive(Msg, Debug)]
 pub enum Msg {
-    DisplayDetails(mpsc::Sender<BgFunc>, MessageInfo),
+    DisplayDetails(
+        mpsc::Sender<BgFunc>,
+        IpAddr,
+        TcpStreamId,
+        PostgresMessageData,
+    ),
     ExportResultSet,
 }
 
@@ -177,15 +181,8 @@ impl Widget for PostgresCommEntry {
 
     fn update(&mut self, event: Msg) {
         match event {
-            Msg::DisplayDetails(
-                _bg_sender,
-                MessageInfo {
-                    stream_id,
-                    client_ip,
-                    message_data: MessageData::Postgres(msg),
-                },
-            ) => {
-                self.model.data = msg;
+            Msg::DisplayDetails(.., client_ip, stream_id, message_data) => {
+                self.model.data = message_data;
                 self.streams
                     .comm_info_header
                     .emit(comm_info_header::Msg::Update(client_ip, stream_id));
@@ -194,7 +191,6 @@ impl Widget for PostgresCommEntry {
 
                 self.fill_resultset();
             }
-            Msg::DisplayDetails(_, _) => {}
             Msg::ExportResultSet => {
                 let dialog = gtk::FileChooserNativeBuilder::new()
                     .action(gtk::FileChooserAction::Save)
