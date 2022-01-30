@@ -1,6 +1,6 @@
 [package]
 name = "hotwire"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Emmanuel Touzery <etouzery@gmail.com>"]
 edition = "2021"
 

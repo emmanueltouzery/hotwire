@@ -30,6 +30,16 @@ https://hughsie.github.io/oars/index.html
 -->
   <content_rating type="oars-1.0" />
   <releases>
+    <release version="0.2.1" date="2023-01-30">
+      <description>
+          <p>Fix #1 change the design, better type-safety</p>
+          <p>HTTP: properly escape body contents. previously depending on the contents, some gtk/pango "escape sequences" would get through and the markup would potentially be invalid. If it came to that, we did not display the contents or worse, left the previous content, which could be very confusing.</p>
+          <p>Also know how to indent and format ndjson now</p>
+          <p>Search GUI: properly escape the " and \ in search values</p>
+          <p>Search implementation: properly parse escaped \ characters</p>
+          <p>Refresh dependencies</p>
+      </description>
+    </release>
     <release version="0.2.0" date="2021-10-30">
       <description>
         <p>Upgrade dependencies, especially gtk and relm</p>
