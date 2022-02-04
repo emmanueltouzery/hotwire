@@ -273,9 +273,15 @@ impl CustomStreamsStore for Http2StreamsStore {
         http_streams_store::http_get_empty_liststore()
     }
 
-    fn populate_treeview(&self, ls: &gtk::ListStore, session_id: TcpStreamId, start_idx: i32) {
+    fn populate_treeview(
+        &self,
+        ls: &gtk::ListStore,
+        session_id: TcpStreamId,
+        start_idx: usize,
+        item_count: usize,
+    ) {
         let messages = &self.streams.get(&session_id).unwrap().messages;
-        http_streams_store::http_populate_treeview(messages, ls, session_id, start_idx);
+        http_streams_store::http_populate_treeview(messages, ls, session_id, start_idx, item_count);
     }
 
     fn end_populate_treeview(&self, tv: &gtk::TreeView, ls: &gtk::ListStore) {

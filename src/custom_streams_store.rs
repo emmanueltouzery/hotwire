@@ -76,7 +76,13 @@ pub trait CustomStreamsStore {
     // treeview
     fn prepare_treeview(&self, tv: &gtk::TreeView);
     fn get_empty_liststore(&self) -> gtk::ListStore;
-    fn populate_treeview(&self, ls: &gtk::ListStore, session_id: TcpStreamId, start_idx: i32);
+    fn populate_treeview(
+        &self,
+        ls: &gtk::ListStore,
+        session_id: TcpStreamId,
+        start_idx: usize,
+        item_count: usize,
+    );
     fn end_populate_treeview(&self, tv: &gtk::TreeView, ls: &gtk::ListStore);
 
     fn display_in_details_widget(

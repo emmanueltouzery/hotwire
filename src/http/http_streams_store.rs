@@ -260,9 +260,15 @@ impl CustomStreamsStore for HttpStreamsStore {
         http_prepare_treeview(tv);
     }
 
-    fn populate_treeview(&self, ls: &gtk::ListStore, session_id: TcpStreamId, start_idx: i32) {
+    fn populate_treeview(
+        &self,
+        ls: &gtk::ListStore,
+        session_id: TcpStreamId,
+        start_idx: usize,
+        item_count: usize,
+    ) {
         let messages = &self.streams.get(&session_id).unwrap().messages;
-        http_populate_treeview(messages, ls, session_id, start_idx);
+        http_populate_treeview(messages, ls, session_id, start_idx, item_count);
     }
 
     fn end_populate_treeview(&self, tv: &gtk::TreeView, ls: &gtk::ListStore) {
@@ -535,9 +541,10 @@ pub fn http_populate_treeview(
     messages: &[HttpMessageData],
     ls: &gtk::ListStore,
     session_id: TcpStreamId,
-    start_idx: i32,
+    start_idx: usize,
+    item_count: usize,
 ) {
-    for (idx, http) in messages.iter().enumerate() {
+    for (idx, http) in messages.iter().skip(start_idx).take(item_count).enumerate() {
         let iter = ls.append();
         ls.set_value(
             &iter,
@@ -567,7 +574,7 @@ pub fn http_populate_treeview(
         ls.set_value(
             &iter,
             custom_streams_store::TREE_STORE_MESSAGE_INDEX_COL_IDX,
-            &(start_idx + idx as i32).to_value(),
+            &((start_idx + idx) as i32).to_value(),
         );
         if let Some(ref rq) = http.request {
             ls.set_value(&iter, 4, &rq.timestamp.to_string().to_value());

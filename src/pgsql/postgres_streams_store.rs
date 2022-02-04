@@ -437,10 +437,16 @@ impl CustomStreamsStore for PostgresStreamsStore {
         ])
     }
 
-    fn populate_treeview(&self, ls: &gtk::ListStore, session_id: TcpStreamId, start_idx: i32) {
+    fn populate_treeview(
+        &self,
+        ls: &gtk::ListStore,
+        session_id: TcpStreamId,
+        start_idx: usize,
+        item_count: usize,
+    ) {
         let messages = &self.streams.get(&session_id).unwrap().messages;
         // println!("adding {} rows", messages.len());
-        for (idx, postgres) in messages.iter().enumerate() {
+        for (idx, postgres) in messages.iter().skip(start_idx).take(item_count).enumerate() {
             ls.insert_with_values(
                 None,
                 &[
@@ -464,7 +470,7 @@ impl CustomStreamsStore for PostgresStreamsStore {
                     ),
                     (
                         custom_streams_store::TREE_STORE_MESSAGE_INDEX_COL_IDX,
-                        &(start_idx + idx as i32).to_value(),
+                        &((start_idx + idx) as i32).to_value(),
                     ),
                     (4, &postgres.query_timestamp.to_string().to_value()),
                     (5, &postgres.query_timestamp.timestamp_nanos().to_value()),

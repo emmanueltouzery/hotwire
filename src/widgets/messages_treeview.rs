@@ -241,14 +241,14 @@ pub fn refresh_remote_servers(
             .set_visible_child_name(&card.store_index.to_string());
         let (ref tv, ref _signals) = &tv_state.message_treeviews.get(card.store_index).unwrap();
         let ls = mp.get_empty_liststore();
+        let populate_by = 100;
         for tcp_sessions in by_remote_ip.values() {
             for session_id in tcp_sessions {
                 let mut idx = 0;
-                let session_message_count =
-                    mp.stream_message_count(*session_id).unwrap_or(0) as i32;
+                let session_message_count = mp.stream_message_count(*session_id).unwrap_or(0);
                 while idx < session_message_count {
-                    mp.populate_treeview(&ls, *session_id, idx);
-                    idx += 100;
+                    mp.populate_treeview(&ls, *session_id, idx, populate_by);
+                    idx += populate_by;
                     // https://developer.gnome.org/gtk3/stable/gtk3-General.html#gtk-events-pending
                     // I've had this loop last almost 3 seconds!!
                     let start = Instant::now();
@@ -511,7 +511,8 @@ pub fn refresh_grids_new_messages(
             store.populate_treeview(
                 &ls,
                 stream_id,
-                (streams.stream_message_count(stream_id).unwrap() - added_messages) as i32,
+                streams.stream_message_count(stream_id).unwrap() - added_messages,
+                added_messages,
             );
 
             packets_added_trigger_events(
