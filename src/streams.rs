@@ -111,16 +111,25 @@ impl Streams {
             .join(" || ")
     }
 
+    fn get_stream_store_for_packet(
+        &mut self,
+        p: &TSharkPacket,
+    ) -> Option<(usize, &mut Box<dyn CustomStreamsStore>)> {
+        if let Some(store_index) = self.get_store_index(p.basic_info.tcp_stream_id) {
+            Some((store_index, self.streams.get_mut(store_index).unwrap()))
+        } else {
+            self.streams
+                .iter_mut()
+                .enumerate()
+                .find(|(_idx, ps)| ps.is_my_message(&p))
+        }
+    }
+
     pub fn handle_got_packet(
         &mut self,
         p: TSharkPacket,
     ) -> Result<Option<PacketAddedData>, String> {
-        if let Some((store_index, store)) = self
-            .streams
-            .iter_mut()
-            .enumerate()
-            .find(|(_idx, ps)| ps.is_my_message(&p))
-        {
+        if let Some((store_index, store)) = self.get_stream_store_for_packet(&p) {
             let packet_stream_id = p.basic_info.tcp_stream_id;
             let message_count_before = store.stream_message_count(packet_stream_id).unwrap_or(0);
             let session_change_type = if message_count_before > 0 {

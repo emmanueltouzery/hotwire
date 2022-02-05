@@ -18,9 +18,10 @@ use std::sync::mpsc;
 use strum::VariantNames;
 
 #[cfg(test)]
-use crate::tshark_communication::parse_test_xml;
-#[cfg(test)]
-use chrono::NaiveDate;
+use {
+    crate::custom_streams_store::common_tests_parse_stream,
+    crate::tshark_communication::parse_test_xml, chrono::NaiveDate,
+};
 
 #[derive(Default)]
 pub struct Http2StreamData {
@@ -425,14 +426,10 @@ fn prepare_http_message(
             )
         };
     let content_type = http_streams_store::get_http_header_value(&headers, "content-type").cloned();
-    let content_encoding =
-        match http_streams_store::get_http_header_value(&headers, "content-encoding")
-            .map(|s| s.as_str())
-        {
-            Some("br") => ContentEncoding::Brotli,
-            Some("gzip") => ContentEncoding::Gzip,
-            _ => ContentEncoding::Plain,
-        };
+    let content_encoding = ContentEncoding::from_str(
+        &http_streams_store::get_http_header_value(&headers, "content-encoding")
+            .map(|s| s.as_str()),
+    );
     // if matches!(body, HttpBody::Binary(_)) {
     //     println!(
     //         "######### GOT BINARY BODY {:?} status {:?} path {:?}",
@@ -460,12 +457,8 @@ fn prepare_http_message(
 fn tests_parse_stream(
     packets: Result<Vec<TSharkPacket>, String>,
 ) -> Result<Vec<HttpMessageData>, String> {
-    let sid = TcpStreamId(1);
     let mut parser = Http2StreamsStore::default();
-    for packet in packets.unwrap().into_iter() {
-        parser.add_to_stream(sid, packet)?;
-    }
-    parser.finish_stream(sid)?;
+    let sid = common_tests_parse_stream(&mut parser, packets)?;
     Ok(parser.streams.get(&sid).unwrap().messages.clone())
 }
 

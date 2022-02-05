@@ -2,11 +2,13 @@ use crate::config;
 use crate::config::Config;
 use crate::tshark_communication;
 use crate::tshark_communication::TSharkPacket;
+use crate::tshark_communication::TcpStreamId;
 use nix::sys::signal::Signal;
 use nix::unistd::Pid;
 use quick_xml::events::Event;
 use signal_hook::iterator::Signals;
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::io::BufRead;
 use std::io::BufReader;
 #[cfg(target_family = "unix")]
@@ -89,14 +91,25 @@ pub fn invoke_tshark(
 pub fn parse_pdml_stream<B: BufRead>(buf_reader: B, sender: relm::Sender<ParseInputStep>) {
     let mut xml_reader = quick_xml::Reader::from_reader(buf_reader);
     let mut buf = vec![];
+    let mut http1_streams: HashSet<TcpStreamId> = HashSet::new();
+    let mut temp_tcp_payload: Vec<u8> = vec![];
     loop {
         match xml_reader.read_event(&mut buf) {
             Ok(Event::Start(ref e)) => {
                 if e.name() == b"packet" {
-                    match tshark_communication::parse_packet(&mut xml_reader) {
-                        Ok(packet) => sender
-                            .send(Ok(InputStep::Packet(Box::new(packet))))
-                            .unwrap(),
+                    match tshark_communication::parse_packet(
+                        &mut xml_reader,
+                        &http1_streams,
+                        &mut temp_tcp_payload,
+                    ) {
+                        Ok(packet) => {
+                            if packet.http.is_some() {
+                                http1_streams.insert(packet.basic_info.tcp_stream_id);
+                            }
+                            sender
+                                .send(Ok(InputStep::Packet(Box::new(packet))))
+                                .unwrap()
+                        }
                         Err(e) => {
                             sender
                                 .send(Err(format!(

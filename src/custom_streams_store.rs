@@ -125,3 +125,16 @@ pub fn get_message_helper(model: &gtk::TreeModel, iter: &gtk::TreeIter) -> (TcpS
         .unwrap();
     (stream_id, idx)
 }
+
+#[cfg(test)]
+pub fn common_tests_parse_stream<S: CustomStreamsStore>(
+    parser: &mut S,
+    packets: Result<Vec<TSharkPacket>, String>,
+) -> Result<TcpStreamId, String> {
+    let sid = TcpStreamId(1);
+    for packet in packets.unwrap().into_iter() {
+        parser.add_to_stream(sid, packet)?;
+    }
+    parser.finish_stream(sid)?;
+    Ok(sid)
+}

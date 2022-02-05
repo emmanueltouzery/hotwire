@@ -5,6 +5,7 @@ use chrono::NaiveDateTime;
 use quick_xml::events::attributes::Attributes;
 use quick_xml::events::Event;
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::fmt::Debug;
 use std::io::BufRead;
 use std::net::IpAddr;
@@ -93,11 +94,14 @@ pub struct TSharkPacket {
     pub http: Option<tshark_http::TSharkHttp>,
     pub http2: Option<Vec<tshark_http2::TSharkHttp2Message>>,
     pub pgsql: Option<Vec<tshark_pgsql::PostgresWireMessage>>,
+    pub tcp_payload: Option<Vec<u8>>,
     pub is_malformed: bool,
 }
 
 pub fn parse_packet<B: BufRead>(
     xml_reader: &mut quick_xml::Reader<B>,
+    http1_streams: &HashSet<TcpStreamId>,
+    temp_tcp_payload: &mut Vec<u8>,
 ) -> Result<TSharkPacket, String> {
     let mut frame_time = NaiveDateTime::from_timestamp(0, 0);
     let mut ip_src = None;
@@ -110,6 +114,7 @@ pub fn parse_packet<B: BufRead>(
     let mut http2 = None::<Vec<tshark_http2::TSharkHttp2Message>>;
     let mut pgsql = None::<Vec<tshark_pgsql::PostgresWireMessage>>;
     let mut is_malformed = false;
+    temp_tcp_payload.clear();
     let buf = &mut vec![];
     xml_event_loop!(xml_reader, buf,
         Ok(Event::Start(ref e)) => {
@@ -129,7 +134,7 @@ pub fn parse_packet<B: BufRead>(
                     }
                     Some(b"tcp") => {
                         // waiting for https://github.com/rust-lang/rust/issues/71126
-                        let tcp_info = parse_tcp_info(xml_reader)?;
+                        let tcp_info = parse_tcp_info(xml_reader, http1_streams, temp_tcp_payload)?;
                         tcp_seq_number = tcp_info.0;
                         tcp_stream_id = tcp_info.1;
                         port_src = tcp_info.2;
@@ -172,6 +177,12 @@ pub fn parse_packet<B: BufRead>(
             }
         }
         Ok(Event::End(ref e)) => {
+            let tcp_payload =
+                if temp_tcp_payload.len() > 0 && http1_streams.contains(&tcp_stream_id) && http.is_none() {
+                    hex::decode(&temp_tcp_payload).ok()
+                } else {
+                    None
+                };
             if let (b"packet", Some(src), Some(dst)) = (e.name(), ip_src, ip_dst) {
                 return Ok(TSharkPacket {
                     basic_info: TSharkPacketBasicInfo {
@@ -186,6 +197,7 @@ pub fn parse_packet<B: BufRead>(
                     http,
                     http2,
                     pgsql,
+                    tcp_payload,
                     is_malformed
                 });
             }
@@ -269,6 +281,8 @@ fn parse_ip_info<B: BufRead>(
 
 fn parse_tcp_info<B: BufRead>(
     xml_reader: &mut quick_xml::Reader<B>,
+    http1_streams: &HashSet<TcpStreamId>,
+    temp_tcp_payload: &mut Vec<u8>,
 ) -> Result<(TcpSeqNumber, TcpStreamId, NetworkPort, NetworkPort), String> {
     let mut tcp_seq_number = TcpSeqNumber(0);
     let mut tcp_stream_id = TcpStreamId(0);
@@ -298,6 +312,13 @@ fn parse_tcp_info<B: BufRead>(
                     Some(b"tcp.stream") => {
                         if let Some(s) = element_attr_val_number(e, b"show")? {
                             tcp_stream_id = TcpStreamId(s);
+                        }
+                    }
+                    Some(b"tcp.payload") => {
+                        if http1_streams.contains(&tcp_stream_id) {
+                            let payload = element_attr_val_bytes_lazy(e, b"value")?;
+                            // https://stackoverflow.com/a/50707947/516188
+                            temp_tcp_payload.extend_from_slice(&payload);
                         }
                     }
                     _ => {}
@@ -360,6 +381,19 @@ fn element_attr_val_str_dynerr<'a>(
     }
 }
 
+fn element_attr_val_bytes_lazy<'a>(
+    e: &'a quick_xml::events::BytesStart<'a>,
+    attr_name: &'static [u8],
+) -> Result<Cow<'a, [u8]>, String> {
+    let val = e
+        .attributes()
+        .find(|kv| matches!(kv.as_ref().map(|attr| attr.key), Ok(a) if attr_name == a));
+    match val {
+        Some(Ok(v)) => Ok(v.value),
+        _ => Err("Missing byte[] attribute on xml".to_string()),
+    }
+}
+
 pub fn element_attr_val_string<'a>(
     e: &'a quick_xml::events::BytesStart<'a>,
     attr_name: &'static [u8],
@@ -394,16 +428,22 @@ macro_rules! test_fmt_str {
 }
 
 #[cfg(test)]
-pub fn parse_test_xml(xml: &str) -> Result<Vec<TSharkPacket>, String> {
-    let fmt_xml = format!(test_fmt_str!(), xml);
-    let mut xml_reader = quick_xml::Reader::from_reader(fmt_xml.as_bytes());
+pub fn parse_test_xml_no_wrapper(xml: &str) -> Result<Vec<TSharkPacket>, String> {
+    let mut xml_reader = quick_xml::Reader::from_reader(xml.as_bytes());
     let mut res = vec![];
     let mut buf = vec![];
+    let mut http1_streams: HashSet<TcpStreamId> = HashSet::new();
+    let mut temp_tcp_payload: Vec<u8> = vec![];
     loop {
         match xml_reader.read_event(&mut buf) {
             Ok(Event::Start(ref e)) => {
                 if e.name() == b"packet" {
-                    if let Ok(packet) = parse_packet(&mut xml_reader) {
+                    if let Ok(packet) =
+                        parse_packet(&mut xml_reader, &http1_streams, &mut temp_tcp_payload)
+                    {
+                        if packet.http.is_some() {
+                            http1_streams.insert(packet.basic_info.tcp_stream_id);
+                        }
                         res.push(packet);
                     }
                 }
@@ -418,6 +458,12 @@ pub fn parse_test_xml(xml: &str) -> Result<Vec<TSharkPacket>, String> {
         };
         buf.clear();
     }
+}
+
+#[cfg(test)]
+pub fn parse_test_xml(xml: &str) -> Result<Vec<TSharkPacket>, String> {
+    let fmt_xml = format!(test_fmt_str!(), xml);
+    parse_test_xml_no_wrapper(&fmt_xml)
 }
 
 /// supports both disk paths and file:// URIs

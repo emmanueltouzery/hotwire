@@ -22,9 +22,10 @@ use strum::VariantNames;
 use strum_macros::{EnumString, EnumVariantNames};
 
 #[cfg(test)]
-use crate::tshark_communication::parse_test_xml;
-#[cfg(test)]
-use chrono::NaiveDate;
+use {
+    crate::custom_streams_store::common_tests_parse_stream,
+    crate::tshark_communication::parse_test_xml, chrono::NaiveDate,
+};
 
 #[derive(Default)]
 pub struct PostgresStreamData {
@@ -866,12 +867,8 @@ pub struct PostgresStreamGlobals {
 fn tests_parse_stream(
     packets: Result<Vec<TSharkPacket>, String>,
 ) -> Result<Vec<PostgresMessageData>, String> {
-    let sid = TcpStreamId(1);
     let mut parser = PostgresStreamsStore::default();
-    for packet in packets.unwrap().into_iter() {
-        parser.add_to_stream(sid, packet)?;
-    }
-    parser.finish_stream(sid)?;
+    let sid = common_tests_parse_stream(&mut parser, packets)?;
     Ok(parser.streams.get(&sid).unwrap().messages.clone())
 }
 

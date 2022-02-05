@@ -9,6 +9,7 @@ use crate::search_expr;
 use crate::tshark_communication::{NetworkPort, TSharkPacket, TcpSeqNumber, TcpStreamId};
 use crate::widgets::win;
 use crate::BgFunc;
+use chrono::NaiveDate;
 use chrono::NaiveDateTime;
 use flate2::read::GzDecoder;
 use gtk::prelude::*;
@@ -22,6 +23,12 @@ use std::str::FromStr;
 use std::sync::mpsc;
 use strum::VariantNames;
 use strum_macros::{EnumString, EnumVariantNames};
+
+#[cfg(test)]
+use crate::{
+    custom_streams_store::common_tests_parse_stream,
+    tshark_communication::parse_test_xml_no_wrapper,
+};
 
 lazy_static! {
     // so, sometimes I see host headers like that: "Host: 10.215.215.9:8081".
@@ -61,6 +68,8 @@ impl HttpStreamsStore {
 pub struct HttpStreamGlobals {
     cur_request: Option<HttpRequestResponseData>,
 
+    tcp_leftover_payload: Option<(TcpSeqNumber, NaiveDateTime, Vec<u8>)>,
+
     // https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Server
     // will put the description of the Server http header in the summary details
     // if we can't get the hostname. Don't store it directly in the summary details,
@@ -68,6 +77,70 @@ pub struct HttpStreamGlobals {
     // if we didn't get the hostname, we use this in finish_stream() to populate
     // the summary details.
     server_info: Option<String>,
+}
+
+impl HttpStreamGlobals {
+    fn http_resp_from_tcp_if_any(
+        &mut self,
+        tcp_stream_id: TcpStreamId,
+    ) -> Option<HttpRequestResponseData> {
+        self.tcp_leftover_payload
+            .take()
+            .and_then(|(s, dt, d)| Self::parse_as_http(s, dt, d, tcp_stream_id))
+    }
+
+    fn get_headers_body(data: &[u8]) -> Option<(&[u8], &[u8])> {
+        let mut idx = 0;
+        let mut found = false;
+        let crlf2 = [b'\r', b'\n', b'\r', b'\n'];
+        while idx + 4 < data.len() {
+            if data[idx..(idx + 4)] == crlf2 {
+                found = true;
+                break;
+            }
+            idx += 1;
+        }
+        if !found {
+            return None;
+        }
+        Some((&data[0..idx], &data[(idx + crlf2.len())..]))
+    }
+
+    fn parse_as_http(
+        seq: TcpSeqNumber,
+        dt: NaiveDateTime,
+        data: Vec<u8>,
+        tcp_stream_id: TcpStreamId,
+    ) -> Option<HttpRequestResponseData> {
+        let (headers, raw_body) = Self::get_headers_body(&data)?;
+        let header_lines: Vec<_> = str::from_utf8(headers).ok()?.lines().collect();
+        let first_line = header_lines.first()?.to_string();
+        let headers = header_lines[1..]
+            .iter()
+            .map(|l| {
+                l.split_once(": ")
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+            })
+            .collect::<Option<Vec<_>>>()?;
+        let content_type = get_http_header_value(&headers, "Content-Type").map(|s| s.to_string());
+        let content_encoding = ContentEncoding::from_str(
+            &get_http_header_value(&headers, "Content-Encoding").map(|s| s.as_str()),
+        );
+        let body = match str::from_utf8(raw_body) {
+            Ok(txt) => HttpBody::Text(txt.to_string()),
+            _ => HttpBody::Binary(raw_body.to_vec()),
+        };
+        Some(HttpRequestResponseData {
+            tcp_stream_no: tcp_stream_id,
+            tcp_seq_number: seq,
+            timestamp: dt,
+            first_line,
+            headers,
+            content_type,
+            content_encoding,
+            body,
+        })
+    }
 }
 
 #[derive(EnumString, EnumVariantNames)]
@@ -105,7 +178,10 @@ impl CustomStreamsStore for HttpStreamsStore {
     }
 
     fn tshark_filter_string(&self) -> &'static str {
-        "http"
+        // I need TCP messages here too, due to the feature of recovering
+        // HTTP messages that wireshark clarified as TCP only
+        // see the should_add_non_http_tcp_stream_at_end_of_exchange test
+        "http || tcp"
     }
 
     fn protocol_icon(&self) -> Icon {
@@ -155,9 +231,17 @@ impl CustomStreamsStore for HttpStreamsStore {
             .streams
             .entry(stream_id)
             .or_insert_with(HttpStreamData::default);
+        if new_packet.http.is_some() {
+            // for now we only try to parse TCP leftover packets at the
+            // end of a stream. That's the only case I've seen so far.
+            stream.stream_globals.tcp_leftover_payload = None;
+        }
         let rr = parse_request_response(
             new_packet,
-            stream.client_server.as_ref().map(|cs| cs.server_ip),
+            stream
+                .client_server
+                .as_ref()
+                .map(|cs| (cs.server_ip, cs.server_port)),
         );
         // the localhost is to discard eg localhost:8080
         let host = rr.host.as_deref();
@@ -225,6 +309,21 @@ impl CustomStreamsStore for HttpStreamsStore {
                 });
             }
             ReqRespInfo {
+                req_resp: RequestOrResponseOrOther::ResponseBytes(date, seq, bytes),
+                ..
+            } => {
+                stream.stream_globals.tcp_leftover_payload = Some(
+                    if let Some(mut payload_sofar) =
+                        stream.stream_globals.tcp_leftover_payload.take()
+                    {
+                        payload_sofar.2.extend_from_slice(&bytes);
+                        payload_sofar
+                    } else {
+                        (seq, date, bytes)
+                    },
+                );
+            }
+            ReqRespInfo {
                 req_resp: RequestOrResponseOrOther::Other,
                 ..
             } => {}
@@ -237,12 +336,12 @@ impl CustomStreamsStore for HttpStreamsStore {
             .streams
             .get_mut(&stream_id)
             .ok_or("No data for stream")?;
-        let globals = std::mem::take(&mut stream.stream_globals);
-        if let Some(req) = globals.cur_request {
+        let mut globals = std::mem::take(&mut stream.stream_globals);
+        if let Some(req) = globals.cur_request.take() {
             stream.messages.push(HttpMessageData {
                 http_stream_id: 0,
                 request: Some(req),
-                response: None,
+                response: globals.http_resp_from_tcp_if_any(stream_id),
             });
         }
         if stream.summary_details.is_none() && stream.stream_globals.server_info.is_some() {
@@ -707,16 +806,28 @@ pub enum ContentEncoding {
     // TODO deflate
 }
 
+impl ContentEncoding {
+    pub fn from_str(input: &Option<&str>) -> ContentEncoding {
+        match input {
+            Some("br") => ContentEncoding::Brotli,
+            Some("gzip") => ContentEncoding::Gzip,
+            _ => ContentEncoding::Plain,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HttpMessageData {
-    pub http_stream_id: u32,
+    pub http_stream_id: u32, // only used for http2. always 0 for http1
     pub request: Option<HttpRequestResponseData>,
     pub response: Option<HttpRequestResponseData>,
 }
 
+#[derive(Debug)]
 enum RequestOrResponseOrOther {
     Request(HttpRequestResponseData),
     Response(HttpRequestResponseData),
+    ResponseBytes(NaiveDateTime, TcpSeqNumber, Vec<u8>),
     Other,
 }
 
@@ -730,6 +841,7 @@ impl RequestOrResponseOrOther {
     }
 }
 
+#[derive(Debug)]
 struct ReqRespInfo {
     req_resp: RequestOrResponseOrOther,
     ip_src: IpAddr,
@@ -748,21 +860,26 @@ fn parse_body(body: Option<Vec<u8>>, _headers: &[(String, String)]) -> HttpBody 
     .unwrap_or(HttpBody::Missing)
 }
 
-fn parse_request_response(comm: TSharkPacket, server_ip_if_known: Option<IpAddr>) -> ReqRespInfo {
+fn parse_request_response(
+    comm: TSharkPacket,
+    server_ip_port_if_known: Option<(IpAddr, NetworkPort)>,
+) -> ReqRespInfo {
     let http = comm.http;
     let http_headers = http.as_ref().map(|h| parse_headers(&h.other_lines));
     let ip_src = comm.basic_info.ip_src;
     let ip_dst = comm.basic_info.ip_dst;
-    let http_type = http
-        .as_ref()
-        .and_then(|h| h.http_type)
-        .or_else(|| match server_ip_if_known {
-            Some(srv_ip) if srv_ip == ip_dst => Some(HttpType::Request),
-            Some(srv_ip) if srv_ip == ip_src => Some(HttpType::Response),
-            _ => None,
-        });
-    match http.map(|h| (http_type, h, http_headers)) {
-        Some((Some(HttpType::Request), h, Some(headers))) => ReqRespInfo {
+    let port_src = comm.basic_info.port_src;
+    let port_dst = comm.basic_info.port_dst;
+    let http_type =
+        http.as_ref()
+            .and_then(|h| h.http_type)
+            .or_else(|| match server_ip_port_if_known {
+                Some(srv_ip_port) if srv_ip_port == (ip_dst, port_dst) => Some(HttpType::Request),
+                Some(srv_ip_port) if srv_ip_port == (ip_src, port_src) => Some(HttpType::Response),
+                _ => None,
+            });
+    match (http_type, http, http_headers, comm.tcp_payload) {
+        (Some(HttpType::Request), Some(h), Some(headers), _) => ReqRespInfo {
             req_resp: RequestOrResponseOrOther::Request(HttpRequestResponseData {
                 tcp_stream_no: comm.basic_info.tcp_stream_id,
                 tcp_seq_number: comm.basic_info.tcp_seq_number,
@@ -778,7 +895,7 @@ fn parse_request_response(comm: TSharkPacket, server_ip_if_known: Option<IpAddr>
             ip_src,
             host: h.http_host,
         },
-        Some((Some(HttpType::Response), h, Some(headers))) => ReqRespInfo {
+        (Some(HttpType::Response), Some(h), Some(headers), _) => ReqRespInfo {
             req_resp: RequestOrResponseOrOther::Response(HttpRequestResponseData {
                 tcp_stream_no: comm.basic_info.tcp_stream_id,
                 tcp_seq_number: comm.basic_info.tcp_seq_number,
@@ -794,6 +911,17 @@ fn parse_request_response(comm: TSharkPacket, server_ip_if_known: Option<IpAddr>
             ip_src: ip_dst,
             host: h.http_host,
         },
+        (Some(HttpType::Response), None, None, Some(payload)) => ReqRespInfo {
+            req_resp: RequestOrResponseOrOther::ResponseBytes(
+                comm.basic_info.frame_time,
+                comm.basic_info.tcp_seq_number,
+                payload,
+            ),
+            port_dst: comm.basic_info.port_dst,
+            ip_dst,
+            ip_src,
+            host: None,
+        },
         _ => ReqRespInfo {
             req_resp: RequestOrResponseOrOther::Other,
             port_dst: comm.basic_info.port_dst,
@@ -802,4 +930,82 @@ fn parse_request_response(comm: TSharkPacket, server_ip_if_known: Option<IpAddr>
             host: None,
         },
     }
+}
+
+#[cfg(test)]
+fn tests_parse_stream(
+    packets: Result<Vec<TSharkPacket>, String>,
+) -> Result<Vec<HttpMessageData>, String> {
+    let mut parser = HttpStreamsStore::default();
+    let sid = common_tests_parse_stream(&mut parser, packets)?;
+    Ok(parser.streams.get(&sid).unwrap().messages.clone())
+}
+
+// Sometimes wireshark will not recognize the last HTTP message of a stream as HTTP
+// It will be marked as TCP only. So we try to recognize it and parse the tcp
+// payload as HTTP in these cases.
+// https://serverfault.com/questions/377147/why-wireshark-does-not-recognize-this-http-response
+#[test]
+fn should_add_non_http_tcp_stream_at_end_of_exchange() {
+    let parsed = tests_parse_stream(parse_test_xml_no_wrapper(
+        r#"
+      <pdml>
+        <packet>
+          <proto name="ip">
+              <field name="ip.src" show="10.215.215.9" />
+              <field name="ip.dst" show="10.215.215.9" />
+          </proto>
+          <proto name="tcp">
+            <field name="tcp.srcport" show="53092" />
+            <field name="tcp.dstport" show="80" />
+            <field name="tcp.payload" value="504f5354202f6170692f73617665645f6f626a65" />
+          </proto>
+          <proto name="http">
+            <field name="" show="POST /test"></field>
+            <field name="http.request.line" showname="Host: 192.168.1.1\r\n" hide="yes" size="22" pos="114" show="Host: 192.168.1.1" value="486f73743a203139322e3136382e38382e3230300d0a"/>
+          </proto>
+        </packet>
+
+        <packet>
+          <proto name="ip">
+              <field name="ip.src" show="10.215.215.9" />
+              <field name="ip.dst" show="10.215.215.9" />
+          </proto>
+          <proto name="tcp">
+            <field name="tcp.srcport" show="80" />
+            <field name="tcp.dstport" show="53092" />
+            <field name="tcp.payload" value="485454502F312E3120323030204F4B0A436F6E74656E742D547970653A206170706C69636174696F6E2F6E646A736F6E0A436F6E6E656374696F6E3A206B6565702D616C6976650D0A0D0A7B2261747472696275746573223A7B226465736372697074696F6E223A22222C226B6962616E6153617665644F626A6563744D657461223A7B22736561726368536F757263654A534F4E223A227B5C2266696C7465725C223A5B5D2C5C2271756572795C223A7B5C226C616E67756167655C223A5C226B756572795C222C5C2271756572795C223A5C225C227D7D227D2C227469746C65223A2253797374656D204E617669676174" />
+          </proto>
+        </packet>
+      </pdml>
+        "#,
+    ))
+    .unwrap();
+    let expected = vec![HttpMessageData {
+        http_stream_id: 0,
+        request: Some(HttpRequestResponseData {
+            tcp_stream_no: TcpStreamId(0),
+            tcp_seq_number: TcpSeqNumber(0),
+            timestamp: NaiveDate::from_ymd(1970, 1, 1).and_hms(0, 0, 0),
+            first_line: "POST /test".to_string(),
+            headers: vec![("Host".to_string(), "192.168.1.1".to_string())],
+            body: HttpBody::Missing,
+            content_type: None,
+            content_encoding: ContentEncoding::Plain,
+        }),
+        response: Some(HttpRequestResponseData {
+            tcp_stream_no: TcpStreamId(1),
+            tcp_seq_number: TcpSeqNumber(0),
+            timestamp: NaiveDate::from_ymd(1970, 1, 1).and_hms(0, 0, 0),
+            first_line: "HTTP/1.1 200 OK".to_string(),
+            headers: vec![
+                ("Content-Type".to_string(), "application/ndjson".to_string()),
+                ("Connection".to_string(), "keep-alive".to_string()),
+            ],
+            body: HttpBody::Text("{\"attributes\":{\"description\":\"\",\"kibanaSavedObjectMeta\":{\"searchSourceJSON\":\"{\\\"filter\\\":[],\\\"query\\\":{\\\"language\\\":\\\"kuery\\\",\\\"query\\\":\\\"\\\"}}\"},\"title\":\"System Navigat".to_string()),
+            content_type: Some("application/ndjson".to_string()),
+            content_encoding: ContentEncoding::Plain,
+        }),
+    }];
+    assert_eq!(expected, parsed);
 }
