@@ -30,6 +30,12 @@ https://hughsie.github.io/oars/index.html
 -->
   <content_rating type="oars-1.0" />
   <releases>
+    <release version="0.2.2" date="2022-02-05">
+      <description>
+          <p>Fix important regression in 0.2.1 for streams with more than 100 messages (messages would get duplicated many times over)</p>
+          <p>For HTTP1 streams, we can now display final messages in communications even if they are not categorized as HTTP by wireshark</p>
+      </description>
+    </release>
     <release version="0.2.1" date="2022-01-30">
       <description>
           <p>Fix #1 change the design, better type-safety</p>
