@@ -9,7 +9,6 @@ use crate::search_expr;
 use crate::tshark_communication::{NetworkPort, TSharkPacket, TcpSeqNumber, TcpStreamId};
 use crate::widgets::win;
 use crate::BgFunc;
-use chrono::NaiveDate;
 use chrono::NaiveDateTime;
 use flate2::read::GzDecoder;
 use gtk::prelude::*;
@@ -25,9 +24,9 @@ use strum::VariantNames;
 use strum_macros::{EnumString, EnumVariantNames};
 
 #[cfg(test)]
-use crate::{
-    custom_streams_store::common_tests_parse_stream,
-    tshark_communication::parse_test_xml_no_wrapper,
+use {
+    crate::custom_streams_store::common_tests_parse_stream,
+    crate::tshark_communication::parse_test_xml_no_wrapper, chrono::NaiveDate,
 };
 
 lazy_static! {
@@ -123,7 +122,7 @@ impl HttpStreamGlobals {
             })
             .collect::<Option<Vec<_>>>()?;
         let content_type = get_http_header_value(&headers, "Content-Type").map(|s| s.to_string());
-        let content_encoding = ContentEncoding::from_str(
+        let content_encoding = ContentEncoding::parse_from_str(
             &get_http_header_value(&headers, "Content-Encoding").map(|s| s.as_str()),
         );
         let body = match str::from_utf8(raw_body) {
@@ -807,7 +806,7 @@ pub enum ContentEncoding {
 }
 
 impl ContentEncoding {
-    pub fn from_str(input: &Option<&str>) -> ContentEncoding {
+    pub fn parse_from_str(input: &Option<&str>) -> ContentEncoding {
         match input {
             Some("br") => ContentEncoding::Brotli,
             Some("gzip") => ContentEncoding::Gzip,

@@ -121,7 +121,7 @@ impl Streams {
             self.streams
                 .iter_mut()
                 .enumerate()
-                .find(|(_idx, ps)| ps.is_my_message(&p))
+                .find(|(_idx, ps)| ps.is_my_message(p))
         }
     }
 

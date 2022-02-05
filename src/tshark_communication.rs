@@ -178,7 +178,7 @@ pub fn parse_packet<B: BufRead>(
         }
         Ok(Event::End(ref e)) => {
             let tcp_payload =
-                if temp_tcp_payload.len() > 0 && http1_streams.contains(&tcp_stream_id) && http.is_none() {
+                if !temp_tcp_payload.is_empty() && http1_streams.contains(&tcp_stream_id) && http.is_none() {
                     hex::decode(&temp_tcp_payload).ok()
                 } else {
                     None

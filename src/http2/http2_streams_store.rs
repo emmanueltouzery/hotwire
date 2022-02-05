@@ -426,7 +426,7 @@ fn prepare_http_message(
             )
         };
     let content_type = http_streams_store::get_http_header_value(&headers, "content-type").cloned();
-    let content_encoding = ContentEncoding::from_str(
+    let content_encoding = ContentEncoding::parse_from_str(
         &http_streams_store::get_http_header_value(&headers, "content-encoding")
             .map(|s| s.as_str()),
     );
