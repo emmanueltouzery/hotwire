@@ -92,8 +92,8 @@ impl HttpStreamGlobals {
         let mut idx = 0;
         let mut found = false;
         let crlf2 = [b'\r', b'\n', b'\r', b'\n'];
-        while idx + 4 < data.len() {
-            if data[idx..(idx + 4)] == crlf2 {
+        while idx + crlf2.len() < data.len() {
+            if data[idx..(idx + crlf2.len())] == crlf2 {
                 found = true;
                 break;
             }
