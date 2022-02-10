@@ -43,6 +43,7 @@ toml = "0.5.8"
 nom = "7.1.0"
 strum = "0.23"
 strum_macros = "0.23.1"
+base64 = "0.13.0"
 
 
 [dependencies.gtk]

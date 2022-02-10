@@ -22,6 +22,7 @@
     <file alias="bookmark-symbolic.svg">fontawesome-5.13.0/svgs/solid/bookmark.svg</file>
     <file alias="angle-double-down-symbolic.svg">fontawesome-5.13.0/svgs/solid/angle-double-down.svg</file>
     <file alias="session-symbolic.svg">fontawesome-5.13.0/svgs/solid/exchange-alt.svg</file>
+    <file alias="eye-symbolic.svg">fontawesome-5.13.0/svgs/solid/eye.svg</file>
     <file alias="remote-host-symbolic.svg">fontawesome-5.13.0/svgs/solid/network-wired.svg</file>
     <file>com.github.emmanueltouzery.hotwire.svg</file>
   </gresource>

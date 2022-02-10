@@ -20,6 +20,7 @@ pub enum Msg {
     DisplayDetails(mpsc::Sender<BgFunc>, IpAddr, TcpStreamId, HttpMessageData),
     RemoveFormatToggled,
     CopyContentsClick,
+    ToggleDisplayPassword,
 }
 
 pub struct Model {
@@ -28,6 +29,8 @@ pub struct Model {
     stream_id: TcpStreamId,
     client_ip: IpAddr,
     data: HttpMessageData,
+    basic_auth_username: Option<String>,
+    basic_auth_password: Option<String>,
 
     options_popover: gtk::Popover,
     format_contents_btn: gtk::CheckButton,
@@ -112,6 +115,8 @@ impl Widget for HttpCommEntry {
             format_contents_btn,
             options_popover,
             format_request_response: true,
+            basic_auth_username: None,
+            basic_auth_password: None,
         }
     }
 
@@ -119,7 +124,6 @@ impl Widget for HttpCommEntry {
         // dbg!(&event);
         match event {
             Msg::DisplayDetails(.., client_ip, stream_id, message_data) => {
-                self.model.data = message_data;
                 self.streams
                     .comm_info_header
                     .emit(comm_info_header::Msg::Update(client_ip, stream_id));
@@ -142,6 +146,34 @@ impl Widget for HttpCommEntry {
                             .as_ref()
                             .map(|r| r.first_line.clone()),
                     });
+                let empty = vec![];
+                let mut req_headers = message_data
+                    .request
+                    .as_ref()
+                    .map(|r| &r.headers)
+                    .unwrap_or(&empty)
+                    .iter();
+                let auth_prefix = "Basic ";
+                let auth_header = req_headers
+                    .find(|(k, v)| k == "Authorization" && v.starts_with(auth_prefix))
+                    .map(|(_k, v)| &v[(auth_prefix.len())..])
+                    .and_then(|s| base64::decode(s).ok())
+                    .and_then(|s| String::from_utf8(s).ok())
+                    .and_then(|s| {
+                        s.split_once(':')
+                            .map(|(k, v)| (k.to_string(), v.to_string()))
+                    });
+                if let Some((k, v)) = auth_header {
+                    self.model.basic_auth_username = Some(k);
+                    self.model.basic_auth_password = Some(v);
+                } else {
+                    self.model.basic_auth_username = None;
+                    self.model.basic_auth_password = None;
+                }
+                self.widgets
+                    .basic_auth_info
+                    .set_visible(self.model.basic_auth_username.is_some());
+                self.model.data = message_data;
             }
             Msg::RemoveFormatToggled => {
                 self.model.format_request_response = self.model.format_contents_btn.is_active();
@@ -196,6 +228,14 @@ impl Widget for HttpCommEntry {
                 }
                 self.model.options_popover.popdown();
             }
+            Msg::ToggleDisplayPassword => {
+                let display_password = self.widgets.display_password_toggle_btn.is_active();
+                self.widgets.label_pass.set_label(if display_password {
+                    self.model.basic_auth_password.as_deref().unwrap_or("")
+                } else {
+                    "●●●●●"
+                });
+            }
         }
     }
 
@@ -231,6 +271,42 @@ impl Widget for HttpCommEntry {
                                             .unwrap_or(""),
                 xalign: 0.0,
                 selectable: true,
+            },
+            #[name="basic_auth_info"]
+            gtk::Box {
+                spacing: 5,
+                gtk::Image {
+                    icon_name: Some(Icon::LOCK.name()),
+                    icon_size: gtk::IconSize::SmallToolbar,
+                },
+                #[style_class="label"]
+                gtk::Label {
+                    label: "HTTP Basic Authentication",
+                    halign: gtk::Align::End,
+                },
+                gtk::Label {
+                    label: self.model.basic_auth_username.as_deref().unwrap_or(""),
+                    selectable: true,
+                },
+                #[style_class="label"]
+                gtk::Label {
+                    label: "/",
+                    halign: gtk::Align::End,
+                },
+                #[name="label_pass"]
+                gtk::Label {
+                    label: "●●●●●",
+                    selectable: true,
+                },
+                #[name="display_password_toggle_btn"]
+                gtk::ToggleButton {
+                    always_show_image: true,
+                    image: Some(&gtk::Image::from_icon_name(
+                        Some(Icon::EYE.name()), gtk::IconSize::Menu)),
+                    toggled => Msg::ToggleDisplayPassword,
+                    hexpand: true,
+                    halign: gtk::Align::End,
+                },
             },
             #[name="request_body"]
             HttpBodyWidget((self.model.win_msg_sender.clone(), self.model.bg_sender.clone())),

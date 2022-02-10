@@ -28,5 +28,6 @@ impl Icon {
     pub const ANGLE_DOUBLE_DOWN: Icon = Icon("angle-double-down");
     pub const SESSION: Icon = Icon("session");
     pub const REMOTE_HOST: Icon = Icon("remote-host");
+    pub const EYE: Icon = Icon("eye");
     pub const APP_ICON: Icon = Icon("com.github.emmanueltouzery.hotwire");
 }
