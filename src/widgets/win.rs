@@ -735,6 +735,10 @@ impl Widget for Win {
             Self::display_error_block("Cannot load file", Some(msg));
         } else {
             // had already loaded some data, display what we have
+            self.model.relm.stream().emit(Msg::InfoBarShow(
+                Some(format!("Error reading the data: {}", msg)),
+                InfobarOptions::ShowCloseButton,
+            ));
             self.handle_got_input_eof();
         }
     }
@@ -1294,6 +1298,11 @@ impl Widget for Win {
     }
 
     fn gui_load_file(&mut self, fname: PathBuf) {
+        // clear potentially present errors from previous files
+        self.model
+            .relm
+            .stream()
+            .emit(Msg::InfoBarShow(None, InfobarOptions::Default));
         self.widgets.open_btn.set_active(false);
         Self::add_to_recent_files(&fname);
         let is_fifo = if cfg!(unix) {
