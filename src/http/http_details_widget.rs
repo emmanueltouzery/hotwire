@@ -120,10 +120,52 @@ impl Widget for HttpCommEntry {
         }
     }
 
+    fn update_basic_auth_data(&mut self, message_data: &HttpMessageData) {
+        let empty = vec![];
+        let mut req_headers = message_data
+            .request
+            .as_ref()
+            .map(|r| &r.headers)
+            .unwrap_or(&empty)
+            .iter();
+        let auth_prefix = "Basic ";
+        let auth_header = req_headers
+            .find(|(k, v)| k == "Authorization" && v.starts_with(auth_prefix))
+            .map(|(_k, v)| &v[(auth_prefix.len())..])
+            .and_then(|s| base64::decode(s).ok())
+            .and_then(|s| String::from_utf8(s).ok())
+            .and_then(|s| {
+                s.split_once(':')
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+            });
+        if let Some((k, v)) = auth_header {
+            self.model.basic_auth_username = Some(k);
+            self.model.basic_auth_password = Some(v);
+        } else {
+            self.model.basic_auth_username = None;
+            self.model.basic_auth_password = None;
+        }
+        self.refresh_display_password();
+        self.widgets
+            .basic_auth_info
+            .set_visible(self.model.basic_auth_username.is_some());
+    }
+
+    fn refresh_display_password(&mut self) {
+        let display_password = self.widgets.display_password_toggle_btn.is_active();
+        self.widgets.label_pass.set_label(if display_password {
+            self.model.basic_auth_password.as_deref().unwrap_or("")
+        } else {
+            "●●●●●"
+        });
+    }
+
     fn update(&mut self, event: Msg) {
         // dbg!(&event);
         match event {
             Msg::DisplayDetails(.., client_ip, stream_id, message_data) => {
+                self.update_basic_auth_data(&message_data);
+                self.model.data = message_data;
                 self.streams
                     .comm_info_header
                     .emit(comm_info_header::Msg::Update(client_ip, stream_id));
@@ -146,34 +188,6 @@ impl Widget for HttpCommEntry {
                             .as_ref()
                             .map(|r| r.first_line.clone()),
                     });
-                let empty = vec![];
-                let mut req_headers = message_data
-                    .request
-                    .as_ref()
-                    .map(|r| &r.headers)
-                    .unwrap_or(&empty)
-                    .iter();
-                let auth_prefix = "Basic ";
-                let auth_header = req_headers
-                    .find(|(k, v)| k == "Authorization" && v.starts_with(auth_prefix))
-                    .map(|(_k, v)| &v[(auth_prefix.len())..])
-                    .and_then(|s| base64::decode(s).ok())
-                    .and_then(|s| String::from_utf8(s).ok())
-                    .and_then(|s| {
-                        s.split_once(':')
-                            .map(|(k, v)| (k.to_string(), v.to_string()))
-                    });
-                if let Some((k, v)) = auth_header {
-                    self.model.basic_auth_username = Some(k);
-                    self.model.basic_auth_password = Some(v);
-                } else {
-                    self.model.basic_auth_username = None;
-                    self.model.basic_auth_password = None;
-                }
-                self.widgets
-                    .basic_auth_info
-                    .set_visible(self.model.basic_auth_username.is_some());
-                self.model.data = message_data;
             }
             Msg::RemoveFormatToggled => {
                 self.model.format_request_response = self.model.format_contents_btn.is_active();
@@ -229,12 +243,7 @@ impl Widget for HttpCommEntry {
                 self.model.options_popover.popdown();
             }
             Msg::ToggleDisplayPassword => {
-                let display_password = self.widgets.display_password_toggle_btn.is_active();
-                self.widgets.label_pass.set_label(if display_password {
-                    self.model.basic_auth_password.as_deref().unwrap_or("")
-                } else {
-                    "●●●●●"
-                });
+                self.refresh_display_password();
             }
         }
     }
