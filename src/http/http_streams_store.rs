@@ -15,6 +15,7 @@ use gtk::prelude::*;
 use relm::ContainerWidget;
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::io::prelude::*;
 use std::net::IpAddr;
 use std::str;
@@ -65,7 +66,7 @@ impl HttpStreamsStore {
 
 #[derive(Debug, Default)]
 pub struct HttpStreamGlobals {
-    cur_request: Option<HttpRequestResponseData>,
+    cur_requests: VecDeque<HttpRequestResponseData>,
 
     tcp_leftover_payload: Option<(TcpSeqNumber, NaiveDateTime, Vec<u8>)>,
 
@@ -235,98 +236,96 @@ impl CustomStreamsStore for HttpStreamsStore {
             // end of a stream. That's the only case I've seen so far.
             stream.stream_globals.tcp_leftover_payload = None;
         }
-        let rr = parse_request_response(
+        let rrs = parse_request_response(
             new_packet,
             stream
                 .client_server
                 .as_ref()
                 .map(|cs| (cs.server_ip, cs.server_port)),
         );
-        // the localhost is to discard eg localhost:8080
-        let host = rr.host.as_deref();
-        let host_without_leading_localhost =
-            if let Some(no_localhost) = host.and_then(|h| h.strip_prefix("localhost")) {
-                Some(no_localhost)
-            } else {
-                host
+        for rr in rrs.into_iter() {
+            // the localhost is to discard eg localhost:8080
+            let host = rr.host.as_deref();
+            let host_without_leading_localhost =
+                if let Some(no_localhost) = host.and_then(|h| h.strip_prefix("localhost")) {
+                    Some(no_localhost)
+                } else {
+                    host
+                };
+            if stream.summary_details.is_none() {
+                match (
+                    rr.req_resp
+                        .data()
+                        .and_then(|d| get_http_header_value(&d.headers, "X-Forwarded-Server")),
+                    host_without_leading_localhost,
+                    rr.req_resp
+                        .data()
+                        .and_then(|d| get_http_header_value(&d.headers, "Server")),
+                ) {
+                    (Some(fwd), _, _) => stream.summary_details = Some(fwd.clone()),
+                    (_, Some(host), _) if !host.trim_end_matches(&IP_ONLY_CHARS[..]).is_empty() => {
+                        stream.summary_details = Some(host.to_string())
+                    }
+                    (_, _, Some(server)) if stream.stream_globals.server_info.is_none() => {
+                        stream.stream_globals.server_info = Some(server.to_string());
+                    }
+                    _ => {}
+                }
+            }
+            match rr {
+                ReqRespInfo {
+                    req_resp: RequestOrResponse::Request(r),
+                    port_dst: srv_port,
+                    ip_dst: srv_ip,
+                    ip_src: cl_ip,
+                    ..
+                } => {
+                    if stream.client_server.is_none() {
+                        stream.client_server = Some(ClientServerInfo {
+                            client_ip: cl_ip,
+                            server_ip: srv_ip,
+                            server_port: srv_port,
+                        });
+                    }
+                    stream.stream_globals.cur_requests.push_back(r);
+                }
+                ReqRespInfo {
+                    req_resp: RequestOrResponse::Response(r),
+                    port_dst: srv_port,
+                    ip_dst: srv_ip,
+                    ip_src: cl_ip,
+                    ..
+                } => {
+                    if stream.client_server.is_none() {
+                        stream.client_server = Some(ClientServerInfo {
+                            client_ip: cl_ip,
+                            server_ip: srv_ip,
+                            server_port: srv_port,
+                        });
+                    }
+                    stream.messages.push(HttpMessageData {
+                        http_stream_id: 0,
+                        request: stream.stream_globals.cur_requests.pop_front(),
+                        response: Some(r),
+                    });
+                }
+                ReqRespInfo {
+                    req_resp: RequestOrResponse::ResponseBytes(date, seq, bytes),
+                    ..
+                } => {
+                    stream.stream_globals.tcp_leftover_payload = Some(
+                        if let Some(mut payload_sofar) =
+                            stream.stream_globals.tcp_leftover_payload.take()
+                        {
+                            payload_sofar.2.extend_from_slice(&bytes);
+                            payload_sofar
+                        } else {
+                            (seq, date, bytes)
+                        },
+                    );
+                }
             };
-        if stream.summary_details.is_none() {
-            match (
-                rr.req_resp
-                    .data()
-                    .and_then(|d| get_http_header_value(&d.headers, "X-Forwarded-Server")),
-                host_without_leading_localhost,
-                rr.req_resp
-                    .data()
-                    .and_then(|d| get_http_header_value(&d.headers, "Server")),
-            ) {
-                (Some(fwd), _, _) => stream.summary_details = Some(fwd.clone()),
-                (_, Some(host), _) if !host.trim_end_matches(&IP_ONLY_CHARS[..]).is_empty() => {
-                    stream.summary_details = Some(host.to_string())
-                }
-                (_, _, Some(server)) if stream.stream_globals.server_info.is_none() => {
-                    stream.stream_globals.server_info = Some(server.to_string());
-                }
-                _ => {}
-            }
         }
-        match rr {
-            ReqRespInfo {
-                req_resp: RequestOrResponseOrOther::Request(r),
-                port_dst: srv_port,
-                ip_dst: srv_ip,
-                ip_src: cl_ip,
-                ..
-            } => {
-                if stream.client_server.is_none() {
-                    stream.client_server = Some(ClientServerInfo {
-                        client_ip: cl_ip,
-                        server_ip: srv_ip,
-                        server_port: srv_port,
-                    });
-                }
-                stream.stream_globals.cur_request = Some(r);
-            }
-            ReqRespInfo {
-                req_resp: RequestOrResponseOrOther::Response(r),
-                port_dst: srv_port,
-                ip_dst: srv_ip,
-                ip_src: cl_ip,
-                ..
-            } => {
-                if stream.client_server.is_none() {
-                    stream.client_server = Some(ClientServerInfo {
-                        client_ip: cl_ip,
-                        server_ip: srv_ip,
-                        server_port: srv_port,
-                    });
-                }
-                stream.messages.push(HttpMessageData {
-                    http_stream_id: 0,
-                    request: stream.stream_globals.cur_request.take(),
-                    response: Some(r),
-                });
-            }
-            ReqRespInfo {
-                req_resp: RequestOrResponseOrOther::ResponseBytes(date, seq, bytes),
-                ..
-            } => {
-                stream.stream_globals.tcp_leftover_payload = Some(
-                    if let Some(mut payload_sofar) =
-                        stream.stream_globals.tcp_leftover_payload.take()
-                    {
-                        payload_sofar.2.extend_from_slice(&bytes);
-                        payload_sofar
-                    } else {
-                        (seq, date, bytes)
-                    },
-                );
-            }
-            ReqRespInfo {
-                req_resp: RequestOrResponseOrOther::Other,
-                ..
-            } => {}
-        };
         Ok(stream.client_server)
     }
 
@@ -336,7 +335,7 @@ impl CustomStreamsStore for HttpStreamsStore {
             .get_mut(&stream_id)
             .ok_or("No data for stream")?;
         let mut globals = std::mem::take(&mut stream.stream_globals);
-        if let Some(req) = globals.cur_request.take() {
+        for req in std::mem::take(&mut globals.cur_requests).into_iter() {
             stream.messages.push(HttpMessageData {
                 http_stream_id: 0,
                 request: Some(req),
@@ -823,18 +822,17 @@ pub struct HttpMessageData {
 }
 
 #[derive(Debug)]
-enum RequestOrResponseOrOther {
+enum RequestOrResponse {
     Request(HttpRequestResponseData),
     Response(HttpRequestResponseData),
     ResponseBytes(NaiveDateTime, TcpSeqNumber, Vec<u8>),
-    Other,
 }
 
-impl RequestOrResponseOrOther {
+impl RequestOrResponse {
     fn data(&self) -> Option<&HttpRequestResponseData> {
         match &self {
-            RequestOrResponseOrOther::Request(r) => Some(r),
-            RequestOrResponseOrOther::Response(r) => Some(r),
+            RequestOrResponse::Request(r) => Some(r),
+            RequestOrResponse::Response(r) => Some(r),
             _ => None,
         }
     }
@@ -842,7 +840,7 @@ impl RequestOrResponseOrOther {
 
 #[derive(Debug)]
 struct ReqRespInfo {
-    req_resp: RequestOrResponseOrOther,
+    req_resp: RequestOrResponse,
     ip_src: IpAddr,
     port_dst: NetworkPort,
     ip_dst: IpAddr,
@@ -862,73 +860,83 @@ fn parse_body(body: Option<Vec<u8>>, _headers: &[(String, String)]) -> HttpBody 
 fn parse_request_response(
     comm: TSharkPacket,
     server_ip_port_if_known: Option<(IpAddr, NetworkPort)>,
-) -> ReqRespInfo {
-    let http = comm.http;
-    let http_headers = http.as_ref().map(|h| parse_headers(&h.other_lines));
+) -> Vec<ReqRespInfo> {
+    let mut reqresp = vec![];
     let ip_src = comm.basic_info.ip_src;
     let ip_dst = comm.basic_info.ip_dst;
     let port_src = comm.basic_info.port_src;
     let port_dst = comm.basic_info.port_dst;
-    let http_type =
-        http.as_ref()
-            .and_then(|h| h.http_type)
-            .or_else(|| match server_ip_port_if_known {
-                Some(srv_ip_port) if srv_ip_port == (ip_dst, port_dst) => Some(HttpType::Request),
-                Some(srv_ip_port) if srv_ip_port == (ip_src, port_src) => Some(HttpType::Response),
-                _ => None,
-            });
-    match (http_type, http, http_headers, comm.tcp_payload) {
-        (Some(HttpType::Request), Some(h), Some(headers), _) => ReqRespInfo {
-            req_resp: RequestOrResponseOrOther::Request(HttpRequestResponseData {
-                tcp_stream_no: comm.basic_info.tcp_stream_id,
-                tcp_seq_number: comm.basic_info.tcp_seq_number,
-                timestamp: comm.basic_info.frame_time,
-                body: parse_body(h.body, &headers),
-                first_line: h.first_line,
-                headers,
-                content_type: h.content_type,
-                content_encoding: ContentEncoding::Plain, // not sure whether maybe tshark decodes before us...
-            }),
-            port_dst: comm.basic_info.port_dst,
-            ip_dst,
-            ip_src,
-            host: h.http_host,
-        },
-        (Some(HttpType::Response), Some(h), Some(headers), _) => ReqRespInfo {
-            req_resp: RequestOrResponseOrOther::Response(HttpRequestResponseData {
-                tcp_stream_no: comm.basic_info.tcp_stream_id,
-                tcp_seq_number: comm.basic_info.tcp_seq_number,
-                timestamp: comm.basic_info.frame_time,
-                body: parse_body(h.body, &headers),
-                first_line: h.first_line,
-                headers,
-                content_type: h.content_type,
-                content_encoding: ContentEncoding::Plain, // not sure whether maybe tshark decodes before us...
-            }),
-            port_dst: comm.basic_info.port_src,
-            ip_dst: ip_src,
-            ip_src: ip_dst,
-            host: h.http_host,
-        },
-        (Some(HttpType::Response), None, None, Some(payload)) => ReqRespInfo {
-            req_resp: RequestOrResponseOrOther::ResponseBytes(
-                comm.basic_info.frame_time,
-                comm.basic_info.tcp_seq_number,
-                payload,
-            ),
-            port_dst: comm.basic_info.port_dst,
-            ip_dst,
-            ip_src,
-            host: None,
-        },
-        _ => ReqRespInfo {
-            req_resp: RequestOrResponseOrOther::Other,
-            port_dst: comm.basic_info.port_dst,
-            ip_dst,
-            ip_src,
-            host: None,
-        },
+    let ip_port_req_resp_guess = match server_ip_port_if_known {
+        Some(srv_ip_port) if srv_ip_port == (ip_dst, port_dst) => Some(HttpType::Request),
+        Some(srv_ip_port) if srv_ip_port == (ip_src, port_src) => Some(HttpType::Response),
+        _ => None,
+    };
+    match comm.http {
+        Some(http_list) => {
+            for http in http_list.into_iter() {
+                let http_headers = parse_headers(&http.other_lines);
+                let http_type = http.http_type.or(ip_port_req_resp_guess);
+                match http_type {
+                    Some(HttpType::Request) => reqresp.push(ReqRespInfo {
+                        req_resp: RequestOrResponse::Request(HttpRequestResponseData {
+                            tcp_stream_no: comm.basic_info.tcp_stream_id,
+                            tcp_seq_number: comm.basic_info.tcp_seq_number,
+                            timestamp: comm.basic_info.frame_time,
+                            body: parse_body(http.body, &http_headers),
+                            first_line: http.first_line,
+                            headers: http_headers,
+                            content_type: http.content_type,
+                            content_encoding: ContentEncoding::Plain, // not sure whether maybe tshark decodes before us...
+                        }),
+                        port_dst: comm.basic_info.port_dst,
+                        ip_dst,
+                        ip_src,
+                        host: http.http_host,
+                    }),
+                    Some(HttpType::Response) => reqresp.push(ReqRespInfo {
+                        req_resp: RequestOrResponse::Response(HttpRequestResponseData {
+                            tcp_stream_no: comm.basic_info.tcp_stream_id,
+                            tcp_seq_number: comm.basic_info.tcp_seq_number,
+                            timestamp: comm.basic_info.frame_time,
+                            body: parse_body(http.body, &http_headers),
+                            first_line: http.first_line,
+                            headers: http_headers,
+                            content_type: http.content_type,
+                            content_encoding: ContentEncoding::Plain, // not sure whether maybe tshark decodes before us...
+                        }),
+                        port_dst: comm.basic_info.port_src,
+                        ip_dst: ip_src,
+                        ip_src: ip_dst,
+                        host: http.http_host,
+                    }),
+                    _ => {
+                        // couldn't determine whether request or response, ignore
+                        // I didn't see real-world captures hitting that case
+                        eprintln!("HTTP: couldn't determine whether packet is request or response, ignoring");
+                    }
+                }
+            }
+        }
+        None => {
+            // no http section
+            if let (Some(HttpType::Response), Some(payload)) =
+                (ip_port_req_resp_guess, comm.tcp_payload)
+            {
+                reqresp.push(ReqRespInfo {
+                    req_resp: RequestOrResponse::ResponseBytes(
+                        comm.basic_info.frame_time,
+                        comm.basic_info.tcp_seq_number,
+                        payload,
+                    ),
+                    port_dst: comm.basic_info.port_dst,
+                    ip_dst,
+                    ip_src,
+                    host: None,
+                });
+            }
+        }
     }
+    reqresp
 }
 
 #[cfg(test)]
@@ -938,6 +946,103 @@ fn tests_parse_stream(
     let mut parser = HttpStreamsStore::default();
     let sid = common_tests_parse_stream(&mut parser, packets)?;
     Ok(parser.streams.get(&sid).unwrap().messages.clone())
+}
+
+#[test]
+fn should_parse_plain_request_response() {
+    let parsed = tests_parse_stream(parse_test_xml_no_wrapper(
+        r#"
+      <pdml>
+        <packet>
+          <proto name="ip">
+              <field name="ip.src" show="10.215.215.9" />
+              <field name="ip.dst" show="10.215.215.9" />
+          </proto>
+          <proto name="tcp">
+            <field name="tcp.srcport" show="53092" />
+            <field name="tcp.dstport" show="80" />
+            <field name="tcp.payload" value="504f5354202f6170692f73617665645f6f626a65" />
+          </proto>
+          <proto name="http">
+            <field name="" show="GET /test"></field>
+            <field name="http.request.line" showname="Host: 192.168.1.1\r\n" hide="yes" size="22" pos="114" show="Host: 192.168.1.1" value="486f73743a203139322e3136382e38382e3230300d0a"/>
+          </proto>
+        </packet>
+
+        <packet>
+          <proto name="ip">
+              <field name="ip.src" show="10.215.215.9" />
+              <field name="ip.dst" show="10.215.215.9" />
+          </proto>
+          <proto name="tcp">
+            <field name="tcp.srcport" show="80" />
+            <field name="tcp.dstport" show="53092" />
+          </proto>
+          <proto name="http" showname="Hypertext Transfer Protocol" size="1572423" pos="0">
+            <field name="" show="HTTP/1.1 200 OK\r\n" size="17" pos="0" value="485454502f312e3120323030204f4b0d0a"></field>
+            <field name="http.response.line" showname="Server: Apache/2.4.29 (Ubuntu)\r\n" hide="yes" size="32" pos="54" show="Server: Apache/2.4.29 (Ubuntu)" value="5365727665723a204170616368652f322e342e323920285562756e7475290d0a"/>
+          </proto>
+        </packet>
+
+        <packet>
+          <proto name="ip">
+              <field name="ip.src" show="10.215.215.9" />
+              <field name="ip.dst" show="10.215.215.9" />
+          </proto>
+          <proto name="tcp">
+            <field name="tcp.srcport" show="53092" />
+            <field name="tcp.dstport" show="80" />
+            <field name="tcp.payload" value="504f5354202f6170692f73617665645f6f626a65" />
+          </proto>
+          <proto name="http">
+            <field name="" show="GET /test2"></field>
+            <field name="http.request.line" showname="Host: 192.168.1.1\r\n" hide="yes" size="22" pos="114" show="Host: 192.168.1.1" value="486f73743a203139322e3136382e38382e3230300d0a"/>
+          </proto>
+        </packet>
+      </pdml>
+        "#,
+    ))
+    .unwrap();
+    let expected = vec![
+        HttpMessageData {
+            http_stream_id: 0,
+            request: Some(HttpRequestResponseData {
+                tcp_stream_no: TcpStreamId(0),
+                tcp_seq_number: TcpSeqNumber(0),
+                timestamp: NaiveDate::from_ymd(1970, 1, 1).and_hms(0, 0, 0),
+                first_line: "GET /test".to_string(),
+                headers: vec![("Host".to_string(), "192.168.1.1".to_string())],
+                body: HttpBody::Missing,
+                content_type: None,
+                content_encoding: ContentEncoding::Plain,
+            }),
+            response: Some(HttpRequestResponseData {
+                tcp_stream_no: TcpStreamId(0),
+                tcp_seq_number: TcpSeqNumber(0),
+                timestamp: NaiveDate::from_ymd(1970, 1, 1).and_hms(0, 0, 0),
+                first_line: "HTTP/1.1 200 OK".to_string(),
+                headers: vec![("Server".to_string(), "Apache/2.4.29 (Ubuntu)".to_string())],
+                body: HttpBody::Missing,
+                content_type: None,
+                content_encoding: ContentEncoding::Plain,
+            }),
+        },
+        HttpMessageData {
+            http_stream_id: 0,
+            request: Some(HttpRequestResponseData {
+                tcp_stream_no: TcpStreamId(0),
+                tcp_seq_number: TcpSeqNumber(0),
+                timestamp: NaiveDate::from_ymd(1970, 1, 1).and_hms(0, 0, 0),
+                first_line: "GET /test2".to_string(),
+                headers: vec![("Host".to_string(), "192.168.1.1".to_string())],
+                body: HttpBody::Missing,
+                content_type: None,
+                content_encoding: ContentEncoding::Plain,
+            }),
+            response: None,
+        },
+    ];
+    assert_eq!(expected, parsed);
 }
 
 // Sometimes wireshark will not recognize the last HTTP message of a stream as HTTP
@@ -1006,5 +1111,114 @@ fn should_add_non_http_tcp_stream_at_end_of_exchange() {
             content_encoding: ContentEncoding::Plain,
         }),
     }];
+    assert_eq!(expected, parsed);
+}
+
+#[test]
+fn should_parse_http11_pipelining() {
+    let parsed = tests_parse_stream(parse_test_xml_no_wrapper(
+        r#"
+      <pdml>
+        <packet>
+          <proto name="ip">
+              <field name="ip.src" show="10.215.215.9" />
+              <field name="ip.dst" show="10.215.215.9" />
+          </proto>
+          <proto name="tcp">
+            <field name="tcp.srcport" show="53092" />
+            <field name="tcp.dstport" show="80" />
+            <field name="tcp.payload" value="504f5354202f6170692f73617665645f6f626a65" />
+          </proto>
+          <proto name="http">
+            <field name="" show="GET /test"></field>
+            <field name="http.request.line" showname="Host: 192.168.1.1\r\n" hide="yes" size="22" pos="114" show="Host: 192.168.1.1" value="486f73743a203139322e3136382e38382e3230300d0a"/>
+          </proto>
+          <proto name="http">
+            <field name="" show="GET /test2"></field>
+            <field name="http.request.line" showname="Host: 192.168.1.1\r\n" hide="yes" size="22" pos="114" show="Host: 192.168.1.1" value="486f73743a203139322e3136382e38382e3230300d0a"/>
+          </proto>
+        </packet>
+
+        <packet>
+          <proto name="ip">
+              <field name="ip.src" show="10.215.215.9" />
+              <field name="ip.dst" show="10.215.215.9" />
+          </proto>
+          <proto name="tcp">
+            <field name="tcp.srcport" show="80" />
+            <field name="tcp.dstport" show="53092" />
+          </proto>
+          <proto name="http" showname="Hypertext Transfer Protocol" size="1572423" pos="0">
+            <field name="" show="HTTP/1.1 200 OK\r\n" size="17" pos="0" value="485454502f312e3120323030204f4b0d0a"></field>
+            <field name="http.response.line" showname="Server: Apache/2.4.29 (Ubuntu)\r\n" hide="yes" size="32" pos="54" show="Server: Apache/2.4.29 (Ubuntu)" value="5365727665723a204170616368652f322e342e323920285562756e7475290d0a"/>
+          </proto>
+        </packet>
+
+        <packet>
+          <proto name="ip">
+              <field name="ip.src" show="10.215.215.9" />
+              <field name="ip.dst" show="10.215.215.9" />
+          </proto>
+          <proto name="tcp">
+            <field name="tcp.srcport" show="80" />
+            <field name="tcp.dstport" show="53092" />
+          </proto>
+          <proto name="http" showname="Hypertext Transfer Protocol" size="1572423" pos="0">
+            <field name="" show="HTTP/1.1 201 OK\r\n" size="17" pos="0" value="485454502f312e3120323030204f4b0d0a"></field>
+            <field name="http.response.line" showname="Server: Apache/2.4.29 (Ubuntu)\r\n" hide="yes" size="32" pos="54" show="Server: Apache/2.4.29 (Ubuntu)" value="5365727665723a204170616368652f322e342e323920285562756e7475290d0a"/>
+          </proto>
+        </packet>
+      </pdml>
+        "#,
+    ))
+    .unwrap();
+    let expected = vec![
+        HttpMessageData {
+            http_stream_id: 0,
+            request: Some(HttpRequestResponseData {
+                tcp_stream_no: TcpStreamId(0),
+                tcp_seq_number: TcpSeqNumber(0),
+                timestamp: NaiveDate::from_ymd(1970, 1, 1).and_hms(0, 0, 0),
+                first_line: "GET /test".to_string(),
+                headers: vec![("Host".to_string(), "192.168.1.1".to_string())],
+                body: HttpBody::Missing,
+                content_type: None,
+                content_encoding: ContentEncoding::Plain,
+            }),
+            response: Some(HttpRequestResponseData {
+                tcp_stream_no: TcpStreamId(0),
+                tcp_seq_number: TcpSeqNumber(0),
+                timestamp: NaiveDate::from_ymd(1970, 1, 1).and_hms(0, 0, 0),
+                first_line: "HTTP/1.1 200 OK".to_string(),
+                headers: vec![("Server".to_string(), "Apache/2.4.29 (Ubuntu)".to_string())],
+                body: HttpBody::Missing,
+                content_type: None,
+                content_encoding: ContentEncoding::Plain,
+            }),
+        },
+        HttpMessageData {
+            http_stream_id: 0,
+            request: Some(HttpRequestResponseData {
+                tcp_stream_no: TcpStreamId(0),
+                tcp_seq_number: TcpSeqNumber(0),
+                timestamp: NaiveDate::from_ymd(1970, 1, 1).and_hms(0, 0, 0),
+                first_line: "GET /test2".to_string(),
+                headers: vec![("Host".to_string(), "192.168.1.1".to_string())],
+                body: HttpBody::Missing,
+                content_type: None,
+                content_encoding: ContentEncoding::Plain,
+            }),
+            response: Some(HttpRequestResponseData {
+                tcp_stream_no: TcpStreamId(0),
+                tcp_seq_number: TcpSeqNumber(0),
+                timestamp: NaiveDate::from_ymd(1970, 1, 1).and_hms(0, 0, 0),
+                first_line: "HTTP/1.1 201 OK".to_string(),
+                headers: vec![("Server".to_string(), "Apache/2.4.29 (Ubuntu)".to_string())],
+                body: HttpBody::Missing,
+                content_type: None,
+                content_encoding: ContentEncoding::Plain,
+            }),
+        },
+    ];
     assert_eq!(expected, parsed);
 }

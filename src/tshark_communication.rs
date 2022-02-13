@@ -91,7 +91,7 @@ pub struct TSharkPacketBasicInfo {
 #[derive(Debug)]
 pub struct TSharkPacket {
     pub basic_info: TSharkPacketBasicInfo,
-    pub http: Option<tshark_http::TSharkHttp>,
+    pub http: Option<Vec<tshark_http::TSharkHttp>>,
     pub http2: Option<Vec<tshark_http2::TSharkHttp2Message>>,
     pub pgsql: Option<Vec<tshark_pgsql::PostgresWireMessage>>,
     pub tcp_payload: Option<Vec<u8>>,
@@ -110,7 +110,7 @@ pub fn parse_packet<B: BufRead>(
     let mut tcp_stream_id = TcpStreamId(0);
     let mut port_src = NetworkPort(0);
     let mut port_dst = NetworkPort(0);
-    let mut http = None;
+    let mut http = None::<Vec<tshark_http::TSharkHttp>>;
     let mut http2 = None::<Vec<tshark_http2::TSharkHttp2Message>>;
     let mut pgsql = None::<Vec<tshark_pgsql::PostgresWireMessage>>;
     let mut is_malformed = false;
@@ -141,10 +141,13 @@ pub fn parse_packet<B: BufRead>(
                         port_dst = tcp_info.3;
                     }
                     Some(b"http") => {
-                        if http.is_some() {
-                            return Err(format!("Unexpected http at position {}", xml_reader.buffer_position()));
+                        let http_packet = tshark_http::parse_http_info(xml_reader)?;
+                        if let Some(mut sofar) = http {
+                            sofar.push(http_packet);
+                            http = Some(sofar);
+                        } else {
+                            http = Some(vec![http_packet]);
                         }
-                        http = Some(tshark_http::parse_http_info(xml_reader)?);
                     }
                     Some(b"http2") => {
                         let mut http2_packets = tshark_http2::parse_http2_info(xml_reader)?;
@@ -438,13 +441,17 @@ pub fn parse_test_xml_no_wrapper(xml: &str) -> Result<Vec<TSharkPacket>, String>
         match xml_reader.read_event(&mut buf) {
             Ok(Event::Start(ref e)) => {
                 if e.name() == b"packet" {
-                    if let Ok(packet) =
-                        parse_packet(&mut xml_reader, &http1_streams, &mut temp_tcp_payload)
-                    {
-                        if packet.http.is_some() {
-                            http1_streams.insert(packet.basic_info.tcp_stream_id);
+                    match parse_packet(&mut xml_reader, &http1_streams, &mut temp_tcp_payload) {
+                        Ok(packet) => {
+                            if packet.http.is_some() {
+                                http1_streams.insert(packet.basic_info.tcp_stream_id);
+                            }
+                            res.push(packet);
                         }
-                        res.push(packet);
+                        Err(e) => {
+                            dbg!(e);
+                            panic!();
+                        }
                     }
                 }
             }
