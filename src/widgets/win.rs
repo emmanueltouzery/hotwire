@@ -198,7 +198,7 @@ impl Widget for Win {
             .selection()
             .set_mode(gtk::SelectionMode::Multiple);
 
-        let infobar_box = gtk::BoxBuilder::new().spacing(15).build();
+        let infobar_box = gtk::builders::BoxBuilder::new().spacing(15).build();
         infobar_box.add(&self.model.infobar_spinner);
         infobar_box.add(&self.model.infobar_label);
         infobar_box.show_all();
@@ -226,7 +226,7 @@ impl Widget for Win {
         self.widgets
             .recent_files_list
             .set_header_func(Some(Box::new(|row, _h| {
-                row.set_header(Some(&gtk::SeparatorBuilder::new().build()));
+                row.set_header(Some(&gtk::builders::SeparatorBuilder::new().build()));
             })));
 
         self.refresh_recent_files();
@@ -355,13 +355,13 @@ impl Widget for Win {
             relm: relm.clone(),
             bg_sender,
             recent_searches,
-            infobar_spinner: gtk::SpinnerBuilder::new()
+            infobar_spinner: gtk::builders::SpinnerBuilder::new()
                 .width_request(24)
                 .height_request(24)
                 .build(),
             prefs_win: None,
             search_toggle_signal: None,
-            infobar_label: gtk::LabelBuilder::new().build(),
+            infobar_label: gtk::builders::LabelBuilder::new().build(),
             comm_targets_components: HashMap::new(),
             set_sidebar_height: false,
             _recent_file_item_components: vec![],
@@ -610,7 +610,7 @@ impl Widget for Win {
         let wait_cursor =
             gdk::Cursor::for_display(&self.widgets.window.display(), gdk::CursorType::Watch);
         if let Some(p) = self.widgets.root_stack.parent_window() {
-            p.set_cursor(Some(&wait_cursor));
+            p.set_cursor(wait_cursor.as_ref());
         }
         self.widgets.comm_target_list.set_sensitive(false);
         self.widgets
@@ -1050,7 +1050,7 @@ impl Widget for Win {
             .ok()
             .and_then(|o| String::from_utf8(o.stdout).ok())
             .unwrap_or_else(|| "No tcpdump installed".to_string());
-        let dlg = gtk::AboutDialogBuilder::new()
+        let dlg = gtk::builders::AboutDialogBuilder::new()
             .name("Hotwire")
             .version(env!("CARGO_PKG_VERSION"))
             .logo_icon_name(Icon::APP_ICON.name())
@@ -1169,7 +1169,7 @@ impl Widget for Win {
     }
 
     fn handle_save_capture(&mut self) {
-        let dialog = gtk::FileChooserNativeBuilder::new()
+        let dialog = gtk::builders::FileChooserNativeBuilder::new()
             .action(gtk::FileChooserAction::Save)
             .title("Select file")
             .modal(true)
@@ -1192,7 +1192,7 @@ impl Widget for Win {
     }
 
     fn open_file(&mut self) {
-        let dialog = gtk::FileChooserNativeBuilder::new()
+        let dialog = gtk::builders::FileChooserNativeBuilder::new()
             .action(gtk::FileChooserAction::Open)
             .title("Select file")
             .modal(true)

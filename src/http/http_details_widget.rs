@@ -45,7 +45,7 @@ impl Widget for HttpCommEntry {
         overlay: &gtk::Overlay,
         format_contents_btn: &gtk::CheckButton,
     ) -> gtk::Popover {
-        let popover_box = gtk::BoxBuilder::new()
+        let popover_box = gtk::builders::BoxBuilder::new()
             .orientation(gtk::Orientation::Vertical)
             .margin(10)
             .spacing(10)
@@ -58,7 +58,9 @@ impl Widget for HttpCommEntry {
             Msg::RemoveFormatToggled
         );
         popover_box.add(format_contents_btn);
-        let copy_to_clipboard_lbl = gtk::ButtonBuilder::new().label("Copy to clipboard").build();
+        let copy_to_clipboard_lbl = gtk::builders::ButtonBuilder::new()
+            .label("Copy to clipboard")
+            .build();
         popover_box.add(&copy_to_clipboard_lbl);
         popover_box.show_all();
 
@@ -69,9 +71,11 @@ impl Widget for HttpCommEntry {
             Msg::CopyContentsClick
         );
 
-        let options_popover = gtk::PopoverBuilder::new().child(&popover_box).build();
+        let options_popover = gtk::builders::PopoverBuilder::new()
+            .child(&popover_box)
+            .build();
 
-        let options_btn = gtk::MenuButtonBuilder::new()
+        let options_btn = gtk::builders::MenuButtonBuilder::new()
             .always_show_image(true)
             .image(&gtk::Image::from_icon_name(
                 Some(Icon::COG.name()),
@@ -100,7 +104,7 @@ impl Widget for HttpCommEntry {
         ),
     ) -> Model {
         let (win_msg_sender, stream_id, client_ip, data, overlay, bg_sender) = params;
-        let format_contents_btn = gtk::CheckButtonBuilder::new()
+        let format_contents_btn = gtk::builders::CheckButtonBuilder::new()
             .active(true)
             .label("Format contents")
             .build();

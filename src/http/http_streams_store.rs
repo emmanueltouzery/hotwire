@@ -545,65 +545,65 @@ pub fn http_requests_details_overlay() -> bool {
 }
 
 pub fn http_prepare_treeview(tv: &gtk::TreeView) {
-    let streamcolor_col = gtk::TreeViewColumnBuilder::new()
+    let streamcolor_col = gtk::builders::TreeViewColumnBuilder::new()
         .title("S")
         .fixed_width(10)
         .sort_column_id(2)
         .build();
-    let cell_s_txt = gtk::CellRendererTextBuilder::new().build();
+    let cell_s_txt = gtk::builders::CellRendererTextBuilder::new().build();
     streamcolor_col.pack_start(&cell_s_txt, true);
     streamcolor_col.add_attribute(&cell_s_txt, "background", 11);
     tv.append_column(&streamcolor_col);
 
-    let timestamp_col = gtk::TreeViewColumnBuilder::new()
+    let timestamp_col = gtk::builders::TreeViewColumnBuilder::new()
         .title("Timestamp")
         .resizable(true)
         .sort_column_id(5)
         .build();
-    let cell_t_txt = gtk::CellRendererTextBuilder::new().build();
+    let cell_t_txt = gtk::builders::CellRendererTextBuilder::new().build();
     timestamp_col.pack_start(&cell_t_txt, true);
     timestamp_col.add_attribute(&cell_t_txt, "text", 4);
     tv.append_column(&timestamp_col);
 
-    let request_col = gtk::TreeViewColumnBuilder::new()
+    let request_col = gtk::builders::TreeViewColumnBuilder::new()
         .title("Request")
         .expand(true)
         .resizable(true)
         .build();
-    let cell_r_txt = gtk::CellRendererTextBuilder::new()
+    let cell_r_txt = gtk::builders::CellRendererTextBuilder::new()
         .ellipsize(pango::EllipsizeMode::End)
         .build();
     request_col.pack_start(&cell_r_txt, true);
     request_col.add_attribute(&cell_r_txt, "text", 0);
     tv.append_column(&request_col);
 
-    let response_col = gtk::TreeViewColumnBuilder::new()
+    let response_col = gtk::builders::TreeViewColumnBuilder::new()
         .title("Response")
         .resizable(true)
         .sort_column_id(1) // sort by string.. i could add an integer col with the resp code...
         .build();
-    let cell_resp_txt = gtk::CellRendererTextBuilder::new().build();
+    let cell_resp_txt = gtk::builders::CellRendererTextBuilder::new().build();
     response_col.pack_start(&cell_resp_txt, true);
     response_col.add_attribute(&cell_resp_txt, "text", 1);
     response_col.add_attribute(&cell_resp_txt, "foreground", 12);
     tv.append_column(&response_col);
 
-    let duration_col = gtk::TreeViewColumnBuilder::new()
+    let duration_col = gtk::builders::TreeViewColumnBuilder::new()
         .title("Duration")
         .resizable(true)
         .sort_column_id(6)
         .build();
-    let cell_d_txt = gtk::CellRendererTextBuilder::new().build();
+    let cell_d_txt = gtk::builders::CellRendererTextBuilder::new().build();
     duration_col.pack_start(&cell_d_txt, true);
     duration_col.add_attribute(&cell_d_txt, "text", 7);
     tv.append_column(&duration_col);
 
-    let response_ct_col = gtk::TreeViewColumnBuilder::new()
+    let response_ct_col = gtk::builders::TreeViewColumnBuilder::new()
         .title("Resp Content type")
         .resizable(true)
         .sort_column_id(9)
         .build();
-    let cell_resp_ct_txt = gtk::CellRendererTextBuilder::new().build();
+    let cell_resp_ct_txt = gtk::builders::CellRendererTextBuilder::new().build();
     response_ct_col.pack_start(&cell_resp_ct_txt, true);
     response_ct_col.add_attribute(&cell_resp_ct_txt, "text", 9);
     tv.append_column(&response_ct_col);

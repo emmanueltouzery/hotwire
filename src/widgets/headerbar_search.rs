@@ -84,7 +84,7 @@ impl Widget for HeaderbarSearch {
         relm::connect!(so@SearchOptionsMsg::ClearSearchTextClick, self.model.relm, Msg::ClearSearchTextClick);
         self.model.search_options = Some(so);
 
-        let search_options_popover = gtk::PopoverBuilder::new()
+        let search_options_popover = gtk::builders::PopoverBuilder::new()
             .child(self.model.search_options.as_ref().unwrap().widget())
             .build();
         self.model
@@ -108,10 +108,10 @@ impl Widget for HeaderbarSearch {
             connect_row_activated(_, row),
             Msg::ActivateRecentSearch(row.index())
         );
-        let popover_box = gtk::BoxBuilder::new()
+        let popover_box = gtk::builders::BoxBuilder::new()
             .orientation(gtk::Orientation::Vertical)
             .child(
-                &gtk::LabelBuilder::new()
+                &gtk::builders::LabelBuilder::new()
                     .label("Recent searches")
                     .name("popover_title")
                     .build(),
@@ -119,7 +119,9 @@ impl Widget for HeaderbarSearch {
             .build();
         popover_box.add(&self.model.recent_searches_box);
         popover_box.show_all();
-        let recent_searches_popover = gtk::PopoverBuilder::new().child(&popover_box).build();
+        let recent_searches_popover = gtk::builders::PopoverBuilder::new()
+            .child(&popover_box)
+            .build();
         self.widgets
             .recent_searches_btn
             .set_popover(Some(&recent_searches_popover));
@@ -133,7 +135,7 @@ impl Widget for HeaderbarSearch {
         }
         for entry in &self.model.recent_searches {
             self.model.recent_searches_box.add(
-                &gtk::LabelBuilder::new()
+                &gtk::builders::LabelBuilder::new()
                     .label(entry)
                     .margin(7)
                     .width_request(200)
@@ -148,23 +150,23 @@ impl Widget for HeaderbarSearch {
 
     fn model(relm: &relm::Relm<Self>, params: (mpsc::Sender<BgFunc>, Vec<String>)) -> Model {
         let (bg_sender, recent_searches) = params;
-        let cell_area = gtk::CellAreaBoxBuilder::new().build();
-        let text_cell_type = gtk::CellRendererTextBuilder::new()
+        let cell_area = gtk::builders::CellAreaBoxBuilder::new().build();
+        let text_cell_type = gtk::builders::CellRendererTextBuilder::new()
             // from the gnome color palette https://developer.gnome.org/hig/reference/palette.html?highlight=color
             .background("#f8e45c")
             .style(pango::Style::Italic)
             .build();
-        let text_cell_main = gtk::CellRendererTextBuilder::new().build();
+        let text_cell_main = gtk::builders::CellRendererTextBuilder::new().build();
         CellAreaBoxExt::pack_start(&cell_area, &text_cell_type, false, true, true);
         CellAreaBoxExt::pack_start(&cell_area, &text_cell_main, true, true, true);
-        let search_completion = gtk::EntryCompletionBuilder::new()
+        let search_completion = gtk::builders::EntryCompletionBuilder::new()
             .cell_area(&cell_area)
             .text_column(0)
             .build();
         search_completion.add_attribute(&text_cell_type, "text", 2);
         search_completion.add_attribute(&text_cell_main, "text", 0);
 
-        let recent_searches_box = gtk::ListBoxBuilder::new()
+        let recent_searches_box = gtk::builders::ListBoxBuilder::new()
             .activate_on_single_click(true)
             .build();
         Model {

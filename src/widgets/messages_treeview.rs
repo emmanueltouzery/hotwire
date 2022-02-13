@@ -78,7 +78,7 @@ fn add_streams_store_grid_and_pane<'a, 'b>(
     streams_store: &'b mut Box<dyn CustomStreamsStore>,
     mp_idx: usize,
 ) -> ((gtk::TreeView, TreeViewSignals), gtk::Adjustment) {
-    let tv = gtk::TreeViewBuilder::new()
+    let tv = gtk::builders::TreeViewBuilder::new()
         .activate_on_single_click(true)
         .build();
     streams_store.prepare_treeview(&tv);
@@ -127,20 +127,22 @@ fn add_streams_store_grid_and_pane<'a, 'b>(
     // });
     // tv.block_signal(&row_activation_signal_id);
 
-    let scroll = gtk::ScrolledWindowBuilder::new()
+    let scroll = gtk::builders::ScrolledWindowBuilder::new()
         .expand(true)
         .child(&tv)
         .build();
-    let paned = gtk::PanedBuilder::new()
+    let paned = gtk::builders::PanedBuilder::new()
         .orientation(gtk::Orientation::Vertical)
         .build();
     paned.pack1(&scroll, true, true);
 
-    let scroll2 = gtk::ScrolledWindowBuilder::new().margin_start(3).build();
+    let scroll2 = gtk::builders::ScrolledWindowBuilder::new()
+        .margin_start(3)
+        .build();
     scroll2.set_height_request(200);
 
     let (child, overlay) = if streams_store.requests_details_overlay() {
-        let overlay = gtk::OverlayBuilder::new().child(&scroll2).build();
+        let overlay = gtk::builders::OverlayBuilder::new().child(&scroll2).build();
         (
             overlay.clone().dynamic_cast::<gtk::Widget>().unwrap(),
             Some(overlay),

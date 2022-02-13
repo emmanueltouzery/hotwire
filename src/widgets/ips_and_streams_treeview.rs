@@ -31,11 +31,11 @@ impl IpsAndStreamsTreeviewState {
 pub fn init_remote_ip_streams_tv(
     remote_ips_streams_treeview: &gtk::TreeView,
 ) -> IpsAndStreamsTreeviewState {
-    let remote_ip_col = gtk::TreeViewColumnBuilder::new()
+    let remote_ip_col = gtk::builders::TreeViewColumnBuilder::new()
         .title("Incoming conns")
         .expand(true)
         .build();
-    let cell_r_txt = gtk::CellRendererTextBuilder::new()
+    let cell_r_txt = gtk::builders::CellRendererTextBuilder::new()
         .weight(1)
         .weight_set(true)
         .build();
@@ -44,8 +44,10 @@ pub fn init_remote_ip_streams_tv(
     remote_ip_col.add_attribute(&cell_r_txt, "weight", 1);
     remote_ips_streams_treeview.append_column(&remote_ip_col);
 
-    let message_count_col = gtk::TreeViewColumnBuilder::new().title("# msg").build();
-    let cell_r2_txt = gtk::CellRendererTextBuilder::new().build();
+    let message_count_col = gtk::builders::TreeViewColumnBuilder::new()
+        .title("# msg")
+        .build();
+    let cell_r2_txt = gtk::builders::CellRendererTextBuilder::new().build();
     message_count_col.pack_start(&cell_r2_txt, true);
     message_count_col.add_attribute(&cell_r2_txt, "text", 3);
     remote_ips_streams_treeview.append_column(&message_count_col);

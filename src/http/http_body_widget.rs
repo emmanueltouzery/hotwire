@@ -52,7 +52,7 @@ pub struct Model {
 impl Widget for HttpBodyWidget {
     fn init_view(&mut self) {
         self.widgets.too_long_infobar.content_area().add(
-            &gtk::LabelBuilder::new()
+            &gtk::builders::LabelBuilder::new()
                 .label("The message body is too large, has been truncated for display")
                 .build(),
         );
@@ -136,7 +136,7 @@ impl Widget for HttpBodyWidget {
                 }
             }
             Msg::SaveContents => {
-                let dialog = gtk::FileChooserNativeBuilder::new()
+                let dialog = gtk::builders::FileChooserNativeBuilder::new()
                     .action(gtk::FileChooserAction::Save)
                     .title("Export to...")
                     .do_overwrite_confirmation(true)

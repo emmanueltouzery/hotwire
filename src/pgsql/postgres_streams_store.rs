@@ -358,65 +358,65 @@ impl CustomStreamsStore for PostgresStreamsStore {
     }
 
     fn prepare_treeview(&self, tv: &gtk::TreeView) {
-        let streamcolor_col = gtk::TreeViewColumnBuilder::new()
+        let streamcolor_col = gtk::builders::TreeViewColumnBuilder::new()
             .title("S")
             .fixed_width(10)
             .sort_column_id(2)
             .build();
-        let cell_s_txt = gtk::CellRendererTextBuilder::new().build();
+        let cell_s_txt = gtk::builders::CellRendererTextBuilder::new().build();
         streamcolor_col.pack_start(&cell_s_txt, true);
         streamcolor_col.add_attribute(&cell_s_txt, "background", 10);
         tv.append_column(&streamcolor_col);
 
-        let queryt_col = gtk::TreeViewColumnBuilder::new()
+        let queryt_col = gtk::builders::TreeViewColumnBuilder::new()
             .title("Type")
             .fixed_width(24)
             .sort_column_id(9)
             .build();
-        let cell_qt_txt = gtk::CellRendererPixbufBuilder::new().build();
+        let cell_qt_txt = gtk::builders::CellRendererPixbufBuilder::new().build();
         queryt_col.pack_start(&cell_qt_txt, true);
         queryt_col.add_attribute(&cell_qt_txt, "icon-name", 9);
         tv.append_column(&queryt_col);
 
-        let timestamp_col = gtk::TreeViewColumnBuilder::new()
+        let timestamp_col = gtk::builders::TreeViewColumnBuilder::new()
             .title("Timestamp")
             .resizable(true)
             .sort_column_id(5)
             .build();
-        let cell_t_txt = gtk::CellRendererTextBuilder::new().build();
+        let cell_t_txt = gtk::builders::CellRendererTextBuilder::new().build();
         timestamp_col.pack_start(&cell_t_txt, true);
         timestamp_col.add_attribute(&cell_t_txt, "text", 4);
         tv.append_column(&timestamp_col);
 
-        let query_col = gtk::TreeViewColumnBuilder::new()
+        let query_col = gtk::builders::TreeViewColumnBuilder::new()
             .title("Query")
             .expand(true)
             .resizable(true)
             .sort_column_id(0)
             .build();
-        let cell_q_txt = gtk::CellRendererTextBuilder::new()
+        let cell_q_txt = gtk::builders::CellRendererTextBuilder::new()
             .ellipsize(pango::EllipsizeMode::End)
             .build();
         query_col.pack_start(&cell_q_txt, true);
         query_col.add_attribute(&cell_q_txt, "text", 0);
         tv.append_column(&query_col);
 
-        let result_col = gtk::TreeViewColumnBuilder::new()
+        let result_col = gtk::builders::TreeViewColumnBuilder::new()
             .title("Result")
             .resizable(true)
             .sort_column_id(8)
             .build();
-        let cell_r_txt = gtk::CellRendererTextBuilder::new().build();
+        let cell_r_txt = gtk::builders::CellRendererTextBuilder::new().build();
         result_col.pack_start(&cell_r_txt, true);
         result_col.add_attribute(&cell_r_txt, "text", 1);
         tv.append_column(&result_col);
 
-        let duration_col = gtk::TreeViewColumnBuilder::new()
+        let duration_col = gtk::builders::TreeViewColumnBuilder::new()
             .title("Duration")
             .resizable(true)
             .sort_column_id(6)
             .build();
-        let cell_d_txt = gtk::CellRendererTextBuilder::new().build();
+        let cell_d_txt = gtk::builders::CellRendererTextBuilder::new().build();
         duration_col.pack_start(&cell_d_txt, true);
         duration_col.add_attribute(&cell_d_txt, "text", 7);
         tv.append_column(&duration_col);
