@@ -1,4 +1,4 @@
-use crate::search_expr::{OperatorNegation, SearchOperator};
+use crate::search_expr::{self, OperatorNegation, SearchCriteria};
 use gtk::prelude::*;
 use relm::Widget;
 use relm_derive::{widget, Msg};
@@ -16,8 +16,12 @@ pub enum CombineOperator {
 #[derive(Msg)]
 pub enum Msg {
     ParentSet(gtk::Popover),
-    FilterKeysUpdated(BTreeSet<&'static str>),
+    FilterKeysUpdated {
+        string_keys: BTreeSet<&'static str>,
+        numeric_keys: BTreeSet<&'static str>,
+    },
     SearchEntryKeyPress(gdk::EventKey),
+    SearchTextChanged,
     AddClick,
     AddAndCloseClick,
     ClearSearchTextClick,
@@ -25,19 +29,21 @@ pub enum Msg {
         (
             Option<CombineOperator>,
             &'static str,
-            SearchOperator,
+            SearchCriteria,
             OperatorNegation,
-            String,
         ),
     ),
     DisableOptions,
     EnableOptionsWithAndOr,
     EnableOptionsWithoutAndOr,
+    FilterKeyChanged,
 }
 
 pub struct Model {
     relm: relm::Relm<SearchOptions>,
     filter_keys: BTreeSet<&'static str>,
+    string_filter_keys: BTreeSet<&'static str>,
+    numeric_filter_keys: BTreeSet<&'static str>,
 }
 
 #[widget]
@@ -55,10 +61,12 @@ impl Widget for SearchOptions {
         self.widgets.search_op_combo.set_active(Some(0));
     }
 
-    fn model(relm: &relm::Relm<Self>, filter_keys: BTreeSet<&'static str>) -> Model {
+    fn model(relm: &relm::Relm<Self>, _: ()) -> Model {
         Model {
             relm: relm.clone(),
-            filter_keys,
+            filter_keys: BTreeSet::new(),
+            string_filter_keys: BTreeSet::new(),
+            numeric_filter_keys: BTreeSet::new(),
         }
     }
 
@@ -68,8 +76,13 @@ impl Widget for SearchOptions {
                 self.widgets.add_and_close_btn.set_can_default(true);
                 popover.set_default_widget(Some(&self.widgets.add_and_close_btn));
             }
-            Msg::FilterKeysUpdated(keys) => {
-                self.model.filter_keys = keys;
+            Msg::FilterKeysUpdated {
+                string_keys,
+                numeric_keys,
+            } => {
+                self.model.filter_keys = string_keys.union(&numeric_keys).cloned().collect();
+                self.model.string_filter_keys = string_keys;
+                self.model.numeric_filter_keys = numeric_keys;
                 self.widgets.filter_key_combo.remove_all();
                 for k in self.model.filter_keys.iter() {
                     self.widgets.filter_key_combo.append_text(k);
@@ -83,6 +96,25 @@ impl Widget for SearchOptions {
                 {
                     self.model.relm.stream().emit(Msg::AddClick);
                 }
+            }
+            Msg::SearchTextChanged => {
+                // for string searches, we don't care about the format
+                // of the string, the value is always valid. for numeric searches
+                // however, validate the format of the search value
+                let numeric_filter_key = self
+                    .widgets
+                    .filter_key_combo
+                    .active_text()
+                    .as_ref()
+                    .and_then(|fk| self.model.numeric_filter_keys.get(fk.as_str()));
+                let allow_add = if numeric_filter_key.is_some() {
+                    let search_txt = self.widgets.search_entry.text().to_string();
+                    Self::try_parse_filter_val_number(&search_txt).is_some()
+                } else {
+                    true
+                };
+                self.widgets.add_btn.set_sensitive(allow_add);
+                self.widgets.add_and_close_btn.set_sensitive(allow_add);
             }
             Msg::DisableOptions => {
                 self.widgets
@@ -106,6 +138,32 @@ impl Widget for SearchOptions {
             }
             Msg::AddAndCloseClick => {
                 self.add_clicked();
+            }
+            Msg::FilterKeyChanged => {
+                let filter_key = self
+                    .widgets
+                    .filter_key_combo
+                    .active_text()
+                    .as_ref()
+                    .map(|s| s.to_string());
+                self.widgets.search_op_combo.remove_all();
+                if let Some(key_str) = filter_key.as_deref() {
+                    if self.model.string_filter_keys.contains(key_str) {
+                        self.widgets.search_op_combo.append_text("contains");
+                        self.widgets.search_op_combo.append_text("doesntContain");
+                    } else {
+                        self.widgets.search_op_combo.append_text(">");
+                        self.widgets.search_op_combo.append_text("<");
+                    }
+                }
+                self.widgets.search_op_combo.set_active(Some(0));
+
+                // force refresh of the "add" and "add and close" buttons
+                // being grayed out or not. Let's say the user put "hello"
+                // in the text entry. The buttons should be grayed out if
+                // the filter is for a numeric, but not grayed out if it's
+                // for a string.
+                self.model.relm.stream().emit(Msg::SearchTextChanged);
             }
             // meant for my parent
             Msg::Add(_) => {}
@@ -132,25 +190,42 @@ impl Widget for SearchOptions {
             .as_ref()
             .and_then(|fk| self.model.filter_keys.get(fk.as_str()))
             .unwrap();
-        let (search_op, op_negation) = match self
+        let search_txt = self.widgets.search_entry.text().to_string();
+        if let Some((search_op, op_negation)) = match self
             .widgets
             .search_op_combo
             .active_text()
             .as_ref()
             .map(|k| k.as_str())
         {
-            Some("contains") => (SearchOperator::Contains, OperatorNegation::NotNegated),
-            Some("doesntContain") => (SearchOperator::Contains, OperatorNegation::Negated),
+            Some("contains") => Some((
+                SearchCriteria::Contains(search_txt),
+                OperatorNegation::NotNegated,
+            )),
+            Some("doesntContain") => Some((
+                SearchCriteria::Contains(search_txt),
+                OperatorNegation::Negated,
+            )),
+            Some(">") => Self::try_parse_filter_val_number(&search_txt)
+                .map(|sc| (sc, OperatorNegation::NotNegated)),
+            Some("<") => Self::try_parse_filter_val_number(&search_txt)
+                .map(|sc| (sc, OperatorNegation::Negated)),
             x => panic!("unhandled search_op: {:?}", x),
-        };
-        let search_txt = self.widgets.search_entry.text().to_string();
-        self.model.relm.stream().emit(Msg::Add((
-            combine_operator,
-            filter_key,
-            search_op,
-            op_negation,
-            search_txt,
-        )));
+        } {
+            self.model.relm.stream().emit(Msg::Add((
+                combine_operator,
+                filter_key,
+                search_op,
+                op_negation,
+            )));
+        }
+    }
+
+    fn try_parse_filter_val_number(val: &str) -> Option<SearchCriteria> {
+        match search_expr::parse_filter_val_number(val) {
+            Ok(("", (n, d))) => Some(SearchCriteria::GreaterThan(n, d)),
+            _ => None,
+        }
     }
 
     view! {
@@ -180,6 +255,7 @@ impl Widget for SearchOptions {
                         left_attach: 1,
                         top_attach: 0,
                     },
+                    changed => Msg::FilterKeyChanged,
                 },
                 #[name="search_op_combo"]
                 gtk::ComboBoxText {
@@ -196,6 +272,7 @@ impl Widget for SearchOptions {
                     },
                     key_press_event(_, event) => (Msg::SearchEntryKeyPress(event.clone()), Inhibit(false)),
                     activates_default: true,
+                    changed(entry) => Msg::SearchTextChanged,
                 },
                 gtk::ButtonBox {
                     cell: {
@@ -204,6 +281,7 @@ impl Widget for SearchOptions {
                         width: 2,
                     },
                     layout_style: gtk::ButtonBoxStyle::Expand,
+                    #[name="add_btn"]
                     gtk::Button {
                         label: "Add",
                         clicked => Msg::AddClick,

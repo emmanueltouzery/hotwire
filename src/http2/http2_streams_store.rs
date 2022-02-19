@@ -315,8 +315,12 @@ impl CustomStreamsStore for Http2StreamsStore {
         self.component = Some(component);
     }
 
-    fn supported_filter_keys(&self) -> &'static [&'static str] {
-        http_streams_store::HttpFilterKeys::VARIANTS
+    fn supported_string_filter_keys(&self) -> &'static [&'static str] {
+        http_streams_store::HttpStringFilterKeys::VARIANTS
+    }
+
+    fn supported_numeric_filter_keys(&self) -> &'static [&'static str] {
+        http_streams_store::HttpNumericFilterKeys::VARIANTS
     }
 
     fn matches_filter(

@@ -6,6 +6,7 @@ use crate::custom_streams_store::{ClientServerInfo, CustomStreamsStore};
 use crate::http::tshark_http::HttpType;
 use crate::icons::Icon;
 use crate::search_expr;
+use crate::search_expr::SearchCriteria;
 use crate::tshark_communication::{NetworkPort, TSharkPacket, TcpSeqNumber, TcpStreamId};
 use crate::widgets::win;
 use crate::BgFunc;
@@ -143,8 +144,24 @@ impl HttpStreamGlobals {
     }
 }
 
-#[derive(EnumString, EnumVariantNames)]
-pub enum HttpFilterKeys {
+#[derive(EnumString, EnumVariantNames, Debug)]
+pub enum HttpNumericFilterKeys {
+    #[strum(serialize = "http.req_body_bytes")]
+    ReqBodyBytes,
+    #[strum(serialize = "http.req_body_kilobytes")]
+    ReqBodyKilobytes,
+    #[strum(serialize = "http.req_body_megabytes")]
+    ReqBodyMegabytes,
+    #[strum(serialize = "http.resp_body_bytes")]
+    RespBodyBytes,
+    #[strum(serialize = "http.resp_body_kilobytes")]
+    RespBodyKilobytes,
+    #[strum(serialize = "http.resp_body_megabytes")]
+    RespBodyMegabytes,
+}
+
+#[derive(EnumString, EnumVariantNames, Debug)]
+pub enum HttpStringFilterKeys {
     #[strum(serialize = "http.req_line")]
     ReqLine,
     #[strum(serialize = "http.resp_status")]
@@ -372,8 +389,12 @@ impl CustomStreamsStore for HttpStreamsStore {
         http_end_populate_treeview(tv, ls);
     }
 
-    fn supported_filter_keys(&self) -> &'static [&'static str] {
-        HttpFilterKeys::VARIANTS
+    fn supported_string_filter_keys(&self) -> &'static [&'static str] {
+        HttpStringFilterKeys::VARIANTS
+    }
+
+    fn supported_numeric_filter_keys(&self) -> &'static [&'static str] {
+        HttpNumericFilterKeys::VARIANTS
     }
 
     fn matches_filter(
@@ -445,99 +466,182 @@ pub fn http_matches_filter(
     model: &gtk::TreeModel,
     iter: &gtk::TreeIter,
 ) -> bool {
-    let filter_val = &filter.filter_val.to_lowercase();
-    if let Ok(filter_key) = HttpFilterKeys::from_str(filter.filter_key) {
-        match filter_key {
-            HttpFilterKeys::ReqLine => {
-                model
-                    .value(iter, 0) // req info
-                    .get::<&str>()
-                    .unwrap()
-                    .to_lowercase()
-                    .contains(filter_val)
-            }
-            HttpFilterKeys::RespStatus => {
-                model
-                    .value(iter, 1) // resp info
-                    .get::<&str>()
-                    .unwrap()
-                    .to_lowercase()
-                    .contains(filter_val)
-            }
-            HttpFilterKeys::ReqContentType => {
-                model
-                    .value(iter, 8) // req content type
-                    .get::<&str>()
-                    .unwrap_or("")
-                    .to_lowercase()
-                    .contains(filter_val)
-            }
-            HttpFilterKeys::RespContentType => {
-                model
-                    .value(iter, 9) // resp content type
-                    .get::<&str>()
-                    .unwrap_or("")
-                    .to_lowercase()
-                    .contains(filter_val)
-            }
-            HttpFilterKeys::ReqHeader => {
-                get_http_message(streams, model, iter).map_or(false, |http_msg| {
-                    http_msg
-                        .request
-                        .as_ref()
-                        .filter(|r| {
-                            r.headers.iter().any(|(k, v)| {
-                                k.to_lowercase().contains(filter_val)
-                                    || v.to_lowercase().contains(filter_val)
+    match (
+        HttpStringFilterKeys::from_str(filter.filter_key),
+        HttpNumericFilterKeys::from_str(filter.filter_key),
+        &filter.op,
+    ) {
+        (Ok(filter_key), _, SearchCriteria::Contains(filter_val_orig)) => {
+            let filter_val = &filter_val_orig.to_lowercase();
+            match filter_key {
+                HttpStringFilterKeys::ReqLine => {
+                    model
+                        .value(iter, 0) // req info
+                        .get::<&str>()
+                        .unwrap()
+                        .to_lowercase()
+                        .contains(filter_val)
+                }
+                HttpStringFilterKeys::RespStatus => {
+                    model
+                        .value(iter, 1) // resp info
+                        .get::<&str>()
+                        .unwrap()
+                        .to_lowercase()
+                        .contains(filter_val)
+                }
+                HttpStringFilterKeys::ReqContentType => {
+                    model
+                        .value(iter, 8) // req content type
+                        .get::<&str>()
+                        .unwrap_or("")
+                        .to_lowercase()
+                        .contains(filter_val)
+                }
+                HttpStringFilterKeys::RespContentType => {
+                    model
+                        .value(iter, 9) // resp content type
+                        .get::<&str>()
+                        .unwrap_or("")
+                        .to_lowercase()
+                        .contains(filter_val)
+                }
+                HttpStringFilterKeys::ReqHeader => {
+                    get_http_message(streams, model, iter).map_or(false, |http_msg| {
+                        http_msg
+                            .request
+                            .as_ref()
+                            .filter(|r| {
+                                r.headers.iter().any(|(k, v)| {
+                                    k.to_lowercase().contains(filter_val)
+                                        || v.to_lowercase().contains(filter_val)
+                                })
                             })
-                        })
-                        .is_some()
-                })
-            }
-            HttpFilterKeys::RespHeader => {
-                get_http_message(streams, model, iter).map_or(false, |http_msg| {
-                    http_msg
-                        .response
-                        .as_ref()
-                        .filter(|r| {
-                            r.headers.iter().any(|(k, v)| {
-                                k.to_lowercase().contains(filter_val)
-                                    || v.to_lowercase().contains(filter_val)
+                            .is_some()
+                    })
+                }
+                HttpStringFilterKeys::RespHeader => {
+                    get_http_message(streams, model, iter).map_or(false, |http_msg| {
+                        http_msg
+                            .response
+                            .as_ref()
+                            .filter(|r| {
+                                r.headers.iter().any(|(k, v)| {
+                                    k.to_lowercase().contains(filter_val)
+                                        || v.to_lowercase().contains(filter_val)
+                                })
                             })
-                        })
-                        .is_some()
-                })
-            }
-            HttpFilterKeys::ReqBody => {
-                get_http_message(streams, model, iter).map_or(false, |http_msg| {
-                    http_msg
-                        .request
-                        .as_ref()
-                        .filter(|r| {
-                            r.body_as_str()
-                                .filter(|b| b.to_lowercase().contains(filter_val))
-                                .is_some()
-                        })
-                        .is_some()
-                })
-            }
-            HttpFilterKeys::RespBody => {
-                get_http_message(streams, model, iter).map_or(false, |http_msg| {
-                    http_msg
-                        .response
-                        .as_ref()
-                        .filter(|r| {
-                            r.body_as_str()
-                                .filter(|b| b.to_lowercase().contains(filter_val))
-                                .is_some()
-                        })
-                        .is_some()
-                })
+                            .is_some()
+                    })
+                }
+                HttpStringFilterKeys::ReqBody => {
+                    get_http_message(streams, model, iter).map_or(false, |http_msg| {
+                        http_msg
+                            .request
+                            .as_ref()
+                            .filter(|r| {
+                                r.body_as_str()
+                                    .filter(|b| b.to_lowercase().contains(filter_val))
+                                    .is_some()
+                            })
+                            .is_some()
+                    })
+                }
+                HttpStringFilterKeys::RespBody => {
+                    get_http_message(streams, model, iter).map_or(false, |http_msg| {
+                        http_msg
+                            .response
+                            .as_ref()
+                            .filter(|r| {
+                                r.body_as_str()
+                                    .filter(|b| b.to_lowercase().contains(filter_val))
+                                    .is_some()
+                            })
+                            .is_some()
+                    })
+                }
             }
         }
-    } else {
-        true
+        (_, Ok(filter_key), SearchCriteria::GreaterThan(filter_val, decimals)) => {
+            match filter_key {
+                HttpNumericFilterKeys::ReqBodyBytes => body_size_matches(
+                    streams,
+                    model,
+                    iter,
+                    |m| m.request.as_ref(),
+                    *filter_val,
+                    *decimals,
+                    1,
+                ),
+                HttpNumericFilterKeys::ReqBodyKilobytes => body_size_matches(
+                    streams,
+                    model,
+                    iter,
+                    |m| m.request.as_ref(),
+                    *filter_val,
+                    *decimals,
+                    1024,
+                ),
+                HttpNumericFilterKeys::ReqBodyMegabytes => body_size_matches(
+                    streams,
+                    model,
+                    iter,
+                    |m| m.request.as_ref(),
+                    *filter_val,
+                    *decimals,
+                    1024 * 1024,
+                ),
+                HttpNumericFilterKeys::RespBodyBytes => body_size_matches(
+                    streams,
+                    model,
+                    iter,
+                    |m| m.response.as_ref(),
+                    *filter_val,
+                    *decimals,
+                    1,
+                ),
+                HttpNumericFilterKeys::RespBodyKilobytes => body_size_matches(
+                    streams,
+                    model,
+                    iter,
+                    |m| m.response.as_ref(),
+                    *filter_val,
+                    *decimals,
+                    1024,
+                ),
+                HttpNumericFilterKeys::RespBodyMegabytes => body_size_matches(
+                    streams,
+                    model,
+                    iter,
+                    |m| m.response.as_ref(),
+                    *filter_val,
+                    *decimals,
+                    1024 * 1024,
+                ),
+            }
+        }
+        _ => true,
     }
+}
+
+fn body_size_matches<F>(
+    streams: &HashMap<TcpStreamId, &Vec<HttpMessageData>>,
+    model: &gtk::TreeModel,
+    iter: &gtk::TreeIter,
+    get_req_resp: F,
+    filter_val: usize,
+    decimals: u8,
+    multiplier: i32,
+) -> bool
+where
+    F: Fn(&HttpMessageData) -> Option<&HttpRequestResponseData>,
+{
+    let filter_bytes_count = filter_val * (multiplier as usize) / 10_usize.pow(decimals.into());
+    get_http_message(streams, model, iter).map_or(false, |http_msg| {
+        get_req_resp(http_msg)
+            .filter(|r| r.body.len() > filter_bytes_count)
+            .is_some()
+    })
 }
 
 pub fn http_requests_details_overlay() -> bool {
@@ -756,6 +860,16 @@ pub enum HttpBody {
     Text(String),
     Binary(Vec<u8>),
     Missing,
+}
+
+impl HttpBody {
+    fn len(&self) -> usize {
+        match &self {
+            HttpBody::Text(s) => s.len(),
+            HttpBody::Binary(v) => v.len(),
+            HttpBody::Missing => 0,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

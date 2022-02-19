@@ -79,11 +79,18 @@ impl Streams {
             .find_map(|s| s.stream_client_server(stream_id))
     }
 
-    pub fn supported_filter_keys(&self, store_index: usize) -> &'static [&'static str] {
+    pub fn supported_string_filter_keys(&self, store_index: usize) -> &'static [&'static str] {
         self.streams
             .get(store_index)
             .unwrap()
-            .supported_filter_keys()
+            .supported_string_filter_keys()
+    }
+
+    pub fn supported_numeric_filter_keys(&self, store_index: usize) -> &'static [&'static str] {
+        self.streams
+            .get(store_index)
+            .unwrap()
+            .supported_numeric_filter_keys()
     }
 
     pub fn finish_stream(&mut self, stream_id: TcpStreamId) -> Result<(), String> {

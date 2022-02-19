@@ -622,14 +622,22 @@ impl Widget for Win {
         if let Some(card) = self.model.selected_card.as_ref() {
             self.streams
                 .headerbar_search
-                .emit(HeaderbarSearchMsg::SearchFilterKeysChanged(
-                    self.model
+                .emit(HeaderbarSearchMsg::SearchFilterKeysChanged {
+                    string_keys: self
+                        .model
                         .streams
-                        .supported_filter_keys(card.store_index)
+                        .supported_string_filter_keys(card.store_index)
                         .iter()
                         .cloned()
                         .collect(),
-                ));
+                    numeric_keys: self
+                        .model
+                        .streams
+                        .supported_numeric_filter_keys(card.store_index)
+                        .iter()
+                        .cloned()
+                        .collect(),
+                });
         }
         let ips_treeview_state = self.model.ips_and_streams_treeview_state.as_mut().unwrap();
         ips_and_streams_treeview::init_remote_ips_streams_tree(ips_treeview_state);

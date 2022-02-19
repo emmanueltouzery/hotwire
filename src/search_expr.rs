@@ -8,21 +8,48 @@ use nom::multi::*;
 use nom::sequence::*;
 use nom::AsChar;
 use nom::Err;
+use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::fmt;
 
 #[derive(PartialEq, Eq, Clone)]
 pub struct SearchOpExpr {
     pub filter_key: &'static str,
-    pub op: SearchOperator,
+    pub op: SearchCriteria,
     pub op_negation: OperatorNegation,
-    pub filter_val: String,
 }
 
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]
 pub enum OperatorNegation {
     Negated,
     NotNegated,
+}
+
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub enum SearchCriteria {
+    Contains(String),
+    // number + number of decimal places
+    GreaterThan(usize, u8),
+}
+
+impl SearchCriteria {
+    pub fn display_val(&self) -> Cow<str> {
+        match &self {
+            SearchCriteria::Contains(s) => Cow::Borrowed(s),
+            SearchCriteria::GreaterThan(val, dec) => {
+                let val_str = val.to_string();
+                if *dec != 0 {
+                    Cow::Owned(format!(
+                        "{}.{}",
+                        &val_str[0..(val_str.len() - *dec as usize)],
+                        &val_str[(val_str.len() - *dec as usize)..]
+                    ))
+                } else {
+                    Cow::Owned(val_str)
+                }
+            }
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, Clone)]
@@ -56,11 +83,9 @@ fn print_node(f: &mut fmt::Formatter<'_>, depth: i32, node: &SearchExpr) -> Resu
             filter_key,
             op,
             op_negation,
-            filter_val,
         }) => {
             print_parent(f, depth, &format!("{:?} {:?}", op, op_negation))?;
             print_parent(f, depth + 1, filter_key)?;
-            print_parent(f, depth + 1, filter_val)?;
         }
     }
     Ok(())
@@ -73,24 +98,20 @@ impl fmt::Debug for SearchExpr {
     }
 }
 
-#[derive(PartialEq, Eq, Debug, Copy, Clone)]
-pub enum SearchOperator {
-    Contains,
-}
-
 pub fn parse_search<'a>(
-    known_filter_keys: &'a BTreeSet<&'static str>,
+    known_string_filter_keys: &'a BTreeSet<&'static str>,
+    known_numeric_filter_keys: &'a BTreeSet<&'static str>,
 ) -> impl 'a + Fn(&'a str) -> nom::IResult<&'a str, SearchExpr> {
     move |input: &'a str| {
         alt((
-            parse_search_and(known_filter_keys),
-            parse_search_or(known_filter_keys),
+            parse_search_and(known_string_filter_keys, known_numeric_filter_keys),
+            parse_search_or(known_string_filter_keys, known_numeric_filter_keys),
             delimited(
                 with_spaces_ba(tag("(")),
-                parse_search(known_filter_keys),
+                parse_search(known_string_filter_keys, known_numeric_filter_keys),
                 with_spaces_b(tag(")")),
             ),
-            parse_search_expr(known_filter_keys),
+            parse_search_expr(known_string_filter_keys, known_numeric_filter_keys),
         ))(input)
     }
 }
@@ -121,14 +142,15 @@ where
 }
 
 fn parse_search_and<'a>(
-    known_filter_keys: &'a BTreeSet<&'static str>,
+    known_string_filter_keys: &'a BTreeSet<&'static str>,
+    known_numeric_filter_keys: &'a BTreeSet<&'static str>,
 ) -> impl 'a + FnMut(&'a str) -> nom::IResult<&'a str, SearchExpr> {
     move |input: &str| {
         let (input, se) = alt((
-            parse_search_expr(known_filter_keys),
+            parse_search_expr(known_string_filter_keys, known_numeric_filter_keys),
             delimited(
                 with_spaces_ba(tag("(")),
-                parse_search(known_filter_keys),
+                parse_search(known_string_filter_keys, known_numeric_filter_keys),
                 with_spaces_b(tag(")")),
             ),
         ))(input)?;
@@ -137,7 +159,8 @@ fn parse_search_and<'a>(
         let (input, _) = space1(input)?;
         let next_is_bracketed =
             peek::<_, _, nom::error::Error<&str>, _>(with_spaces_ba(tag("(")))(input).is_ok();
-        let (input, se2) = parse_search(known_filter_keys)(input)?;
+        let (input, se2) =
+            parse_search(known_string_filter_keys, known_numeric_filter_keys)(input)?;
         match se2 {
             // we want AND to bind tighter than OR
             // so not...
@@ -156,60 +179,144 @@ fn parse_search_and<'a>(
 }
 
 fn parse_search_or<'a>(
-    known_filter_keys: &'a BTreeSet<&'static str>,
+    known_string_filter_keys: &'a BTreeSet<&'static str>,
+    known_numeric_filter_keys: &'a BTreeSet<&'static str>,
 ) -> impl 'a + Fn(&'a str) -> nom::IResult<&'a str, SearchExpr> {
     move |input: &str| {
         let (input, se) = alt((
-            parse_search_expr(known_filter_keys),
+            parse_search_expr(known_string_filter_keys, known_numeric_filter_keys),
             delimited(
                 with_spaces_ba(tag("(")),
-                parse_search(known_filter_keys),
+                parse_search(known_string_filter_keys, known_numeric_filter_keys),
                 with_spaces_b(tag(")")),
             ),
         ))(input)?;
         let (input, _) = space1(input)?;
         let (input, _) = tag("or")(input)?;
         let (input, _) = space1(input)?;
-        let (input, se2) = parse_search(known_filter_keys)(input)?;
+        let (input, se2) =
+            parse_search(known_string_filter_keys, known_numeric_filter_keys)(input)?;
         Ok((input, SearchExpr::Or(Box::new(se), Box::new(se2))))
     }
 }
 
-// TODO allow negation (not X contains Y)
 fn parse_search_expr<'a>(
+    known_string_filter_keys: &'a BTreeSet<&'static str>,
+    known_numeric_filter_keys: &'a BTreeSet<&'static str>,
+) -> impl 'a + Fn(&str) -> nom::IResult<&str, SearchExpr> {
+    move |input: &str| {
+        alt((
+            parse_search_expr_type(known_string_filter_keys, parse_filter_op_string),
+            parse_search_expr_type(known_numeric_filter_keys, parse_filter_op_number),
+        ))(input)
+    }
+}
+
+fn parse_search_expr_type<'a>(
     known_filter_keys: &'a BTreeSet<&'static str>,
+    value_parser: impl Fn(&str) -> nom::IResult<&str, (SearchCriteria, OperatorNegation)> + 'a,
 ) -> impl 'a + Fn(&str) -> nom::IResult<&str, SearchExpr> {
     move |input: &str| {
         let (input, filter_key) = parse_filter_key(known_filter_keys.clone())(input)?;
         let (input, _) = space1(input)?;
-        let (input, (op, op_negation)) = parse_filter_op(input)?;
-        let (input, _) = space1(input)?;
-        let (input, filter_val) = parse_filter_val(input)?;
+        let (input, (op, op_negation)) = value_parser(input)?;
         Ok((
             input,
             SearchExpr::SearchOpExpr(SearchOpExpr {
                 filter_key,
                 op,
                 op_negation,
-                filter_val,
             }),
         ))
     }
 }
 
-fn parse_filter_val(input: &str) -> nom::IResult<&str, String> {
+fn parse_number_decimals(input: &str) -> nom::IResult<&str, &str> {
+    let (input, _) = tag(".")(input)?;
+    digit1(input)
+}
+
+pub fn parse_filter_val_number(input: &str) -> nom::IResult<&str, (usize, u8)> {
+    let (input, digits) = digit1(input)?;
+    let (input, decimal_number) = opt(parse_number_decimals)(input)?;
+    match decimal_number.map(|s| s.len()).unwrap_or(0).try_into() {
+        // sanity check on the number of decimals, because elsewhere
+        // we do 10^count_decimals..
+        Ok(count_decimals) if count_decimals < 6 => {
+            let whole_number = {
+                let mut d = digits.to_string();
+                d.push_str(decimal_number.unwrap_or(""));
+                d
+            };
+            let parsed_digits =
+                whole_number
+                    .parse::<usize>()
+                    .map(|v| (input, v))
+                    .map_err(|_| {
+                        Err::Error(Error::from_external_error(
+                            input,
+                            ErrorKind::Verify,
+                            "Error parsing number",
+                        ))
+                    })?;
+            Ok((input, (parsed_digits.1, count_decimals)))
+        }
+        _ => Err(Err::Error(Error::from_external_error(
+            input,
+            ErrorKind::Verify,
+            "Too large number of digits after the decimal point",
+        ))),
+    }
+}
+
+fn parse_filter_op_number(input: &str) -> nom::IResult<&str, (SearchCriteria, OperatorNegation)> {
+    // TODO duplicated with headerbar_search::update_search_completion
+    let (input, t) = alt((tag(">"), tag("<")))(input)?;
+    let (input, _) = space1(input)?;
+    let (input, (val, dec)) = parse_filter_val_number(input)?;
+    match t {
+        ">" => Ok((
+            input,
+            (
+                SearchCriteria::GreaterThan(val, dec),
+                OperatorNegation::NotNegated,
+            ),
+        )),
+        "<" => Ok((
+            input,
+            (
+                SearchCriteria::GreaterThan(val, dec),
+                OperatorNegation::Negated,
+            ),
+        )),
+        _ => panic!("unhandled: {}", t),
+    }
+}
+
+fn parse_filter_val_string(input: &str) -> nom::IResult<&str, String> {
     alt((parse_quoted_string, parse_word))(input)
 }
 
-fn parse_filter_op(input: &str) -> nom::IResult<&str, (SearchOperator, OperatorNegation)> {
+fn parse_filter_op_string(input: &str) -> nom::IResult<&str, (SearchCriteria, OperatorNegation)> {
     // TODO duplicated with headerbar_search::update_search_completion
     let (input, t) = alt((tag("doesntContain"), tag("contains")))(input)?;
+    let (input, _) = space1(input)?;
+    let (input, filter_val) = parse_filter_val_string(input)?;
     match t {
         "contains" => Ok((
             input,
-            (SearchOperator::Contains, OperatorNegation::NotNegated),
+            (
+                SearchCriteria::Contains(filter_val),
+                OperatorNegation::NotNegated,
+            ),
         )),
-        "doesntContain" => Ok((input, (SearchOperator::Contains, OperatorNegation::Negated))),
+        "doesntContain" => Ok((
+            input,
+            (
+                SearchCriteria::Contains(filter_val),
+                OperatorNegation::Negated,
+            ),
+        )),
         _ => panic!("unhandled: {}", t),
     }
 }
@@ -291,9 +398,10 @@ mod tests {
     fn should_reject_unknown_filter_key() {
         assert_eq!(
             true,
-            parse_search(&["detail.contents"].iter().cloned().collect())(
-                "grid.cells contains test"
-            )
+            parse_search(
+                &["detail.contents"].iter().cloned().collect(),
+                &BTreeSet::new()
+            )("grid.cells contains test")
             .is_err()
         );
     }
@@ -307,22 +415,19 @@ mod tests {
                     Box::new(SearchExpr::And(
                         Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                             filter_key: "grid.cells",
-                            op: SearchOperator::Contains,
+                            op: SearchCriteria::Contains("test".to_string()),
                             op_negation: OperatorNegation::NotNegated,
-                            filter_val: "test".to_string(),
                         })),
                         Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                             filter_key: "detail.contents",
-                            op: SearchOperator::Contains,
+                            op: SearchCriteria::Contains("details val".to_string()),
                             op_negation: OperatorNegation::NotNegated,
-                            filter_val: "details val".to_string(),
                         })),
                     )),
                     Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                         filter_key: "detail.contents",
-                        op: SearchOperator::Contains,
+                        op: SearchCriteria::Contains("val2".to_string()),
                             op_negation: OperatorNegation::NotNegated,
-                        filter_val: "val2".to_string(),
                     })),
                 ))
             ),
@@ -330,7 +435,8 @@ mod tests {
                 &["grid.cells", "detail.contents", "other"]
                     .iter()
                     .cloned()
-                    .collect()
+                    .collect(),
+                    &BTreeSet::new(),
             )("grid.cells contains test and detail.contents contains \"details val\" or detail.contents contains val2")
             .unwrap()
         );
@@ -344,22 +450,19 @@ mod tests {
                 (SearchExpr::And(
                     Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                         filter_key: "grid.cells",
-                        op: SearchOperator::Contains,
+                        op: SearchCriteria::Contains("test".to_string()),
                             op_negation: OperatorNegation::NotNegated,
-                        filter_val: "test".to_string(),
                     })),
                     Box::new(SearchExpr::Or(
                         Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                             filter_key: "detail.contents",
-                            op: SearchOperator::Contains,
+                            op: SearchCriteria::Contains("details val".to_string()),
                             op_negation: OperatorNegation::NotNegated,
-                            filter_val: "details val".to_string(),
                         })),
                         Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                             filter_key: "detail.contents",
-                            op: SearchOperator::Contains,
+                            op: SearchCriteria::Contains("val2".to_string()),
                             op_negation: OperatorNegation::Negated,
-                            filter_val: "val2".to_string(),
                         })),
                     ))
                 ))
@@ -368,7 +471,8 @@ mod tests {
                 &["grid.cells", "detail.contents", "other"]
                     .iter()
                     .cloned()
-                    .collect()
+                    .collect(),
+                    &BTreeSet::new(),
             )(
                 "grid.cells contains test and (detail.contents contains \"details val\" or detail.contents doesntContain val2)"
             )
@@ -384,22 +488,19 @@ mod tests {
                     Box::new(SearchExpr::And(
                         Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                             filter_key: "grid.cells",
-                            op: SearchOperator::Contains,
+                            op: SearchCriteria::Contains("test".to_string()),
                             op_negation: OperatorNegation::NotNegated,
-                            filter_val: "test".to_string(),
                         })),
                         Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                             filter_key: "detail.contents",
-                            op: SearchOperator::Contains,
+                            op: SearchCriteria::Contains("details val".to_string()),
                             op_negation: OperatorNegation::NotNegated,
-                            filter_val: "details val".to_string(),
                         })),
                     )),
                     Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                         filter_key: "detail.contents",
-                        op: SearchOperator::Contains,
-                            op_negation: OperatorNegation::NotNegated,
-                        filter_val: "val2".to_string(),
+                        op: SearchCriteria::Contains("val2".to_string()),
+                        op_negation: OperatorNegation::NotNegated,
                     })),
                 ))
             ),
@@ -407,7 +508,8 @@ mod tests {
                 &["grid.cells", "detail.contents", "other"]
                     .iter()
                     .cloned()
-                    .collect()
+                    .collect(),
+                    &BTreeSet::new(),
             )("(grid.cells contains test and detail.contents contains \"details val\") or detail.contents contains val2")
             .unwrap()
         );
@@ -422,37 +524,53 @@ mod tests {
                     Box::new(SearchExpr::And(
                         Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                             filter_key: "grid.cells",
-                            op: SearchOperator::Contains,
+                            op: SearchCriteria::Contains("test".to_string()),
                             op_negation: OperatorNegation::NotNegated,
-                            filter_val: "test".to_string(),
                         })),
                         Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                             filter_key: "detail.contents",
-                            op: SearchOperator::Contains,
+                            op: SearchCriteria::Contains("details val".to_string()),
                             op_negation: OperatorNegation::NotNegated,
-                            filter_val: "details val".to_string(),
                         })),
                     )),
                     Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                         filter_key: "detail.contents",
-                        op: SearchOperator::Contains,
+                        op: SearchCriteria::Contains("val2".to_string()),
                         op_negation: OperatorNegation::NotNegated,
-                        filter_val: "val2".to_string(),
                     })),
                 )),
                  Box::new(SearchExpr::SearchOpExpr(SearchOpExpr {
                      filter_key: "grid.cells",
-                     op: SearchOperator::Contains,
+                     op: SearchCriteria::Contains("val3".to_string()),
                      op_negation: OperatorNegation::NotNegated,
-                     filter_val: "val3".to_string(),
                  }))
             ))),
             parse_search(
                 &["grid.cells", "detail.contents", "other"]
                     .iter()
                     .cloned()
-                    .collect()
+                    .collect(),
+                    &BTreeSet::new()
             )("(grid.cells contains test and detail.contents contains \"details val\") and detail.contents contains val2 or grid.cells contains val3")
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn parse_numeric_search_expression() {
+        assert_eq!(
+            (
+                "",
+                SearchExpr::SearchOpExpr(SearchOpExpr {
+                    filter_key: "http.req_size_bytes",
+                    op: SearchCriteria::GreaterThan(10456, 2),
+                    op_negation: OperatorNegation::Negated,
+                })
+            ),
+            parse_search(
+                &BTreeSet::new(),
+                &["http.req_size_bytes"].iter().cloned().collect()
+            )("http.req_size_bytes < 104.56")
             .unwrap()
         );
     }

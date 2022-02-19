@@ -103,7 +103,8 @@ pub trait CustomStreamsStore {
     );
 
     // search
-    fn supported_filter_keys(&self) -> &'static [&'static str];
+    fn supported_string_filter_keys(&self) -> &'static [&'static str];
+    fn supported_numeric_filter_keys(&self) -> &'static [&'static str];
     fn matches_filter(
         &self,
         filter: &search_expr::SearchOpExpr,

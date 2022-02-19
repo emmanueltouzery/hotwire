@@ -28,7 +28,10 @@ pub enum Msg {
     MainWinSelectCard(usize),
     SearchTextChanged(String),
     SearchExprChanged(Option<Result<(String, search_expr::SearchExpr), String>>),
-    SearchFilterKeysChanged(BTreeSet<&'static str>),
+    SearchFilterKeysChanged {
+        string_keys: BTreeSet<&'static str>,
+        numeric_keys: BTreeSet<&'static str>,
+    },
     ClearSearchTextClick,
     DisplayNoSearchError,
     DisplayWithSearchErrors,
@@ -37,9 +40,8 @@ pub enum Msg {
         (
             Option<search_options::CombineOperator>,
             &'static str,
-            search_expr::SearchOperator,
+            search_expr::SearchCriteria,
             search_expr::OperatorNegation,
-            String,
         ),
     ),
     RequestOptionsClose,
@@ -55,7 +57,8 @@ pub struct Model {
     // store the filter keys in a BTreeSet so that they'll be sorted
     // alphabetically when displaying in the GUI. An in a set because we
     // need to test for 'contains' a couple of times
-    known_filter_keys: BTreeSet<&'static str>,
+    known_string_filter_keys: BTreeSet<&'static str>,
+    known_numeric_filter_keys: BTreeSet<&'static str>,
     current_card_idx: Option<usize>,
     search_text_by_card: BTreeMap<usize, String>,
     search_completion: gtk::EntryCompletion,
@@ -77,8 +80,7 @@ impl Widget for HeaderbarSearch {
         });
         self.widgets.search_entry.set_completion(Some(completion));
 
-        let so = relm::init::<SearchOptions>(self.model.known_filter_keys.clone())
-            .expect("Error initializing the search options");
+        let so = relm::init::<SearchOptions>(()).expect("Error initializing the search options");
         relm::connect!(so@SearchOptionsMsg::Add(ref vals), self.model.relm, Msg::SearchAddVals(vals.clone()));
         relm::connect!(so@SearchOptionsMsg::AddAndCloseClick, self.model.relm, Msg::RequestOptionsClose);
         relm::connect!(so@SearchOptionsMsg::ClearSearchTextClick, self.model.relm, Msg::ClearSearchTextClick);
@@ -173,7 +175,8 @@ impl Widget for HeaderbarSearch {
             relm: relm.clone(),
             bg_sender,
             search_options: None,
-            known_filter_keys: BTreeSet::new(),
+            known_string_filter_keys: BTreeSet::new(),
+            known_numeric_filter_keys: BTreeSet::new(),
             current_card_idx: None,
             search_text_by_card: BTreeMap::new(),
             search_completion,
@@ -184,13 +187,20 @@ impl Widget for HeaderbarSearch {
 
     fn update(&mut self, event: Msg) {
         match event {
-            Msg::SearchFilterKeysChanged(hash) => {
+            Msg::SearchFilterKeysChanged {
+                string_keys,
+                numeric_keys,
+            } => {
                 if let Some(so) = self.model.search_options.as_ref() {
-                    so.stream()
-                        .emit(search_options::Msg::FilterKeysUpdated(hash.clone()));
+                    so.stream().emit(search_options::Msg::FilterKeysUpdated {
+                        string_keys: string_keys.clone(),
+                        numeric_keys: numeric_keys.clone(),
+                    });
                 }
-                self.update_search_completion(&hash);
-                self.model.known_filter_keys = hash;
+                let all_filter_keys = string_keys.union(&numeric_keys).cloned().collect();
+                self.update_search_completion(&all_filter_keys);
+                self.model.known_string_filter_keys = string_keys;
+                self.model.known_numeric_filter_keys = numeric_keys;
             }
             Msg::SearchActiveChanged(is_active) => {
                 if is_active {
@@ -216,9 +226,12 @@ impl Widget for HeaderbarSearch {
                     None
                 } else {
                     Some(
-                        search_expr::parse_search(&self.model.known_filter_keys)(&text)
-                            .map(|(rest, expr)| (rest.to_string(), expr))
-                            .map_err(|e| e.to_string()),
+                        search_expr::parse_search(
+                            &self.model.known_string_filter_keys,
+                            &self.model.known_numeric_filter_keys,
+                        )(&text)
+                        .map(|(rest, expr)| (rest.to_string(), expr))
+                        .map_err(|e| e.to_string()),
                     )
                 };
                 if !self.model.recent_searches.contains(&text) {
@@ -265,7 +278,7 @@ impl Widget for HeaderbarSearch {
                     .search_entry
                     .set_primary_icon_tooltip_text(Some("Invalid search expression"));
             }
-            Msg::SearchAddVals((combine_op, filter_key, search_op, op_negation, val)) => {
+            Msg::SearchAddVals((combine_op, filter_key, search_op, op_negation)) => {
                 let mut t = self.widgets.search_entry.text().to_string();
                 match combine_op {
                     Some(search_options::CombineOperator::And) => {
@@ -277,26 +290,33 @@ impl Widget for HeaderbarSearch {
                     None => {}
                 }
                 t.push_str(filter_key);
-                match (search_op, op_negation) {
+                match (&search_op, op_negation) {
                     (
-                        search_expr::SearchOperator::Contains,
+                        search_expr::SearchCriteria::Contains(val),
                         search_expr::OperatorNegation::NotNegated,
                     ) => {
                         t.push_str(" contains ");
+                        Self::format_search_val_str(&mut t, val);
                     }
                     (
-                        search_expr::SearchOperator::Contains,
+                        search_expr::SearchCriteria::Contains(val),
                         search_expr::OperatorNegation::Negated,
                     ) => {
                         t.push_str(" doesntContain ");
+                        Self::format_search_val_str(&mut t, val);
                     }
-                }
-                if val.contains(' ') || val.contains('"') {
-                    t.push('"');
-                    t.push_str(&val.replace('\\', "\\\\").replace('"', "\\\""));
-                    t.push('"');
-                } else {
-                    t.push_str(&val);
+                    (
+                        search_expr::SearchCriteria::GreaterThan(_val, _dec),
+                        search_expr::OperatorNegation::NotNegated,
+                    ) => {
+                        t.push_str(&format!(" > {}", search_op.display_val()));
+                    }
+                    (
+                        search_expr::SearchCriteria::GreaterThan(_val, _dec),
+                        search_expr::OperatorNegation::Negated,
+                    ) => {
+                        t.push_str(&format!(" < {}", search_op.display_val()));
+                    }
                 }
                 self.widgets.search_entry.set_text(&t);
             }
@@ -341,6 +361,16 @@ impl Widget for HeaderbarSearch {
                     }
                 }
             }
+        }
+    }
+
+    fn format_search_val_str(t: &mut String, val: &str) {
+        if val.contains(' ') || val.contains('"') {
+            t.push('"');
+            t.push_str(&val.replace('\\', "\\\\").replace('"', "\\\""));
+            t.push('"');
+        } else {
+            t.push_str(val);
         }
     }
 

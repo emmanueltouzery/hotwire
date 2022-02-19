@@ -6,6 +6,7 @@ use crate::custom_streams_store::{ClientServerInfo, CustomStreamsStore};
 use crate::icons::Icon;
 use crate::pgsql::tshark_pgsql::{PostgresColType, PostgresWireMessage};
 use crate::search_expr;
+use crate::search_expr::SearchCriteria;
 use crate::tshark_communication::{TSharkPacket, TcpStreamId};
 use crate::widgets::win;
 use crate::BgFunc;
@@ -509,8 +510,12 @@ impl CustomStreamsStore for PostgresStreamsStore {
         tv.set_model(Some(&model_sort));
     }
 
-    fn supported_filter_keys(&self) -> &'static [&'static str] {
+    fn supported_string_filter_keys(&self) -> &'static [&'static str] {
         PostgresFilterKeys::VARIANTS
+    }
+
+    fn supported_numeric_filter_keys(&self) -> &'static [&'static str] {
+        &[]
     }
 
     fn matches_filter(
@@ -520,16 +525,16 @@ impl CustomStreamsStore for PostgresStreamsStore {
         iter: &gtk::TreeIter,
     ) -> bool {
         let streams = &self.streams;
-        if let Ok(filter_key) = PostgresFilterKeys::from_str(filter.filter_key) {
-            match filter_key {
+        match (PostgresFilterKeys::from_str(filter.filter_key), &filter.op) {
+            (Ok(filter_key), SearchCriteria::Contains(filter_val)) => match filter_key {
                 PostgresFilterKeys::QueryString => model
                     .value(iter, 0)
                     .get::<&str>()
                     .unwrap()
                     .to_lowercase()
-                    .contains(&filter.filter_val.to_lowercase()),
+                    .contains(&filter_val.to_lowercase()),
                 PostgresFilterKeys::ResultSet => {
-                    let fv = filter.filter_val.to_lowercase();
+                    let fv = filter_val.to_lowercase();
                     get_pg_message(streams, model, iter).map_or(false, |pg_msg| {
                         pg_msg.resultset_string_cols.iter().any(|v| {
                             v.iter().any(|c| {
@@ -539,7 +544,7 @@ impl CustomStreamsStore for PostgresStreamsStore {
                     })
                 }
                 PostgresFilterKeys::QueryParamValue => {
-                    let fv = filter.filter_val.to_lowercase();
+                    let fv = filter_val.to_lowercase();
                     get_pg_message(streams, model, iter).map_or(false, |pg_msg| {
                         pg_msg
                             .parameter_values
@@ -547,9 +552,8 @@ impl CustomStreamsStore for PostgresStreamsStore {
                             .any(|(_type, v)| v.to_lowercase().contains(&fv))
                     })
                 }
-            }
-        } else {
-            true
+            },
+            _ => true,
         }
     }
 
