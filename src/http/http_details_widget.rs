@@ -286,6 +286,7 @@ impl Widget for HttpCommEntry {
                                             .unwrap_or(""),
                 xalign: 0.0,
                 selectable: true,
+                line_wrap: true,
             },
             #[name="basic_auth_info"]
             gtk::Box {
@@ -342,6 +343,7 @@ impl Widget for HttpCommEntry {
                                             .unwrap_or(""),
                 xalign: 0.0,
                 selectable: true,
+                line_wrap: true,
             },
             #[name="response_body"]
             HttpBodyWidget((self.model.win_msg_sender.clone(), self.model.bg_sender.clone())),
