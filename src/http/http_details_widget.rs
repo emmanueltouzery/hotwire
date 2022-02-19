@@ -275,6 +275,8 @@ impl Widget for HttpCommEntry {
                 label: self.model.data.request.as_ref().map(|r| r.first_line.as_str()).unwrap_or("Missing request info"),
                 xalign: 0.0,
                 selectable: true,
+                line_wrap: true,
+                wrap_mode: pango::WrapMode::Char,
             },
             gtk::Label {
                 label: self.model.data.request.as_ref()
@@ -329,6 +331,8 @@ impl Widget for HttpCommEntry {
                 label: self.model.data.response.as_ref().map(|r| r.first_line.as_str()).unwrap_or("Missing response info"),
                 xalign: 0.0,
                 selectable: true,
+                line_wrap: true,
+                wrap_mode: pango::WrapMode::Char,
             },
             gtk::Label {
                 label: self.model.data.response.as_ref()
