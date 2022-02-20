@@ -118,6 +118,9 @@ impl CustomStreamsStore for Http2StreamsStore {
             .entry(stream_id)
             .or_insert_with(Http2StreamData::default);
         let cur_msg = new_packet.basic_info;
+        if new_packet.http2.is_none() {
+            return Ok(None);
+        }
         let http2 = new_packet.http2.unwrap();
         for http2_msg in http2 {
             if http2_msg.is_end_stream {
