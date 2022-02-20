@@ -30,6 +30,17 @@ https://hughsie.github.io/oars/index.html
 -->
   <content_rating type="oars-1.0" />
   <releases>
+    <release version="0.2.3" date="2022-02-20">
+      <description>
+          <p>HTTP: display basic authentication credentials in a friendly manner</p>
+          <p>Display errors loading files even if we partially succeeded</p>
+          <p>Add support for HTTP 1.1 pipelining</p>
+          <p>Port to latest gtkrs/relm</p>
+          <p>HTTP: ability to filter based on request or response size</p>
+          <p>HTTP: fix very long URLs or headers causing an horizontal scrollbar in the display</p>
+          <p>HTTP: expanders for requests and responses</p>
+      </description>
+    </release>
     <release version="0.2.2" date="2022-02-05">
       <description>
           <p>Fix important regression in 0.2.1 for streams with more than 100 messages (messages would get duplicated many times over)</p>
