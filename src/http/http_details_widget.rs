@@ -270,83 +270,103 @@ impl Widget for HttpCommEntry {
             #[name="comm_info_header"]
             CommInfoHeader(self.model.client_ip.clone(), self.model.stream_id) {
             },
-            #[style_class="http_first_line"]
-            gtk::Label {
-                label: self.model.data.request.as_ref().map(|r| r.first_line.as_str()).unwrap_or("Missing request info"),
-                xalign: 0.0,
-                selectable: true,
-                line_wrap: true,
-                wrap_mode: pango::WrapMode::Char,
+            gtk::Expander {
+                expanded: true,
+                label: Some("Request"),
+                gtk::Box {
+                    orientation: gtk::Orientation::Vertical,
+                    margin_start: 10,
+                    margin_end: 10,
+                    spacing: 10,
+                    #[style_class="http_first_line"]
+                    gtk::Label {
+                        label: self.model.data.request.as_ref().map(|r| r.first_line.as_str()).unwrap_or("Missing request info"),
+                        xalign: 0.0,
+                        selectable: true,
+                        line_wrap: true,
+                        wrap_mode: pango::WrapMode::Char,
+                    },
+                    gtk::Label {
+                        label: self.model.data.request.as_ref()
+                                                    .map(|r| &r.headers[..])
+                                                    .map(Self::format_headers)
+                                                    .as_deref()
+                                                    .unwrap_or(""),
+                        xalign: 0.0,
+                        selectable: true,
+                        line_wrap: true,
+                    },
+                    #[name="basic_auth_info"]
+                    gtk::Box {
+                        spacing: 5,
+                        gtk::Image {
+                            icon_name: Some(Icon::LOCK.name()),
+                            icon_size: gtk::IconSize::SmallToolbar,
+                        },
+                        #[style_class="label"]
+                        gtk::Label {
+                            label: "HTTP Basic Authentication",
+                            halign: gtk::Align::End,
+                        },
+                        gtk::Label {
+                            label: self.model.basic_auth_username.as_deref().unwrap_or(""),
+                            selectable: true,
+                        },
+                        #[style_class="label"]
+                        gtk::Label {
+                            label: "/",
+                            halign: gtk::Align::End,
+                        },
+                        #[name="label_pass"]
+                        gtk::Label {
+                            label: "●●●●●",
+                            selectable: true,
+                        },
+                        #[name="display_password_toggle_btn"]
+                        gtk::ToggleButton {
+                            always_show_image: true,
+                            image: Some(&gtk::Image::from_icon_name(
+                                Some(Icon::EYE.name()), gtk::IconSize::Menu)),
+                            toggled => Msg::ToggleDisplayPassword,
+                            hexpand: true,
+                            halign: gtk::Align::End,
+                        },
+                    },
+                    #[name="request_body"]
+                    HttpBodyWidget((self.model.win_msg_sender.clone(), self.model.bg_sender.clone())),
+                }
             },
-            gtk::Label {
-                label: self.model.data.request.as_ref()
-                                            .map(|r| &r.headers[..])
-                                            .map(Self::format_headers)
-                                            .as_deref()
-                                            .unwrap_or(""),
-                xalign: 0.0,
-                selectable: true,
-                line_wrap: true,
-            },
-            #[name="basic_auth_info"]
-            gtk::Box {
-                spacing: 5,
-                gtk::Image {
-                    icon_name: Some(Icon::LOCK.name()),
-                    icon_size: gtk::IconSize::SmallToolbar,
-                },
-                #[style_class="label"]
-                gtk::Label {
-                    label: "HTTP Basic Authentication",
-                    halign: gtk::Align::End,
-                },
-                gtk::Label {
-                    label: self.model.basic_auth_username.as_deref().unwrap_or(""),
-                    selectable: true,
-                },
-                #[style_class="label"]
-                gtk::Label {
-                    label: "/",
-                    halign: gtk::Align::End,
-                },
-                #[name="label_pass"]
-                gtk::Label {
-                    label: "●●●●●",
-                    selectable: true,
-                },
-                #[name="display_password_toggle_btn"]
-                gtk::ToggleButton {
-                    always_show_image: true,
-                    image: Some(&gtk::Image::from_icon_name(
-                        Some(Icon::EYE.name()), gtk::IconSize::Menu)),
-                    toggled => Msg::ToggleDisplayPassword,
-                    hexpand: true,
-                    halign: gtk::Align::End,
-                },
-            },
-            #[name="request_body"]
-            HttpBodyWidget((self.model.win_msg_sender.clone(), self.model.bg_sender.clone())),
             gtk::Separator {},
-            #[style_class="http_first_line"]
-            gtk::Label {
-                label: self.model.data.response.as_ref().map(|r| r.first_line.as_str()).unwrap_or("Missing response info"),
-                xalign: 0.0,
-                selectable: true,
-                line_wrap: true,
-                wrap_mode: pango::WrapMode::Char,
-            },
-            gtk::Label {
-                label: self.model.data.response.as_ref()
-                                            .map(|r| &r.headers[..])
-                                            .map(Self::format_headers)
-                                            .as_deref()
-                                            .unwrap_or(""),
-                xalign: 0.0,
-                selectable: true,
-                line_wrap: true,
-            },
-            #[name="response_body"]
-            HttpBodyWidget((self.model.win_msg_sender.clone(), self.model.bg_sender.clone())),
+            gtk::Expander {
+                expanded: true,
+                label: Some("Response"),
+                gtk::Box {
+                    orientation: gtk::Orientation::Vertical,
+                    margin_start: 10,
+                    margin_end: 10,
+                    spacing: 10,
+                    #[style_class="http_first_line"]
+                    gtk::Label {
+                        label: self.model.data.response.as_ref().map(|r| r.first_line.as_str()).unwrap_or("Missing response info"),
+                        xalign: 0.0,
+                        selectable: true,
+                        line_wrap: true,
+                        wrap_mode: pango::WrapMode::Char,
+                    },
+                    gtk::Label {
+                        label: self.model.data.response.as_ref()
+                                                    .map(|r| &r.headers[..])
+                                                    .map(Self::format_headers)
+                                                    .as_deref()
+                                                    .unwrap_or(""),
+                        xalign: 0.0,
+                        selectable: true,
+                        line_wrap: true,
+                    },
+                    #[name="response_body"]
+                    HttpBodyWidget((self.model.win_msg_sender.clone(), self.model.bg_sender.clone())),
+                }
+            }
         }
     }
 }
