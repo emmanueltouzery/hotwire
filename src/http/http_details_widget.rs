@@ -134,7 +134,7 @@ impl Widget for HttpCommEntry {
             .iter();
         let auth_prefix = "Basic ";
         let auth_header = req_headers
-            .find(|(k, v)| k == "Authorization" && v.starts_with(auth_prefix))
+            .find(|(k, v)| k.to_ascii_lowercase() == "authorization" && v.starts_with(auth_prefix))
             .map(|(_k, v)| &v[(auth_prefix.len())..])
             .and_then(|s| base64::decode(s).ok())
             .and_then(|s| String::from_utf8(s).ok())
