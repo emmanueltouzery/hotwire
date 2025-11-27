@@ -84,4 +84,11 @@ https://hughsie.github.io/oars/index.html
   <developer_name>Emmanuel Touzery</developer_name>
   <update_contact>etouzery@gmail.com</update_contact>
   <launchable type="desktop-id">com.github.emmanueltouzery.hotwire.desktop</launchable>
+  <keywords>
+    <keyword>http protocol analyzer</keyword>
+    <keyword>tcpdump viewer</keyword>
+    <keyword>network sniffer app</keyword>
+    <keyword>wireshark alternative</keyword>
+    <keyword>packet capture software</keyword>
+  </keywords>
 </component>
